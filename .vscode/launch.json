@@ -1,0 +1,36 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "DQN Sugarl Debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "agent/dqn_atari_sugarl.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--seed", "0",
+                "--exp-name", "dqn_sugarl_debug",
+                "--fov-size", "20",
+                "--clip-reward",
+                "--capture-video",
+                "--total-timesteps", "100",
+                "--buffer-size", "100000",
+                "--learning-starts", "80000"
+            ]
+        },
+        {
+            "name": "Render Focus Debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "common/render_focus.py",
+            "console": "integratedTerminal",
+            "args": [
+                "recordings/boxing/dqn_atari_sugarl/boxing/boxing_seed0_step1000000_eval00_record.pt",
+                "test.mp4"
+            ]
+        }
+    ]
+}

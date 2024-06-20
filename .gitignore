@@ -13,3 +13,4 @@ trained_models/*
 *.egg-info
 
 ROMS
+*.mp4
