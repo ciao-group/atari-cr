@@ -10,10 +10,10 @@ dependencies:
     - pip
 
     # pytorch 
-    - pytorch==1.13.1 
+    # - pytorch==1.13.1 
     - torchvision 
     - torchaudio
-    - pytorch-cuda=11.6
+    - pytorch-cuda
 
     - pip:
         - requests

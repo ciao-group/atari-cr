@@ -11,3 +11,5 @@ trained_models
 trained_models/*
 */.ipynb_checkpoints
 *.egg-info
+
+ROMS
