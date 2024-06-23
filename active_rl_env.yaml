@@ -47,4 +47,4 @@ dependencies:
         - pybullet
         - ptflops # get model computation info
 
-        - git+https://github.com/elicassion/active-gym.git
+        - git+https://github.com/Niko32/active-gym.git
