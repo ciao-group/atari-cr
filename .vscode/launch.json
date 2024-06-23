@@ -19,7 +19,8 @@
                 "--total-timesteps", "100",
                 "--buffer-size", "100000",
                 "--learning-starts", "80000"
-            ]
+            ],
+            "justMyCode": false
         },
         {
             "name": "Render Focus Debug",
