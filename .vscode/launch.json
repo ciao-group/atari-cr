@@ -20,7 +20,7 @@
                 "--capture-video",
                 "--total-timesteps", "100000",
                 "--buffer-size", "100000",
-                "--learning-starts", "80000"
+                "--learning-starts", "1000"
             ],
             "justMyCode": false
         },
@@ -40,7 +40,7 @@
                 "--capture-video",
                 "--total-timesteps", "100000",
                 "--buffer-size", "100000",
-                "--learning-starts", "80000"
+                "--learning-starts", "1000"
             ],
             "justMyCode": false
         },

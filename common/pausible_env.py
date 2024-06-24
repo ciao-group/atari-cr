@@ -15,25 +15,26 @@ class PausibleFixedFovealEnv(FixedFovealEnv):
         self.action_space = Dict({
             # One additional action lets the agent stop the game to perform a 
             # sensory action without the game progressing  
-            "motor": Discrete(len(self.env.actions) + 1),
+            "motor": Discrete(self.env.action_space.n + 1),
             "sensory": Box(low=self.sensory_action_space[0], 
                                  high=self.sensory_action_space[1], dtype=int),
         })
 
     def step(self, action):
-        print(action)
         pause_action = action["motor"] == len(self.env.actions)
         if pause_action and (self.state is not None):
-            # Only make a sensory step
+            # Only make a sensory step with a small cost
             reward, done, truncated = 0, False, False
-            info = {"raw_reward": reward if reward else 0}
-            fov_state = self._fov_step(full_state=self.state, action=action["sensory"])
+            info = { "raw_reward": reward }
+            print(reward, end=" ")
         else:
             # Normal step
             state, reward, done, truncated, info = self.env.step(action=action["motor"])
             # Safe the state for the next sensory step
             self.state = state
-            fov_state = self._fov_step(full_state=state, action=action["sensory"])
+            
+        # Sensory step
+        fov_state = self._fov_step(full_state=self.state, action=action["sensory"])
 
         info["fov_loc"] = self.fov_loc.copy()
         if self.record:

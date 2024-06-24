@@ -239,10 +239,14 @@ if __name__ == "__main__":
     # get a discrete observ action space
     OBSERVATION_SIZE = (84, 84)
     observ_x_max, observ_y_max = OBSERVATION_SIZE[0]-args.fov_size, OBSERVATION_SIZE[1]-args.fov_size
+    # Size of one step in x and y direction
+    # sensory_action_step: (16, 16)
     sensory_action_step = (observ_x_max//args.sensory_action_x_size,
                           observ_y_max//args.sensory_action_y_size)
+    # sensory_action_x_set, sensory_action_y_set: [0, 16, 32, 48]
     sensory_action_x_set = list(range(0, observ_x_max, sensory_action_step[0]))[:args.sensory_action_x_size]
     sensory_action_y_set = list(range(0, observ_y_max, sensory_action_step[1]))[:args.sensory_action_y_size]
+    # Discrete action set as cross product of possible x and y steps
     sensory_action_set = [np.array(a) for a in list(product(sensory_action_x_set, sensory_action_y_set))]
 
     q_network = QNetwork(envs, sensory_action_set=sensory_action_set).to(device)
@@ -268,10 +272,14 @@ if __name__ == "__main__":
     # TRY NOT TO MODIFY: start the game
     obs, infos = envs.reset()
     global_transitions = 0
+    # TODO: Konzept von PVM is bisschen sussy to me, hier könnte man mal gucken
+    # ob man eine bessere "Belief Map" implementiert
     pvm_buffer = PVMBuffer(args.pvm_stack, (envs.num_envs, args.frame_stack,)+OBSERVATION_SIZE)
 
     while global_transitions < args.total_timesteps:
         pvm_buffer.append(obs)
+        # TODO: Observation ist zurzeit max() der vorherigen observations? das kann man mal ändern
+        # ORIGINAL: pvm_obs = pvm_buffer.get_obs(mode="stack_max")
         pvm_obs = pvm_buffer.get_obs(mode="stack_max")
         # ALGO LOGIC: put action logic here
         epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_transitions)

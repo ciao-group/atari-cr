@@ -5,10 +5,10 @@ numgpus=${2:-$(nvidia-smi --list-gpus | wc -l)}
 #envlist=(alien amidar assault asterix bank_heist battle_zone boxing breakout chopper_command crazy_climber demon_attack freeway frostbite gopher hero jamesbond kangaroo krull kung_fu_master ms_pacman pong private_eye qbert road_runner seaquest up_n_down) #pong qbert seaquest zaxxon
 envlist=(boxing)
 
-expname="boxing_cr_3m"
-totaltimesteps="1000000"
+expname="boxing_pausible11_3m"
+totaltimesteps="3000000"
 buffersize="100000"
-learningstarts="80000"
+learningstarts="10000"
 
 mkdir -p logs/${expname}
 mkdir -p recordings/${expname}
@@ -25,8 +25,8 @@ do
             basename=$(basename $1)
             echo "========" >> logs/${expname}/${envlist[$i]}__${basename}__${seed}.txt
             CUDA_VISIBLE_DEVICES=$gpuid python $1 --env ${envlist[$i]} \
-                                                  --env-num 4 \
-                                                  --seed $seed \ 
+                                                  --env-num 1 \
+                                                  --seed $seed \
                                                   --exp-name ${expname} \
                                                   --fov-size 20 \
                                                   --clip-reward \

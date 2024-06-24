@@ -5,6 +5,9 @@ import copy
 import numpy as np
 
 class PVMBuffer:
+    """
+    Persistence-of-Vision memory (Section 3.3)
+    """
 
     def __init__(self, max_len: int, obs_size: Tuple, fov_loc_size: Tuple = None) -> None:
         self.max_len = max_len
@@ -38,10 +41,11 @@ class PVMBuffer:
         elif mode == "stack_mean":
             return np.mean(np.stack(self.buffer, axis=1), axis=1, keepdims=True) # leading dim is batch dim [B, 1, C, H, W]
         elif mode == "stack":
-            # print ([x.shape for x in self.buffer])
-            return np.stack(self.buffer, axis=1) # [B, T, C, H, W]
+            # [B, T, C, H, W]
+            return np.stack(self.buffer, axis=1) 
         elif mode == "stack_channel":
-            return np.concatenate(self.buffer, axis=1) # [B, T*C, H, W]
+            # [B, T*C, H, W]
+            return np.concatenate(self.buffer, axis=1) 
         else:
             raise NotImplementedError
 
