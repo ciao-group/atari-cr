@@ -11,12 +11,34 @@
             "program": "agent/dqn_atari_sugarl.py",
             "console": "integratedTerminal",
             "args": [
+                "--env", "boxing",
+                "--env-num", "4",
                 "--seed", "0",
                 "--exp-name", "dqn_sugarl_debug",
                 "--fov-size", "20",
                 "--clip-reward",
                 "--capture-video",
-                "--total-timesteps", "100",
+                "--total-timesteps", "100000",
+                "--buffer-size", "100000",
+                "--learning-starts", "80000"
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "DQN CR Sugarl Debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "agent/dqn_atari_cr.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--env", "boxing",
+                "--env-num", "4",
+                "--seed", "0",
+                "--exp-name", "dqn_cr_debug",
+                "--fov-size", "20",
+                "--clip-reward",
+                "--capture-video",
+                "--total-timesteps", "100000",
                 "--buffer-size", "100000",
                 "--learning-starts", "80000"
             ],
@@ -29,7 +51,7 @@
             "program": "common/render_focus.py",
             "console": "integratedTerminal",
             "args": [
-                "recordings/boxing/dqn_atari_sugarl/boxing/boxing_seed0_step1000000_eval00_record.pt",
+                "recordings/boxing_2m/dqn_atari_sugarl/boxing/boxing_seed0_step2000000_eval00_record.pt",
                 "test.mp4"
             ]
         }
