@@ -42,7 +42,7 @@ if __name__ == "__main__":
         top_left = (x_loc, y_loc)
         bottom_right = (x_loc + fov_size[0], y_loc + fov_size[1])
         color = (255, 0, 0)
-        thickness = 2
+        thickness = 1
         frame = cv2.rectangle(frame, top_left, bottom_right, color, thickness)
         # frame[x_loc, y_loc] = [255, 0, 0]
         video_writer.write(frame)

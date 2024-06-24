@@ -12,7 +12,7 @@
             "console": "integratedTerminal",
             "args": [
                 "--env", "boxing",
-                "--env-num", "4",
+                "--env-num", "1",
                 "--seed", "0",
                 "--exp-name", "dqn_sugarl_debug",
                 "--fov-size", "20",
@@ -32,7 +32,7 @@
             "console": "integratedTerminal",
             "args": [
                 "--env", "boxing",
-                "--env-num", "4",
+                "--env-num", "1",
                 "--seed", "0",
                 "--exp-name", "dqn_cr_debug",
                 "--fov-size", "20",
@@ -51,7 +51,7 @@
             "program": "common/render_focus.py",
             "console": "integratedTerminal",
             "args": [
-                "recordings/boxing_2m/dqn_atari_sugarl/boxing/boxing_seed0_step2000000_eval00_record.pt",
+                "recordings/boxing_3m/dqn_atari_sugarl/boxing/boxing_seed0_step3000000_eval00_record.pt",
                 "test.mp4"
             ]
         }
