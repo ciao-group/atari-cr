@@ -20,7 +20,8 @@
                 "--capture-video",
                 "--total-timesteps", "100000",
                 "--buffer-size", "100000",
-                "--learning-starts", "1000"
+                "--learning-starts", "1000",
+                "--discrete-sensory-actions"
             ],
             "justMyCode": false
         },
@@ -33,14 +34,15 @@
             "args": [
                 "--env", "boxing",
                 "--env-num", "1",
-                "--seed", "1",
+                "--seed", "0",
                 "--exp-name", "dqn_cr_debug",
                 "--fov-size", "20",
                 "--clip-reward",
                 "--capture-video",
                 "--total-timesteps", "100000",
                 "--buffer-size", "100000",
-                "--learning-starts", "1000"
+                "--learning-starts", "1000",
+                "--discrete-sensory-actions"
             ],
             "justMyCode": false
         },

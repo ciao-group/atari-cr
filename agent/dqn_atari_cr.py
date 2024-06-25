@@ -13,7 +13,7 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
 import gymnasium as gym
-from gymnasium.spaces import Discrete, Dict
+from gymnasium.spaces import Discrete, Box
 import numpy as np
 import torch
 import torch.nn as nn
@@ -94,8 +94,11 @@ def parse_args():
         help="eval frequency. default -1 is eval at the end.")
     parser.add_argument("--eval-num", type=int, default=10,
         help="eval frequency. default -1 is eval at the end.")
+
+    # Discrete sensory action space
+    parser.add_argument("--discrete-sensory-actions", action="store_true")
+
     args = parser.parse_args()
-    # fmt: on
     return args
 
 
@@ -114,19 +117,9 @@ def make_env(env_name, seed, **kwargs):
 
 # ALGO LOGIC: initialize agent here:
 class QNetwork(nn.Module):
-    def __init__(self, env, sensory_action_set=None):
+    def __init__(self, env):
         super().__init__()
 
-        # Get the size of the different network heads
-        if isinstance(env.single_action_space, Discrete):
-            motor_action_space_size = env.single_action_space.n
-            sensory_action_space_size = None
-        elif isinstance(env.single_action_space, Dict):
-            motor_action_space_size = env.single_action_space["motor"].n
-            if sensory_action_set is not None:
-                sensory_action_space_size = len(sensory_action_set)
-            else:
-                sensory_action_space_size = env.single_action_space["sensory"].n
         self.backbone = nn.Sequential(
             nn.Conv2d(4, 32, 8, stride=4),
             nn.ReLU(),
@@ -139,31 +132,24 @@ class QNetwork(nn.Module):
             nn.ReLU(),
         )
 
-        self.motor_action_head = nn.Linear(512, motor_action_space_size)
-        self.sensory_action_head = None
-        if sensory_action_space_size is not None:
-            self.sensory_action_head = nn.Linear(512, sensory_action_space_size)
+        self.motor_action_head = nn.Linear(512, env.single_action_space["motor"].n)
+
+        # Sensory action head
+        sensory_action_space = env.single_action_space["sensory"]
+        if isinstance(sensory_action_space, Discrete):
+            self.sensory_action_head = nn.Linear(512, env.single_action_space["sensory"].n)
+        elif isinstance(sensory_action_space, Box):
+            nn.Linear(512, sensory_action_space.shape[0])
 
     def forward(self, x):
         x = self.backbone(x)
         motor_action = self.motor_action_head(x)
-        sensory_action = None
-        if self.sensory_action_head:
-            sensory_action = self.sensory_action_head(x)
+        sensory_action = self.sensory_action_head(x)
         return motor_action, sensory_action
 
 class SelfPredictionNetwork(nn.Module):
-    def __init__(self, env, sensory_action_set=None):
+    def __init__(self, env):
         super().__init__()
-        if isinstance(env.single_action_space, Discrete):
-            motor_action_space_size = env.single_action_space.n
-            sensory_action_space_size = None
-        elif isinstance(env.single_action_space, Dict):
-            motor_action_space_size = env.single_action_space["motor"].n
-            if sensory_action_set is not None:
-                sensory_action_space_size = len(sensory_action_set)
-            else:
-                sensory_action_space_size = env.single_action_space["sensory"].n
         
         self.backbone = nn.Sequential(
             nn.Conv2d(8, 32, 8, stride=4),
@@ -178,7 +164,7 @@ class SelfPredictionNetwork(nn.Module):
         )
 
         self.head = nn.Sequential(
-            nn.Linear(512, motor_action_space_size),
+            nn.Linear(512, env.single_action_space["motor"].n),
         )
 
         self.loss = nn.CrossEntropyLoss()
@@ -196,6 +182,19 @@ class SelfPredictionNetwork(nn.Module):
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
+
+def discrete_sensory_action_set(obs_size):
+    """ Produce a discrete sensory action set for a given input image size """
+    observ_x_max, observ_y_max = obs_size[0]-args.fov_size, obs_size[1]-args.fov_size
+    # Size of one step in x and y direction
+    # sensory_action_step: (16, 16)
+    sensory_action_step = (observ_x_max//args.sensory_action_x_size,
+                          observ_y_max//args.sensory_action_y_size)
+    # sensory_action_x_set, sensory_action_y_set: [0, 16, 32, 48]
+    sensory_action_x_set = list(range(0, observ_x_max, sensory_action_step[0]))[:args.sensory_action_x_size]
+    sensory_action_y_set = list(range(0, observ_y_max, sensory_action_step[1]))[:args.sensory_action_y_size]
+    # Discrete action set as cross product of possible x and y steps
+    return [np.array(a) for a in list(product(sensory_action_x_set, sensory_action_y_set))]
 
 
 if __name__ == "__main__":
@@ -218,6 +217,20 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
+    # Sensory action space setup
+    OBSERVATION_SIZE = (84, 84)
+    sugarl_r_scale = get_sugarl_reward_scale_atari(args.env)
+    resize = Resize(OBSERVATION_SIZE)
+    if args.discrete_sensory_actions:
+        sensory_action_set = discrete_sensory_action_set(OBSERVATION_SIZE)
+        print("len(sensory_action_set)", len(sensory_action_set))
+        sensory_action_space = Discrete(len(sensory_action_set))
+        print("sensory_action_space.n", sensory_action_space.n)
+    else:
+        # Continuous relative eye movements
+        obs_size_array = np.array(OBSERVATION_SIZE, dtype=np.int32)
+        sensory_action_space = Box(low=-obs_size_array, high=obs_size_array, dtype=np.int8)
+
     # env setup
     envs = []
     for i in range(args.env_num):
@@ -225,43 +238,26 @@ if __name__ == "__main__":
                                 fov_size=(args.fov_size, args.fov_size), 
                                 fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
                                 sensory_action_mode=args.sensory_action_mode,
-                                sensory_action_space=(-args.sensory_action_space, args.sensory_action_space),
+                                sensory_action_space=sensory_action_space,
                                 resize_to_full=args.resize_to_full,
                                 clip_reward=args.clip_reward,
                                 mask_out=True))
     # envs = gym.vector.AsyncVectorEnv(envs)
     envs = gym.vector.SyncVectorEnv(envs)
 
-    sugarl_r_scale = get_sugarl_reward_scale_atari(args.env)
-
-    resize = Resize((84, 84))
-
-    # get a discrete observ action space
-    OBSERVATION_SIZE = (84, 84)
-    observ_x_max, observ_y_max = OBSERVATION_SIZE[0]-args.fov_size, OBSERVATION_SIZE[1]-args.fov_size
-    # Size of one step in x and y direction
-    # sensory_action_step: (16, 16)
-    sensory_action_step = (observ_x_max//args.sensory_action_x_size,
-                          observ_y_max//args.sensory_action_y_size)
-    # sensory_action_x_set, sensory_action_y_set: [0, 16, 32, 48]
-    sensory_action_x_set = list(range(0, observ_x_max, sensory_action_step[0]))[:args.sensory_action_x_size]
-    sensory_action_y_set = list(range(0, observ_y_max, sensory_action_step[1]))[:args.sensory_action_y_size]
-    # Discrete action set as cross product of possible x and y steps
-    sensory_action_set = [np.array(a) for a in list(product(sensory_action_x_set, sensory_action_y_set))]
-
-    q_network = QNetwork(envs, sensory_action_set=sensory_action_set).to(device)
+    q_network = QNetwork(envs).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
-    target_network = QNetwork(envs, sensory_action_set=sensory_action_set).to(device)
+    target_network = QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
-    sfn = SelfPredictionNetwork(envs, sensory_action_set=sensory_action_set).to(device)
+    sfn = SelfPredictionNetwork(envs).to(device)
     sfn_optimizer = optim.Adam(sfn.parameters(), lr=args.learning_rate)
 
     rb = DoubleActionReplayBuffer(
         args.buffer_size,
         envs.single_observation_space,
         envs.single_action_space["motor"],
-        Discrete(len(sensory_action_set)),
+        sensory_action_space,
         device,
         n_envs=envs.num_envs,
         optimize_memory_usage=True,
@@ -286,8 +282,9 @@ if __name__ == "__main__":
         # Execute random motor and sensory action with probability epsilon
         if random.random() < epsilon:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
-            motor_actions = np.array([actions[0]["motor"]])
+            motor_actions = np.array([action["motor"] for action in actions])
             sensory_actions = np.array([random.randint(0, len(sensory_action_set)-1)])
+            # sensory_actions = np.array([action["sensory"] for action in actions])
         else:
             motor_q_values, sensory_q_values = q_network(resize(torch.from_numpy(pvm_obs)).to(device))
             motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
@@ -296,7 +293,7 @@ if __name__ == "__main__":
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, dones, _, infos = envs.step({
             "motor": motor_actions, 
-            "sensory": [sensory_action_set[a] for a in  sensory_actions] 
+            "sensory": [sensory_action_set[a] for a in sensory_actions] if args.discrete_sensory_actions else sensory_actions
         })
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
@@ -398,7 +395,7 @@ if __name__ == "__main__":
                             fov_size=(args.fov_size, args.fov_size), 
                             fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
                             sensory_action_mode=args.sensory_action_mode,
-                            sensory_action_space=(-args.sensory_action_space, args.sensory_action_space),
+                            sensory_action_space=sensory_action_space,
                             resize_to_full=args.resize_to_full,
                             clip_reward=args.clip_reward,
                             mask_out=True,
@@ -416,7 +413,7 @@ if __name__ == "__main__":
                         sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
                         next_obs_eval, rewards, dones, _, infos = eval_env.step({
                             "motor": motor_actions, 
-                            "sensory": [sensory_action_set[a] for a in sensory_actions]
+                            "sensory": [sensory_action_set[a] for a in sensory_actions] if args.discrete_sensory_actions else sensory_actions
                         })
                         obs_eval = next_obs_eval
                         done = dones[0]

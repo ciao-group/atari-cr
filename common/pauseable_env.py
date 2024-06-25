@@ -13,12 +13,12 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
     """
     def __init__(self, env: gym.Env, args):
         super().__init__(env, args)
+        self.sensory_action_space = args.sensory_action_space
         self.action_space = Dict({
             # One additional action lets the agent stop the game to perform a 
             # sensory action without the game progressing  
             "motor": Discrete(self.env.action_space.n + 1),
-            "sensory": Box(low=self.sensory_action_space[0], 
-                                 high=self.sensory_action_space[1], dtype=int),
+            "sensory": self.sensory_action_space,
         })
 
     def step(self, action):
