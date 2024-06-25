@@ -122,11 +122,11 @@ class QNetwork(nn.Module):
             motor_action_space_size = env.single_action_space.n
             sensory_action_space_size = None
         elif isinstance(env.single_action_space, Dict):
-            motor_action_space_size = env.single_action_space["motor_action"].n
+            motor_action_space_size = env.single_action_space["motor"].n
             if sensory_action_set is not None:
                 sensory_action_space_size = len(sensory_action_set)
             else:
-                sensory_action_space_size = env.single_action_space["sensory_action"].n
+                sensory_action_space_size = env.single_action_space["sensory"].n
         self.backbone = nn.Sequential(
             nn.Conv2d(4, 32, 8, stride=4),
             nn.ReLU(),
@@ -159,11 +159,11 @@ class SelfPredictionNetwork(nn.Module):
             motor_action_space_size = env.single_action_space.n
             sensory_action_space_size = None
         elif isinstance(env.single_action_space, Dict):
-            motor_action_space_size = env.single_action_space["motor_action"].n
+            motor_action_space_size = env.single_action_space["motor"].n
             if sensory_action_set is not None:
                 sensory_action_space_size = len(sensory_action_set)
             else:
-                sensory_action_space_size = env.single_action_space["sensory_action"].n
+                sensory_action_space_size = env.single_action_space["sensory"].n
         
         self.backbone = nn.Sequential(
             nn.Conv2d(8, 32, 8, stride=4),
@@ -260,7 +260,7 @@ if __name__ == "__main__":
     rb = DoubleActionReplayBuffer(
         args.buffer_size,
         envs.single_observation_space,
-        envs.single_action_space["motor_action"],
+        envs.single_action_space["motor"],
         Discrete(len(sensory_action_set)),
         device,
         n_envs=envs.num_envs,
@@ -285,17 +285,18 @@ if __name__ == "__main__":
         epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_transitions)
         # Execute random motor and sensory action with probability epsilon
         if random.random() < epsilon:
-            random_actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
-            motor_actions = np.array([action["motor_action"] for action in random_actions])
-            sensory_actions = np.array([action["sensory_action"] for action in random_actions])
+            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
+            motor_actions = np.array([actions[0]["motor"]])
+            sensory_actions = np.array([random.randint(0, len(sensory_action_set)-1)])
+        else:
             motor_q_values, sensory_q_values = q_network(resize(torch.from_numpy(pvm_obs)).to(device))
             motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
             sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
 
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, dones, _, infos = envs.step({
-            "motor_action": motor_actions, 
-            "sensory_action": sensory_actions,
+            "motor": motor_actions, 
+            "sensory": [sensory_action_set[a] for a in  sensory_actions] 
         })
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
@@ -414,8 +415,8 @@ if __name__ == "__main__":
                         motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
                         sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
                         next_obs_eval, rewards, dones, _, infos = eval_env.step({
-                            "motor_action": motor_actions, 
-                            "sensory_action": [sensory_action_set[a] for a in sensory_actions]
+                            "motor": motor_actions, 
+                            "sensory": [sensory_action_set[a] for a in sensory_actions]
                         })
                         obs_eval = next_obs_eval
                         done = dones[0]

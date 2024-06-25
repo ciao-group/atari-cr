@@ -13,7 +13,7 @@
             "args": [
                 "--env", "boxing",
                 "--env-num", "1",
-                "--seed", "0",
+                "--seed", "1",
                 "--exp-name", "dqn_sugarl_debug",
                 "--fov-size", "20",
                 "--clip-reward",
@@ -33,7 +33,7 @@
             "args": [
                 "--env", "boxing",
                 "--env-num", "1",
-                "--seed", "0",
+                "--seed", "1",
                 "--exp-name", "dqn_cr_debug",
                 "--fov-size", "20",
                 "--clip-reward",
