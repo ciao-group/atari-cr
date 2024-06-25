@@ -303,7 +303,7 @@ if __name__ == "__main__":
         if "final_info" in infos:
             for idx, d in enumerate(dones):
                 if d:
-                    print(f"[T: {time.time()-start_time:.2f}]  [N: {global_transitions:07,d}]  [R: {infos['final_info'][idx]['reward']:.2f}]")
+                    print(f"\n[T: {time.time()-start_time:.2f}]  [N: {global_transitions:07,d}]  [R: {infos['final_info'][idx]['reward']:.2f}]")
                     writer.add_scalar("charts/episodic_return", infos['final_info'][idx]["reward"], global_transitions)
                     writer.add_scalar("charts/episodic_length", infos['final_info'][idx]["ep_len"], global_transitions)
                     writer.add_scalar("charts/epsilon", epsilon, global_transitions)
@@ -438,7 +438,7 @@ if __name__ == "__main__":
                 writer.add_scalar("charts/eval_episodic_return", np.mean(eval_episodic_returns), global_transitions)
                 writer.add_scalar("charts/eval_episodic_return_std", np.std(eval_episodic_returns), global_transitions)
                 # writer.add_scalar("charts/eval_episodic_length", np.mean(), global_transitions)
-                print(f"[T: {time.time()-start_time:.2f}]  [N: {global_transitions:07,d}]  [Eval R: {np.mean(eval_episodic_returns):.2f}+/-{np.std(eval_episodic_returns):.2f}] [R list: {','.join([str(r) for r in eval_episodic_returns])}]")
+                print(f"\n[T: {time.time()-start_time:.2f}]  [N: {global_transitions:07,d}]  [Eval R: {np.mean(eval_episodic_returns):.2f}+/-{np.std(eval_episodic_returns):.2f}] [R list: {','.join([str(r) for r in eval_episodic_returns])}]")
 
                 q_network.train()
                 sfn.train()

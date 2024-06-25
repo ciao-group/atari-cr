@@ -28,14 +28,25 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
             reward, done, truncated = -0.1, False, False
             info = { "raw_reward": reward }
             print(reward, end=" ")
+            
+            # Sensory step
+            fov_state = self._fov_step(full_state=self.state, action=action["sensory"])
+            # Manually execute the RecordWrapper.step code
+            assert isinstance(self.env, RecordWrapper), "This code assumes that the parent is a RecordWrapper"
+            self.env.ep_len += 1
+            self.env.cumulative_reward += reward
+            info["reward"] = self.env.cumulative_reward
+            info["ep_len"] = self.env.ep_len
+            if self.env.record:
+                rgb = self.env.env.render()
+                self.env._save_transition(self.state, action, self.env.cumulative_reward, done, truncated, info, rgb=rgb, return_reward=reward)
         else:
             # Normal step
             state, reward, done, truncated, info = self.env.step(action=action["motor"])
             # Safe the state for the next sensory step
             self.state = state
-            
-        # Sensory step
-        fov_state = self._fov_step(full_state=self.state, action=action["sensory"])
+            # Sensory step
+            fov_state = self._fov_step(full_state=self.state, action=action["sensory"])        
 
         info["fov_loc"] = self.fov_loc.copy()
         if self.record:
