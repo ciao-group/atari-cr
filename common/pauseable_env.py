@@ -23,7 +23,7 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
 
     def step(self, action):
         pause_action = action["motor"] == len(self.env.actions)
-        if pause_action and (self.state is not None):
+        if pause_action and hasattr(self, "state"):
             # Only make a sensory step with a small cost
             reward, done, truncated = -0.1, False, False
             info = { "raw_reward": reward }

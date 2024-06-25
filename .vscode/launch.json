@@ -22,8 +22,8 @@
                 "--buffer-size", "100000",
                 "--learning-starts", "1000",
                 "--discrete-sensory-actions",
-                "--sensory-action-x-size", "16",
-                "--sensory-action-y-size", "16",
+                "--sensory-action-x-size", "8",
+                "--sensory-action-y-size", "8",
             ],
             "justMyCode": false
         },
@@ -45,8 +45,8 @@
                 "--buffer-size", "100000",
                 "--learning-starts", "1000",
                 "--discrete-sensory-actions",
-                "--sensory-action-x-size", "16",
-                "--sensory-action-y-size", "16",
+                "--sensory-action-x-size", "8",
+                "--sensory-action-y-size", "8",
             ],
             "justMyCode": false
         },
