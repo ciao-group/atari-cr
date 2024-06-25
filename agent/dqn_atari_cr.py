@@ -5,6 +5,7 @@ import random
 import time
 from itertools import product
 from distutils.util import strtobool
+from typing import Tuple
 
 sys.path.append(osp.dirname(osp.dirname(osp.realpath(__file__))))
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -139,9 +140,9 @@ class QNetwork(nn.Module):
         if isinstance(sensory_action_space, Discrete):
             self.sensory_action_head = nn.Linear(512, env.single_action_space["sensory"].n)
         elif isinstance(sensory_action_space, Box):
-            nn.Linear(512, sensory_action_space.shape[0])
+            self.sensory_action_head = nn.Linear(512, sensory_action_space.shape[0])
 
-    def forward(self, x):
+    def forward(self, x) -> Tuple[torch.Tensor, torch.Tensor]:
         x = self.backbone(x)
         motor_action = self.motor_action_head(x)
         sensory_action = self.sensory_action_head(x)
@@ -214,34 +215,29 @@ if __name__ == "__main__":
     # TRY NOT TO MODIFY: seeding
     seed_everything(args.seed)
 
-
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # Sensory action space setup
     OBSERVATION_SIZE = (84, 84)
+    observ_x_max, observ_y_max = OBSERVATION_SIZE[0]-args.fov_size, OBSERVATION_SIZE[1]-args.fov_size
     sugarl_r_scale = get_sugarl_reward_scale_atari(args.env)
     resize = Resize(OBSERVATION_SIZE)
     if args.discrete_sensory_actions:
         sensory_action_set = discrete_sensory_action_set(OBSERVATION_SIZE)
-        print("len(sensory_action_set)", len(sensory_action_set))
         sensory_action_space = Discrete(len(sensory_action_set))
-        print("sensory_action_space.n", sensory_action_space.n)
     else:
         # Continuous relative eye movements
         obs_size_array = np.array(OBSERVATION_SIZE, dtype=np.int32)
-        sensory_action_space = Box(low=-obs_size_array, high=obs_size_array, dtype=np.int8)
+        sensory_action_space = Box(low=-obs_size_array, high=obs_size_array, dtype=np.int64)
 
     # env setup
     envs = []
     for i in range(args.env_num):
-        envs.append(make_env(args.env, args.seed+i, frame_stack=args.frame_stack, action_repeat=args.action_repeat,
-                                fov_size=(args.fov_size, args.fov_size), 
-                                fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
-                                sensory_action_mode=args.sensory_action_mode,
-                                sensory_action_space=sensory_action_space,
-                                resize_to_full=args.resize_to_full,
-                                clip_reward=args.clip_reward,
-                                mask_out=True))
+        envs.append(
+            make_env(args.env, args.seed+i, frame_stack=args.frame_stack, action_repeat=args.action_repeat,
+                fov_size=(args.fov_size, args.fov_size), fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
+                sensory_action_mode=args.sensory_action_mode, sensory_action_space=sensory_action_space,
+                resize_to_full=args.resize_to_full, clip_reward=args.clip_reward, mask_out=True))
     # envs = gym.vector.AsyncVectorEnv(envs)
     envs = gym.vector.SyncVectorEnv(envs)
 
@@ -266,29 +262,34 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # TRY NOT TO MODIFY: start the game
-    obs, infos = envs.reset()
+    next_obs, infos = envs.reset()
     global_transitions = 0
     # TODO: Konzept von PVM is bisschen sussy to me, hier könnte man mal gucken
     # ob man eine bessere "Belief Map" implementiert
     pvm_buffer = PVMBuffer(args.pvm_stack, (envs.num_envs, args.frame_stack,)+OBSERVATION_SIZE)
 
+    # Game Loop
     while global_transitions < args.total_timesteps:
-        pvm_buffer.append(obs)
         # TODO: Observation ist zurzeit max() der vorherigen observations? das kann man mal ändern
         # ORIGINAL: pvm_obs = pvm_buffer.get_obs(mode="stack_max")
+        obs = next_obs
+        pvm_buffer.append(obs)
         pvm_obs = pvm_buffer.get_obs(mode="stack_max")
         # ALGO LOGIC: put action logic here
         epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_transitions)
+        
         # Execute random motor and sensory action with probability epsilon
         if random.random() < epsilon:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
             motor_actions = np.array([action["motor"] for action in actions])
-            sensory_actions = np.array([random.randint(0, len(sensory_action_set)-1)])
-            # sensory_actions = np.array([action["sensory"] for action in actions])
+            sensory_actions = np.array([action["sensory"] for action in actions])
         else:
             motor_q_values, sensory_q_values = q_network(resize(torch.from_numpy(pvm_obs)).to(device))
             motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
-            sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
+            if args.discrete_sensory_actions:
+                sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
+            else:
+                sensory_actions = sensory_q_values.cpu().detach().numpy() * np.array([observ_x_max, observ_y_max])
 
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, dones, _, infos = envs.step({
@@ -316,25 +317,20 @@ if __name__ == "__main__":
         real_next_pvm_obs = pvm_buffer_copy.get_obs(mode="stack_max")
         rb.add(pvm_obs, real_next_pvm_obs, motor_actions, sensory_actions, rewards, dones, {})
 
-        # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
-        obs = next_obs
+        obs_backup = next_obs
 
-        # INC total transitions 
         global_transitions += args.env_num
-
-        obs_backup = obs # back obs
-
         if global_transitions < args.batch_size:
             continue
 
         # Training
         if global_transitions % args.train_frequency == 0:
-            data = rb.sample(args.batch_size // args.env_num) # counter-balance the true global transitions used for training
+            # counter-balance the true global transitions used for training
+            data = rb.sample(args.batch_size // args.env_num) 
 
             # sfn learning
             concat_observation = torch.concat([data.next_observations, data.observations], dim=1) # concat at dimension T
             pred_motor_actions = sfn(resize(concat_observation))
-            # print (pred_motor_actions.size(), data.motor_actions.size())
             sfn_loss = sfn.get_loss(pred_motor_actions, data.motor_actions.flatten())
             sfn_optimizer.zero_grad()
             sfn_loss.backward()
@@ -353,6 +349,9 @@ if __name__ == "__main__":
                     td_target = data.rewards.flatten() - (1 - observ_r) * sugarl_r_scale + args.gamma * (motor_target_max+sensory_target_max) * (1 - data.dones.flatten())
                     original_td_target = data.rewards.flatten() + args.gamma * (motor_target_max+sensory_target_max) * (1 - data.dones.flatten())
 
+                # This is where a continuous action space fails because a continuous space
+                # does not have a Q value for every possible action
+                # Hence, the loss cannot be calculated with a sum of Q values
                 old_motor_q_val, old_sensory_q_val = q_network(resize(data.observations))
                 old_motor_val = old_motor_q_val.gather(1, data.motor_actions).squeeze()
                 old_sensory_val = old_sensory_q_val.gather(1, data.sensory_actions).squeeze()
@@ -440,7 +439,8 @@ if __name__ == "__main__":
                 q_network.train()
                 sfn.train()
         
-        obs = obs_backup # restore obs if eval occurs
+        # restore obs if eval occurs
+        next_obs = obs_backup 
 
 
 

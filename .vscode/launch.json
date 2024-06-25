@@ -21,7 +21,9 @@
                 "--total-timesteps", "100000",
                 "--buffer-size", "100000",
                 "--learning-starts", "1000",
-                "--discrete-sensory-actions"
+                "--discrete-sensory-actions",
+                "--sensory-action-x-size", "16",
+                "--sensory-action-y-size", "16",
             ],
             "justMyCode": false
         },
@@ -42,7 +44,9 @@
                 "--total-timesteps", "100000",
                 "--buffer-size", "100000",
                 "--learning-starts", "1000",
-                "--discrete-sensory-actions"
+                "--discrete-sensory-actions",
+                "--sensory-action-x-size", "16",
+                "--sensory-action-y-size", "16",
             ],
             "justMyCode": false
         },
