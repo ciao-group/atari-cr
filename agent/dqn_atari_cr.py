@@ -24,7 +24,7 @@ from torchvision.transforms import Resize
 from common.buffer import DoubleActionReplayBuffer
 from common.pvm_buffer import PVMBuffer
 from common.utils import get_timestr, seed_everything, get_sugarl_reward_scale_atari
-from common.pausible_env import PausibleAtariFixedFovealEnv
+from common.pauseable_env import PauseableAtariFixedFovealEnv
 from torch.utils.tensorboard import SummaryWriter
 
 from active_gym.atari_env import AtariEnvArgs
@@ -104,7 +104,7 @@ def make_env(env_name, seed, **kwargs):
         env_args = AtariEnvArgs(
             game=env_name, seed=seed, obs_size=(84, 84), **kwargs
         )
-        env = PausibleAtariFixedFovealEnv(env_args)
+        env = PauseableAtariFixedFovealEnv(env_args)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
         return env

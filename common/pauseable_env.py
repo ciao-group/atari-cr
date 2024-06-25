@@ -1,11 +1,12 @@
-from active_gym import FixedFovealEnv, AtariEnvArgs, AtariBaseEnv
+from active_gym import FixedFovealEnv, AtariEnvArgs, AtariBaseEnv, RecordWrapper
+from active_gym.atari_env import AtariEnv
 import gymnasium as gym
 from gymnasium.spaces import Dict, Discrete, Box
 import cv2
 import torch
 import numpy as np
 
-class PausibleFixedFovealEnv(FixedFovealEnv):
+class PauseableFixedFovealEnv(FixedFovealEnv):
     """
     Environemt making it possible to be paused to only take
     a sensory action without progressing the game.
@@ -71,7 +72,7 @@ class PausibleFixedFovealEnv(FixedFovealEnv):
             torch.save(self.prev_record_buffer, file_path)
             video_writer.release()
 
-class SlowableFixedFovealEnv(PausibleFixedFovealEnv):
+class SlowableFixedFovealEnv(PauseableFixedFovealEnv):
     """
     Environemt making it possible to be paused to only take
     a sensory action without progressing the game.
@@ -101,11 +102,62 @@ class SlowableFixedFovealEnv(PausibleFixedFovealEnv):
         self.ms_since_motor_step += 20
 
         return fov_state, reward, done, truncated, info
+    
+class FovealRecordWrapper(RecordWrapper):
+    """
+    RecordWrapper that draws the fovea onto the saved video files.
+    """
+    def reset(self, **kwargs):
+        """
+        The RecordWrapper.reset function is overwritten because it poorly handles kwargs
+        """
+        state, info = self.env.reset(**kwargs)
 
-def PausibleAtariFixedFovealEnv(args: AtariEnvArgs) -> gym.Wrapper:
-    base_env = AtariBaseEnv(args)
-    wrapped_env = PausibleFixedFovealEnv(base_env, args)
-    return wrapped_env
+        self.cumulative_reward = 0
+        self.ep_len = 0
+        info = self._add_info(info)
+        if self.record:
+            rgb = self.env.render()
+            # print ("_reset: reset record buffer")
+            self._reset_record_buffer()
+            self._save_transition(state, done=False, info=info, rgb=rgb)
+        return state, info
+    
+    def save_record_to_file(self, file_path: str, draw_focus = True):
+        if self.record:
+            video_path = file_path.replace(".pt", ".mp4")
+            size = self.prev_record_buffer["rgb"][0].shape[:2][::-1]
+            fps = 30
+            video_writer = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
+            for i, frame in enumerate(self.prev_record_buffer["rgb"]):
+                if draw_focus:
+                    y_loc, x_loc = self.prev_record_buffer["fov_loc"][i]
+                    fov_size = self.prev_record_buffer["fov_size"]
+
+                    # The fov_loc is set within a 84x84 grid while the video output is 256x256
+                    # To scale them accordingly we multiply with the following
+                    COORD_SCALING = 256 / 84
+                    x_loc = int(x_loc * COORD_SCALING)
+                    y_loc = int(y_loc * COORD_SCALING)
+                    fov_size = (int(fov_size[0] * COORD_SCALING), int(fov_size[1] * COORD_SCALING))
+
+                    top_left = (x_loc, y_loc)
+                    bottom_right = (x_loc + fov_size[0], y_loc + fov_size[1])
+                    color = (255, 0, 0)
+                    thickness = 1
+                    frame = cv2.rectangle(frame, top_left, bottom_right, color, thickness)
+                video_writer.write(frame)
+            self.prev_record_buffer["rgb"] = video_path
+            self.prev_record_buffer["state"] = [0] * len(self.prev_record_buffer["reward"])
+            torch.save(self.prev_record_buffer, file_path)
+            video_writer.release()
+
+
+def PauseableAtariFixedFovealEnv(args: AtariEnvArgs) -> gym.Wrapper:
+    env = AtariEnv(args)
+    env = FovealRecordWrapper(env, args)
+    env = PauseableFixedFovealEnv(env, args)
+    return env
     
 def AtariHeadFixedFovealEnv(args: AtariEnvArgs) -> gym.Wrapper:
     base_env = AtariBaseEnv(args)
