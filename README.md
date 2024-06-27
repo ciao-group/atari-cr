@@ -15,7 +15,7 @@ pip install .
 ### System dependencies
 - The following system wide dependencies are needed. Exact names on non-debian distros may vary.
 ``` sh
-sudo apt install libx11-dev libglew-dev patchelf
+sudo apt install libx11-dev libglew-dev patchelf python-dev
 ```
 
 ## Acknowledgement
