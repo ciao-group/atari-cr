@@ -5,6 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+        },
+        {
             "name": "DQN Sugarl Debug",
             "type": "debugpy",
             "request": "launch",
@@ -14,7 +21,7 @@
                 "--env", "boxing",
                 "--env-num", "1",
                 "--seed", "1",
-                "--exp-name", "dqn_sugarl_debug",
+                "--exp-name", "src/atari_cr/agents/dqn_sugarl_debug",
                 "--fov-size", "20",
                 "--clip-reward",
                 "--capture-video",
@@ -31,7 +38,7 @@
             "name": "DQN CR Sugarl Debug",
             "type": "debugpy",
             "request": "launch",
-            "program": "agent/dqn_atari_cr.py",
+            "program": "src/atari_cr/agents/dqn_atari_cr.py",
             "console": "integratedTerminal",
             "args": [
                 "--env", "boxing",
@@ -41,7 +48,7 @@
                 "--fov-size", "20",
                 "--clip-reward",
                 "--capture-video",
-                "--total-timesteps", "100000",
+                "--total-timesteps", "300000",
                 "--buffer-size", "100000",
                 "--learning-starts", "1000",
                 "--discrete-sensory-actions",

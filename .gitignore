@@ -12,5 +12,8 @@ trained_models/*
 */.ipynb_checkpoints
 *.egg-info
 
-ROMS
+.ROMS
 *.mp4
+.venv
+build
+*cache*
