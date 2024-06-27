@@ -5,7 +5,7 @@ This repository aims to provides agents that play Atari games with human-plausib
 All three installation steps are required
 ### Project Installation
 ``` sh
-git clone https://github.com/Niko32/sugarl
+git clone https://github.com/Niko32/atari-cr
 cd sugarl
 pip install .
 ```
