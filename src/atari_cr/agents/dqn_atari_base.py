@@ -240,7 +240,10 @@ if __name__ == "__main__":
                 eval_episodic_returns, eval_episodic_lengths = [], []
 
                 for eval_ep in range(args.eval_num):
-                    eval_env = [make_env(args.env, args.seed+eval_ep, frame_stack=args.frame_stack, action_repeat=args.action_repeat, clip_reward=args.clip_reward, training=False, record=args.capture_video)]
+                    # Save only one third of the videos
+                    record = args.capture_video if eval_ep % 3 == 0 else False
+
+                    eval_env = [make_env(args.env, args.seed+eval_ep, frame_stack=args.frame_stack, action_repeat=args.action_repeat, clip_reward=args.clip_reward, training=False, record=record)]
                     eval_env = gym.vector.SyncVectorEnv(eval_env)
                     obs_eval, _ = eval_env.reset()
                     done = False
