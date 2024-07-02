@@ -33,7 +33,6 @@ do
                                                   --total-timesteps $totaltimesteps \
                                                   --buffer-size $buffersize \
                                                   --learning-starts $learningstarts \
-                                                  --discrete-sensory-actions \
                                                   ${@:2} >> logs/${expname}/${envlist[$i]}__${basename}__${seed}.txt
         done
     ) &
