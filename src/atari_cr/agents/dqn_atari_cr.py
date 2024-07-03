@@ -423,7 +423,8 @@ if __name__ == "__main__":
                         if done:
                             eval_episodic_returns.append(infos['final_info'][0]["reward"])
                             eval_episodic_lengths.append(infos['final_info'][0]["ep_len"])
-                            if args.capture_video:
+                            # Only save 1/4th of the evals as videos
+                            if args.capture_video and eval_ep % 4 == 0:
                                 record_file_dir = os.path.join("recordings", args.exp_name, os.path.basename(__file__).rstrip(".py"), args.env)
                                 os.makedirs(record_file_dir, exist_ok=True)
                                 record_file_fn = f"{args.env}_seed{args.seed}_step{global_transitions:07d}_eval{eval_ep:02d}_record.pt"

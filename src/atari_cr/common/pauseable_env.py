@@ -6,6 +6,10 @@ import cv2
 import torch
 import numpy as np
 
+# Small cost for a vision step without actual env step 
+# to prevent the model from abusing only vision steps
+PAUSE_COST = 0.01
+
 class PauseableFixedFovealEnv(FixedFovealEnv):
     """
     Environemt making it possible to be paused to only take
@@ -25,7 +29,7 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
         pause_action = action["motor"] == len(self.env.actions)
         if pause_action and (self.state is not None):
             # Only make a sensory step with a small cost
-            reward, done, truncated = -0.1, False, False
+            reward, done, truncated = -PAUSE_COST, False, False
             info = { "raw_reward": reward }
             print(reward, end=" ")
             
