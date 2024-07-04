@@ -303,7 +303,12 @@ if __name__ == "__main__":
         if "final_info" in infos:
             for idx, d in enumerate(dones):
                 if d:
-                    print(f"\n[T: {time.time()-start_time:.2f}]  [N: {global_transitions:07,d}]  [R: {infos['final_info'][idx]['reward']:.2f}]")
+                    print(f""" \
+[T: {time.time()-start_time:.2f}]  \
+[N: {global_transitions:07,d}]  \
+[R: {infos['final_info'][idx]['reward']:.2f}] \
+[Pauses: {infos['final_info'][idx]['n_pauses']} x (-{infos['final_info'][idx]['pause_cost']})] \
+""")    
                     writer.add_scalar("charts/episodic_return", infos['final_info'][idx]["reward"], global_transitions)
                     writer.add_scalar("charts/episodic_length", infos['final_info'][idx]["ep_len"], global_transitions)
                     writer.add_scalar("charts/epsilon", epsilon, global_transitions)
