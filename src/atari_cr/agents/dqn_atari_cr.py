@@ -307,8 +307,8 @@ if __name__ == "__main__":
 [T: {time.time()-start_time:.2f}]  \
 [N: {global_transitions:07,d}]  \
 [R: {infos['final_info'][idx]['reward']:.2f}] \
-[Pauses: {infos['final_info'][idx]['n_pauses']} x (-{infos['final_info'][idx]['pause_cost']})] \
-""")    
+[Pauses: {infos['final_info'][idx]['n_pauses']} x ({-infos['final_info'][idx]['pause_cost']})] \
+""")      
                     writer.add_scalar("charts/episodic_return", infos['final_info'][idx]["reward"], global_transitions)
                     writer.add_scalar("charts/episodic_length", infos['final_info'][idx]["ep_len"], global_transitions)
                     writer.add_scalar("charts/epsilon", epsilon, global_transitions)
@@ -396,7 +396,7 @@ if __name__ == "__main__":
                 q_network.eval()
                 sfn.eval()
                 
-                eval_episodic_returns, eval_episodic_lengths = [], []
+                eval_episodic_returns, eval_episodic_lengths, eval_ns_pauses = [], [], []
 
                 for eval_ep in range(args.eval_num):
                     eval_env = [make_env(args.env, args.seed+eval_ep, frame_stack=args.frame_stack, action_repeat=args.action_repeat, 
@@ -428,6 +428,7 @@ if __name__ == "__main__":
                         if done:
                             eval_episodic_returns.append(infos['final_info'][0]["reward"])
                             eval_episodic_lengths.append(infos['final_info'][0]["ep_len"])
+                            eval_ns_pauses.append(infos['final_info'][0]["n_pauses"])
                             # Only save 1/4th of the evals as videos
                             if args.capture_video and eval_ep % 4 == 0:
                                 record_file_dir = os.path.join("recordings", args.exp_name, os.path.basename(__file__).rstrip(".py"), args.env)
@@ -444,7 +445,13 @@ if __name__ == "__main__":
                 writer.add_scalar("charts/eval_episodic_return", np.mean(eval_episodic_returns), global_transitions)
                 writer.add_scalar("charts/eval_episodic_return_std", np.std(eval_episodic_returns), global_transitions)
                 # writer.add_scalar("charts/eval_episodic_length", np.mean(), global_transitions)
-                print(f"\n[T: {time.time()-start_time:.2f}]  [N: {global_transitions:07,d}]  [Eval R: {np.mean(eval_episodic_returns):.2f}+/-{np.std(eval_episodic_returns):.2f}] [R list: {','.join([str(r) for r in eval_episodic_returns])}]")
+                print(f""" \
+[T: {time.time()-start_time:.2f}] \
+[N: {global_transitions:07,d}] \
+[Eval R: {np.mean(eval_episodic_returns):.2f}+/-{np.std(eval_episodic_returns):.2f}] \
+[R list: {','.join([f'{r:.2f}' for r in eval_episodic_returns])}] \
+[Pauses: {','.join([str(n) for n in eval_ns_pauses])}]
+""")
 
                 q_network.train()
                 sfn.train()

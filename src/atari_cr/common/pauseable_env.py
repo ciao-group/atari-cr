@@ -8,7 +8,7 @@ import numpy as np
 
 # Small cost for a vision step without actual env step 
 # to prevent the model from abusing only vision steps
-PAUSE_COST = 0.05
+PAUSE_COST = 0
 
 class PauseableFixedFovealEnv(FixedFovealEnv):
     """
@@ -56,14 +56,19 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
             # Safe the state for the next sensory step
             self.state = state
             # Sensory step
-            fov_state = self._fov_step(full_state=self.state, action=action["sensory"])        
+            fov_state = self._fov_step(full_state=self.state, action=action["sensory"])   
 
         info["pause_cost"] = PAUSE_COST
         info["n_pauses"] = self.n_pauses
         info["fov_loc"] = self.fov_loc.copy()
         if self.record:
             if not done:
-                self.save_transition(info["fov_loc"])
+                self.save_transition(info["fov_loc"])   
+
+        # Reset the pause number for the next episode
+        if done:
+            self.n_pauses = 0
+
         return fov_state, reward, done, truncated, info
     
     def save_record_to_file(self, file_path: str, draw_focus = True):
