@@ -118,15 +118,11 @@ class QNetwork(nn.Module):
         super().__init__()
 
         # Get the size of the different network heads
-        if isinstance(env.single_action_space, Discrete):
-            motor_action_space_size = env.single_action_space.n
-            sensory_action_space_size = None
-        elif isinstance(env.single_action_space, Dict):
-            motor_action_space_size = env.single_action_space["motor"].n
-            if sensory_action_set is not None:
-                sensory_action_space_size = len(sensory_action_set)
-            else:
-                sensory_action_space_size = env.single_action_space["sensory"].n
+        assert isinstance(env.single_action_space, Dict)
+        assert sensory_action_set
+        self.motor_action_space_size = env.single_action_space["motor"].n
+        self.sensory_action_space_size = len(sensory_action_set)
+
         self.backbone = nn.Sequential(
             nn.Conv2d(4, 32, 8, stride=4),
             nn.ReLU(),
@@ -139,10 +135,8 @@ class QNetwork(nn.Module):
             nn.ReLU(),
         )
 
-        self.motor_action_head = nn.Linear(512, motor_action_space_size)
-        self.sensory_action_head = None
-        if sensory_action_space_size is not None:
-            self.sensory_action_head = nn.Linear(512, sensory_action_space_size)
+        self.motor_action_head = nn.Linear(512, self.motor_action_space_size)
+        self.sensory_action_head = nn.Linear(512, self.sensory_action_space_size)
 
     def forward(self, x):
         x = self.backbone(x)
@@ -151,6 +145,20 @@ class QNetwork(nn.Module):
         if self.sensory_action_head:
             sensory_action = self.sensory_action_head(x)
         return motor_action, sensory_action
+
+    def chose_action(self, envs: gym.vector.VectorEnv, pvm_obs, epsilon):
+        # Execute random motor and sensory action with probability epsilon
+        if random.random() < epsilon:
+            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
+            motor_actions = np.array([actions[0]["motor"]])
+            sensory_actions = np.array([random.randint(0, self.sensory_action_space_size-1)])
+        else:
+            motor_q_values, sensory_q_values = self(resize(torch.from_numpy(pvm_obs)).to(device))
+            motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
+            sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
+
+        return motor_actions, sensory_actions
+
 
 class SelfPredictionNetwork(nn.Module):
     def __init__(self, env, sensory_action_set=None):
@@ -280,18 +288,11 @@ if __name__ == "__main__":
         pvm_buffer.append(obs)
         # TODO: Observation ist zurzeit max() der vorherigen observations? das kann man mal ändern
         # ORIGINAL: pvm_obs = pvm_buffer.get_obs(mode="stack_max")
+
         pvm_obs = pvm_buffer.get_obs(mode="stack_max")
-        # ALGO LOGIC: put action logic here
         epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_transitions)
-        # Execute random motor and sensory action with probability epsilon
-        if random.random() < epsilon:
-            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
-            motor_actions = np.array([actions[0]["motor"]])
-            sensory_actions = np.array([random.randint(0, len(sensory_action_set)-1)])
-        else:
-            motor_q_values, sensory_q_values = q_network(resize(torch.from_numpy(pvm_obs)).to(device))
-            motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
-            sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
+
+        motor_actions, sensory_actions = q_network.chose_action(envs, pvm_obs, epsilon)
 
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, dones, _, infos = envs.step({
@@ -430,7 +431,7 @@ if __name__ == "__main__":
                             eval_episodic_lengths.append(infos['final_info'][0]["ep_len"])
                             eval_ns_pauses.append(infos['final_info'][0]["n_pauses"])
                             # Only save 1/4th of the evals as videos
-                            if args.capture_video and eval_ep % 4 == 0:
+                            if args.capture_video and eval_ep % 1 == 0:
                                 record_file_dir = os.path.join("recordings", args.exp_name, os.path.basename(__file__).rstrip(".py"), args.env)
                                 os.makedirs(record_file_dir, exist_ok=True)
                                 record_file_fn = f"{args.env}_seed{args.seed}_step{global_transitions:07d}_eval{eval_ep:02d}_record.pt"

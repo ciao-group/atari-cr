@@ -8,7 +8,7 @@ import numpy as np
 
 # Small cost for a vision step without actual env step 
 # to prevent the model from abusing only vision steps
-PAUSE_COST = 0
+PAUSE_COST = -0.05
 
 class PauseableFixedFovealEnv(FixedFovealEnv):
     """
@@ -31,7 +31,13 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
 
     def step(self, action):
         pause_action = action["motor"] == len(self.env.actions)
-        if pause_action and (self.state is not None):
+        if pause_action:
+            # Disallow a pause on the first episode step because there is no
+            # observation to look at yet
+            if not hasattr(self, "state"):
+                action["motor"] = np.random.randint(1, len(self.env.actions))
+                return self.step(action)
+
             # Only make a sensory step with a small cost
             reward, done, truncated = -PAUSE_COST, False, False
             info = { "raw_reward": reward }
