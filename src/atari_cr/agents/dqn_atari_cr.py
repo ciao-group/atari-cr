@@ -223,8 +223,8 @@ if __name__ == "__main__":
     # TRY NOT TO MODIFY: seeding
     seed_everything(args.seed)
 
-
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    assert device.type == "cuda"
 
     # env setup
     envs = []
