@@ -5,8 +5,8 @@ numgpus=${2:-$(nvidia-smi --list-gpus | wc -l)}
 #envlist=(alien amidar assault asterix bank_heist battle_zone boxing breakout chopper_command crazy_climber demon_attack freeway frostbite gopher hero jamesbond kangaroo krull kung_fu_master ms_pacman pong private_eye qbert road_runner seaquest up_n_down) #pong qbert seaquest zaxxon
 envlist=(boxing)
 
-expname="boxing_pauseable114_2m"
-totaltimesteps="2000000"
+expname="boxing_pauseable115_2m"
+totaltimesteps="1000000"
 buffersize="100000"
 learningstarts="10000"
 
