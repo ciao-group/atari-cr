@@ -214,7 +214,7 @@ if __name__ == "__main__":
     if not os.path.exists(run_dir):
         os.makedirs(run_dir, exist_ok=True)
     
-    writer = SummaryWriter(os.path.join(run_dir, run_name))
+    writer = SummaryWriter(run_dir)
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
