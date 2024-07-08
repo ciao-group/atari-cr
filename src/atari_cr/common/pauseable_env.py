@@ -8,7 +8,7 @@ import numpy as np
 
 # Small cost for a vision step without actual env step 
 # to prevent the model from abusing only vision steps
-PAUSE_COST = 0.001
+PAUSE_COST = 0.01
 
 class PauseableFixedFovealEnv(FixedFovealEnv):
     """
