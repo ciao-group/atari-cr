@@ -11,7 +11,6 @@ requires-python = ">3.8,<3.12"
 dependencies = [
     "active-gym @ git+https://github.com/elicassion/active-gym.git#main",
     # curl -L https://www.atarimania.com/roms/Atari-2600-VCS-ROM-Collection.zip -o x.zip && unzip x.zip && python -m atari_py.import_roms ROMS && rm -r ROMS 'HC ROMS' x.zip
-    "stable-baselines3[extra]",
     "cython<3",
     "tensorboard!=2.17"
 ]
