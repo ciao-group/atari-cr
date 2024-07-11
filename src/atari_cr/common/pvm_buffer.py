@@ -1,6 +1,7 @@
 from collections import deque
 from typing import Tuple
 import copy
+from PIL import Image
 
 import numpy as np
 
@@ -80,3 +81,11 @@ class PVMBuffer:
         else:
             return np.stack(self.fov_loc_buffer, axis=1)
         #[B, T, *fov_locs_size], maybe [B, T, 2] for 2d or [B, T, 4, 4] for 3d
+
+    def display(self, mode="stack_max"):
+        """
+        Display the current content of the buffer as an image.
+        """
+        obs = self.get_obs(mode=mode)
+        obs = np.concatenate(obs[0], axis=1)
+        Image.fromarray(obs, "L").save("debug.png")

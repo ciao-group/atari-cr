@@ -415,3 +415,7 @@ def get_sugarl_reward_scale_atari(game) -> float:
         sugarl_reward_scale = 1/35
     sugarl_reward_scale = sugarl_reward_scale * base_scale
     return sugarl_reward_scale
+
+def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
+    slope = (end_e - start_e) / duration
+    return max(slope * t + start_e, end_e)
