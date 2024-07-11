@@ -531,6 +531,7 @@ class CRDQN:
                 if successive_pause_actions > 100:
                     print("Warning: Using random action selection to prevent successive pause actions")
                     motor_actions, sensory_actions = self.q_network.chose_action(eval_env, pvm_obs_eval, epsilon=1.)
+                    successive_pause_actions = 0
 
                 next_obs_eval, rewards, dones, _, infos = eval_env.step({
                     "motor": motor_actions, 

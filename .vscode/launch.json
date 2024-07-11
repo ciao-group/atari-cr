@@ -25,7 +25,7 @@
                 "--fov-size", "20",
                 "--clip-reward",
                 "--capture-video",
-                "--total-timesteps", "10000",
+                "--total-timesteps", "20000",
                 "--buffer-size", "100000",
                 "--learning-starts", "1000",
                 // "--sensory-action-x-size", "4",
