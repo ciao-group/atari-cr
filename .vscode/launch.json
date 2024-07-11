@@ -27,7 +27,7 @@
                 "--capture-video",
                 "--total-timesteps", "20000",
                 "--buffer-size", "100000",
-                "--learning-starts", "1000",
+                "--learning-start", "1000",
                 // "--sensory-action-x-size", "4",
                 // "--sensory-action-y-size", "4",
             ],

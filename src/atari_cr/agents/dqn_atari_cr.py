@@ -9,7 +9,7 @@ from distutils.util import strtobool
 sys.path.append(osp.dirname(osp.dirname(osp.realpath(__file__))))
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-from typing import Callable
+from typing import Callable, Tuple
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -86,7 +86,7 @@ def parse_args():
         help="the ending epsilon for exploration")
     parser.add_argument("--exploration-fraction", type=float, default=0.10,
         help="the fraction of `total-timesteps` it takes from start-e to go end-e")
-    parser.add_argument("--learning-starts", type=int, default=80000,
+    parser.add_argument("--learning-start", type=int, default=80000,
         help="timestep to start learning")
     parser.add_argument("--train-frequency", type=int, default=4,
         help="the frequency of training")
@@ -248,12 +248,12 @@ class CRDQN:
             writer: SummaryWriter, 
             sugarl_r_scale: float,
             fov_size = 50,
-            sensory_action_space_granularity = (4, 4),
+            sensory_action_space_granularity: Tuple[int] = (4, 4),
             learning_rate = 0.0001,
             replay_buffer_size = 100000,
             channel_stack_size = 4,
             pvm_stack_size = 3,
-            epsilon_interval = (1., 0.01),
+            epsilon_interval: Tuple[float] = (1., 0.01),
             exploration_fraction = 0.10,
             batch_size = 32,
             learning_start = 80000,
@@ -504,6 +504,7 @@ class CRDQN:
         self.sfn.eval()
         
         eval_episodic_returns, eval_episodic_lengths, eval_ns_pauses = [], [], []
+        eval_prevented_pause_actions = []
 
         for eval_ep in range(self.n_evals):
             eval_env = self.eval_env_generator(eval_ep)
@@ -519,7 +520,7 @@ class CRDQN:
             )
 
             # One episode in the environment
-            successive_pause_actions = 0
+            successive_pause_actions, prevented_pause_actions = 0, 0
             while not done:
                 pvm_buffer_eval.append(obs_eval)
                 pvm_obs_eval = pvm_buffer_eval.get_obs(mode="stack_max")
@@ -528,10 +529,11 @@ class CRDQN:
 
                 # Keep track of successive pause actions to prevent the system from halting
                 successive_pause_actions += single_eval_env.pause_action
-                if successive_pause_actions > 100:
-                    print("Warning: Using random action selection to prevent successive pause actions")
+                if prevented_pause_actions > 50 or successive_pause_actions > 20:
+                    # print("Warning: Using random action selection to prevent successive pause actions")
                     motor_actions, sensory_actions = self.q_network.chose_action(eval_env, pvm_obs_eval, epsilon=1.)
                     successive_pause_actions = 0
+                    prevented_pause_actions += 1
 
                 next_obs_eval, rewards, dones, _, infos = eval_env.step({
                     "motor": motor_actions, 
@@ -543,6 +545,7 @@ class CRDQN:
             eval_episodic_returns.append(infos['final_info'][0]["reward"])
             eval_episodic_lengths.append(infos['final_info'][0]["ep_len"])
             eval_ns_pauses.append(infos['final_info'][0]["n_pauses"])
+            eval_prevented_pause_actions.append(prevented_pause_actions)
 
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
@@ -568,6 +571,8 @@ class CRDQN:
             f"[R list: {','.join([f'{r:.2f}' for r in eval_episodic_returns])}]"
             f"[Pauses: {','.join([str(n) for n in eval_ns_pauses])}]"
         ))
+        if not all(n == 0 for n in eval_prevented_pause_actions):
+            print(f"WARNING: [Prevented Pauses]: {','.join(map(str, eval_prevented_pause_actions))}")
 
         # Set the networks back to training mode
         self.q_network.train()
@@ -601,5 +606,14 @@ if __name__ == "__main__":
     sugarl_r_scale = get_sugarl_reward_scale_atari(args.env)
 
     env = make_train_env()
-    agent = CRDQN(env, make_eval_env, writer, sugarl_r_scale)
+    agent = CRDQN(
+        env, 
+        make_eval_env, 
+        writer, 
+        sugarl_r_scale,
+        fov_size=args.fov_size,
+        replay_buffer_size=args.buffer_size,
+        learning_start=args.learning_start
+    )
+
     agent.learn(args.total_timesteps, args.env, args.exp_name)
