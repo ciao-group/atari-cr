@@ -251,8 +251,8 @@ class CRDQN:
             sensory_action_space_granularity: Tuple[int] = (4, 4),
             learning_rate = 0.0001,
             replay_buffer_size = 100000,
-            channel_stack_size = 4,
-            pvm_stack_size = 3,
+            frame_stack = 4,
+            pvm_stack = 3,
             epsilon_interval: Tuple[float] = (1., 0.01),
             exploration_fraction = 0.10,
             batch_size = 32,
@@ -279,9 +279,9 @@ class CRDQN:
         learning_rate : float
             The learning rate used for the Q Network and Self Predicition Network
         replay_buffer_size : int
-        channel_stack_size : int
-            # TODO ???
-        pvm_stack_size : int
+        frame_stack : int
+            # The number of frames being stacked as on observation by the atari environment
+        pvm_stack : int
             The number of recent observations to be used for action selection
         epsilon_interval : tuple of int
             Interval in which the propability for a random action 
@@ -319,8 +319,8 @@ class CRDQN:
         self.eval_frequency = eval_frequency
         self.n_evals = n_evals
         self.eval_env_generator = eval_env_generator
-        self.pvm_stack_size = pvm_stack_size
-        self.channel_stack_size = channel_stack_size
+        self.pvm_stack = pvm_stack
+        self.frame_stack = frame_stack
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.current_timestep = 0
@@ -367,7 +367,7 @@ class CRDQN:
         # PVM Buffer aka. Short Term Memory, combining multiple observations
         # TODO: Investigation into pvm_buffer and its 4 channels
         # TODO: Better Belief Map than PVM maybe
-        self.pvm_buffer = PVMBuffer(pvm_stack_size, (self.n_envs, channel_stack_size, *self.obs_size))
+        self.pvm_buffer = PVMBuffer(pvm_stack, (self.n_envs, frame_stack, *self.obs_size))
 
     def learn(self, n: int, env_name: str, experiment_name: str):
         """
@@ -515,8 +515,8 @@ class CRDQN:
             done = False
 
             pvm_buffer_eval = PVMBuffer(
-                self.pvm_stack_size, 
-                (n_eval_envs, self.channel_stack_size, *self.obs_size)
+                self.pvm_stack, 
+                (n_eval_envs, self.frame_stack, *self.obs_size)
             )
 
             # One episode in the environment
@@ -550,18 +550,19 @@ class CRDQN:
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
             if single_eval_env.env.record and eval_ep % 4 == 0:
-                record_file_dir = os.path.join("recordings", experiment_name, os.path.basename(__file__).rstrip(".py"), env_name)
+                record_file_dir = os.path.join("output/recordings", experiment_name, os.path.basename(__file__).rstrip(".py"), env_name)
                 os.makedirs(record_file_dir, exist_ok=True)
                 record_file_fn = f"{env_name}_seed{args.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}_record.pt"
                 single_eval_env.save_record_to_file(os.path.join(record_file_dir, record_file_fn))
                 
                 if eval_ep == 0:
                     # Safe the model file
-                    model_file_dir = os.path.join("trained_models", experiment_name, os.path.basename(__file__).rstrip(".py"), env_name)
+                    model_file_dir = os.path.join("output/trained_models", experiment_name, os.path.basename(__file__).rstrip(".py"), env_name)
                     os.makedirs(model_file_dir, exist_ok=True)
                     model_fn = f"{env_name}_seed{args.seed}_step{self.current_timestep:07d}_model.pt"
                     torch.save({"sfn": self.sfn.state_dict(), "q": self.q_network.state_dict()}, os.path.join(model_file_dir, model_fn))
-                        
+
+        pvm_buffer_eval.display()
 
         self.writer.add_scalar("charts/eval_episodic_return", np.mean(eval_episodic_returns), self.current_timestep)
         self.writer.add_scalar("charts/eval_episodic_return_std", np.std(eval_episodic_returns), self.current_timestep)
@@ -588,7 +589,7 @@ if __name__ == "__main__":
     args = parse_args()
     args.env = args.env.lower()
     run_name = f"{args.env}__{os.path.basename(__file__)}__{args.seed}__{get_timestr()}"
-    run_dir = os.path.join("runs", args.exp_name)
+    run_dir = os.path.join("output/runs", args.exp_name)
     if not os.path.exists(run_dir):
         os.makedirs(run_dir, exist_ok=True)
     
@@ -613,7 +614,8 @@ if __name__ == "__main__":
         sugarl_r_scale,
         fov_size=args.fov_size,
         replay_buffer_size=args.buffer_size,
-        learning_start=args.learning_start
+        learning_start=args.learning_start,
+        pvm_stack=args.pvm_stack
     )
 
     agent.learn(args.total_timesteps, args.env, args.exp_name)

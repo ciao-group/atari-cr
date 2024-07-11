@@ -5,6 +5,12 @@ from PIL import Image
 
 import numpy as np
 
+import numpy as np
+from PIL import Image
+
+from atari_cr.common.utils import grid_image
+
+
 class PVMBuffer:
     """
     Persistence-of-Vision memory (Section 3.3)
@@ -51,7 +57,6 @@ class PVMBuffer:
             raise NotImplementedError
 
     def get_fov_locs(self, return_mask=False, relative_transform=False) -> np.ndarray:
-        # print ([x.shape for x in self.fov_loc_buffer])
         transforms = []
         if relative_transform:
             for t in range(len(self.fov_loc_buffer)):
@@ -82,10 +87,40 @@ class PVMBuffer:
             return np.stack(self.fov_loc_buffer, axis=1)
         #[B, T, *fov_locs_size], maybe [B, T, 2] for 2d or [B, T, 4, 4] for 3d
 
-    def display(self, mode="stack_max"):
+    def display(self, out_file = "output/debug.png"):
         """
-        Display the current content of the buffer as an image.
+        Display the current content of the buffer by saving it as an image
         """
-        obs = self.get_obs(mode=mode)
-        obs = np.concatenate(obs[0], axis=1)
-        Image.fromarray(obs, "L").save("debug.png")
+        self.to_img().save(out_file)
+
+    def to_img(self):
+        # Convert raw buffer to a grid representation
+        line_width = 1
+        raw_grid = grid_image(self._rgb_buffer()[0], line_width=line_width)
+
+        # Get the pvm observation as a grid representation of the same size
+        pvm_obs = self.get_obs()
+        pvm_grid = grid_image(self._greyscale_to_rgb(pvm_obs), line_width=line_width)
+        padded_pvm_grid = np.zeros(raw_grid.shape)
+        padded_pvm_grid[:pvm_grid.shape[0], :, :] = pvm_grid
+
+        # Put them underneath each other in another grid
+        full_grid = grid_image(
+            np.expand_dims(np.stack([raw_grid, padded_pvm_grid]), axis=1), 
+            line_color=[0, 255, 0],
+            line_width=line_width
+        )
+
+        # Cut off the padding
+        height_to_cut = (self.max_len - 1) * (pvm_obs.shape[3] + line_width)
+        final_grid = full_grid[:-height_to_cut, :, :]
+
+        return Image.fromarray(final_grid, mode="RGB")
+    
+    def _greyscale_to_rgb(self, x: np.ndarray):
+        scaled_array = (x * 255).astype(np.uint8)
+        return np.repeat(scaled_array[..., np.newaxis], 3, axis=-1)
+    
+    def _rgb_buffer(self):
+        return self._greyscale_to_rgb(np.stack(self.buffer, axis=1))
+    

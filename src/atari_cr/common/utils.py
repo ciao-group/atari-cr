@@ -419,3 +419,30 @@ def get_sugarl_reward_scale_atari(game) -> float:
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
+
+def grid_image(array, line_color=[255, 0, 0], line_width=1):
+    """
+    Display a grid of rgb images seperated by colored lines
+    """
+    assert len(array.shape) == 5, "Only works for array of shape (n_rows, n_cols, x, y, n_channels)"
+    n_rows, n_cols, y, x, n_channels = array.shape 
+
+    # Create a new RGB array to hold the grid with separating lines
+    grid_size = (y * n_rows + line_width * (n_rows - 1), x * n_cols + line_width * (n_cols - 1), 3)
+    grid = np.zeros(grid_size, dtype=np.uint8)
+
+    # Plot each image in the grid
+    for i in range(n_rows):
+        for j in range(n_cols):
+            y_start = i * (y + line_width)
+            x_start = j * (x + line_width)
+            # Scale the image to 0-255 range and repeat across RGB channels
+            grid[y_start:y_start+y, x_start:x_start+x] = array[i, j]
+
+    # Create colored lines
+    for i in range(1, n_rows):
+        grid[i*(y+line_width)-line_width:i*(y+line_width), :] = line_color
+    for j in range(1, n_cols):
+        grid[:, j*(x+line_width)-line_width:j*(x+line_width)] = line_color
+
+    return grid

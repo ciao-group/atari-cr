@@ -5,14 +5,16 @@ numgpus=${2:-$(nvidia-smi --list-gpus | wc -l)}
 #envlist=(alien amidar assault asterix bank_heist battle_zone boxing breakout chopper_command crazy_climber demon_attack freeway frostbite gopher hero jamesbond kangaroo krull kung_fu_master ms_pacman pong private_eye qbert road_runner seaquest up_n_down) #pong qbert seaquest zaxxon
 envlist=(boxing)
 
-expname="boxing_pauseable117_1m"
-totaltimesteps="1000000"
+expname="boxing_pauseable118_2m"
+totaltimesteps="2000000"
 buffersize="100000"
 learningstarts="10000"
 
-mkdir -p logs/${expname}
-mkdir -p recordings/${expname}
-mkdir -p trained_models/${expname}
+logdir=output/logs/${expname}
+mkdir -p output
+mkdir -p ${logdir}
+mkdir -p output/recordings/${expname}
+mkdir -p output/trained_models/${expname}
 
 for i in ${!envlist[@]}
 do
@@ -22,7 +24,7 @@ do
         do
             echo "${expname} GPU: ${gpuid} Env: ${envlist[$i]} Seed: ${seed} ${1}"
             basename=$(basename $1)
-            echo "========" >> logs/${expname}/${envlist[$i]}__${basename}__${seed}.txt
+            echo "========" >> ${logdir}/${envlist[$i]}__${basename}__${seed}.txt
             CUDA_VISIBLE_DEVICES=$gpuid python $1 --env ${envlist[$i]} \
                                                   --env-num 1 \
                                                   --seed $seed \
@@ -33,7 +35,8 @@ do
                                                   --total-timesteps $totaltimesteps \
                                                   --buffer-size $buffersize \
                                                   --learning-start $learningstarts \
-                                                  ${@:2} >> logs/${expname}/${envlist[$i]}__${basename}__${seed}.txt
+                                                  --pvm-stack 6 \
+                                                  ${@:2} >> ${logdir}/${envlist[$i]}__${basename}__${seed}.txt
         done
     ) &
 done

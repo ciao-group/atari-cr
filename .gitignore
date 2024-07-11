@@ -1,14 +1,6 @@
 */__pycache__
 *.pyc
 *.txt
-runs
-runs/*
-logs
-logs/*
-recordings
-recordings/*
-trained_models
-trained_models/*
 */.ipynb_checkpoints
 *.egg-info
 
@@ -18,3 +10,4 @@ trained_models/*
 build
 *cache*
 *.png
+output
