@@ -24,14 +24,17 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
             "sensory": Box(low=self.sensory_action_space[0], 
                                  high=self.sensory_action_space[1], dtype=int),
         })
+        # Whether to pause the game at the current step
+        self.pause_action = False
 
         # Count and log the number of pauses made and their cost
         self.n_pauses = 0
         self.pause_cost = PAUSE_COST
 
     def step(self, action):
-        pause_action = action["motor"] == len(self.env.actions)
-        if pause_action:
+        # The pause action is the last action in the action set
+        self.pause_action = action["motor"] == len(self.env.actions)
+        if self.pause_action:
             # Disallow a pause on the first episode step because there is no
             # observation to look at yet
             if not hasattr(self, "state"):

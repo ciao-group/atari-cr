@@ -168,17 +168,30 @@ class QNetwork(nn.Module):
             sensory_action = self.sensory_action_head(x)
         return motor_action, sensory_action
 
-    def chose_action(self, envs: gym.vector.VectorEnv, pvm_obs, epsilon):
+    def chose_action(self, env: gym.vector.VectorEnv, pvm_obs: np.ndarray, epsilon: float):
+        """
+        Epsilon greedy action selection
+
+        Parameters
+        ----------
+        epsilon : float
+            Probability of selecting a random action
+        """
         # Execute random motor and sensory action with probability epsilon
         if random.random() < epsilon:
-            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
+            actions = np.array([env.single_action_space.sample() for _ in range(env.num_envs)])
             motor_actions = np.array([actions[0]["motor"]])
             sensory_actions = np.array([random.randint(0, self.sensory_action_space_size-1)])
         else:
-            resize = Resize(pvm_obs.shape[2:])
-            motor_q_values, sensory_q_values = self(resize(torch.from_numpy(pvm_obs)).to(device))
-            motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
-            sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
+            motor_actions, sensory_actions = self.chose_eval_action(pvm_obs)
+
+        return motor_actions, sensory_actions
+    
+    def chose_eval_action(self, pvm_obs: np.ndarray):
+        resize = Resize(pvm_obs.shape[2:])
+        motor_q_values, sensory_q_values = self(resize(torch.from_numpy(pvm_obs)).to(device))
+        motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
+        sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
 
         return motor_actions, sensory_actions
 
@@ -486,6 +499,7 @@ class CRDQN:
             self.target_network.load_state_dict(self.q_network.state_dict())
 
     def evaluate(self, env_name: str, experiment_name: str):
+        # Set networks to eval mode
         self.q_network.eval()
         self.sfn.eval()
         
@@ -505,12 +519,19 @@ class CRDQN:
             )
 
             # One episode in the environment
+            successive_pause_actions = 0
             while not done:
                 pvm_buffer_eval.append(obs_eval)
                 pvm_obs_eval = pvm_buffer_eval.get_obs(mode="stack_max")
-                motor_q_values, sensory_q_values = self.q_network(Resize(self.obs_size)(torch.from_numpy(pvm_obs_eval)).to(device))
-                motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
-                sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
+
+                motor_actions, sensory_actions = self.q_network.chose_eval_action(pvm_obs_eval)
+
+                # Keep track of successive pause actions to prevent the system from halting
+                successive_pause_actions += single_eval_env.pause_action
+                if successive_pause_actions > 100:
+                    print("Warning: Using random action selection to prevent successive pause actions")
+                    motor_actions, sensory_actions = self.q_network.chose_action(eval_env, pvm_obs_eval, epsilon=1.)
+
                 next_obs_eval, rewards, dones, _, infos = eval_env.step({
                     "motor": motor_actions, 
                     "sensory": [self.sensory_action_set[a] for a in sensory_actions]
@@ -540,7 +561,6 @@ class CRDQN:
 
         self.writer.add_scalar("charts/eval_episodic_return", np.mean(eval_episodic_returns), self.current_timestep)
         self.writer.add_scalar("charts/eval_episodic_return_std", np.std(eval_episodic_returns), self.current_timestep)
-        # self.writer.add_scalar("charts/eval_episodic_length", np.mean(), self.current_timestep)
         print((
             f"[N: {self.current_timestep:07,d}]"
             f"[Eval R: {np.mean(eval_episodic_returns):.2f}+/-{np.std(eval_episodic_returns):.2f}]"
@@ -548,6 +568,7 @@ class CRDQN:
             f"[Pauses: {','.join([str(n) for n in eval_ns_pauses])}]"
         ))
 
+        # Set the networks back to training mode
         self.q_network.train()
         self.sfn.train()
 
