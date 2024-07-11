@@ -32,7 +32,7 @@ do
                                                   --capture-video \
                                                   --total-timesteps $totaltimesteps \
                                                   --buffer-size $buffersize \
-                                                  --learning-starts $learningstarts \
+                                                  --learning-start $learningstarts \
                                                   ${@:2} >> logs/${expname}/${envlist[$i]}__${basename}__${seed}.txt
         done
     ) &
