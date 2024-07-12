@@ -381,177 +381,104 @@ class CRDQN:
         """
         self.start_time = time.time()
         obs, infos = self.env.reset()
+        self.pvm_buffer.append(obs)
+        pvm_obs = self.pvm_buffer.get_obs(mode="stack_max")
 
         while self.current_timestep < n:
-            self.pvm_buffer.append(obs)
-            # self.pvm_buffer.display()
+            # Chose action from q network
+            self.epsilon = self._epsilon_schedule(n)
+            motor_actions, sensory_actions = self.q_network.chose_action(self.env, pvm_obs, self.epsilon)
 
-            pvm_obs = self.pvm_buffer.get_obs(mode="stack_max")
-            epsilon = self._epsilon_schedule(n)
+            # Perform the action in the environment
+            next_pvm_obs, rewards, dones, _ = self._step(
+                env, 
+                self.pvm_buffer,
+                motor_actions, 
+                sensory_actions,
+            )
 
-            motor_actions, sensory_actions = self.q_network.chose_action(self.env, pvm_obs, epsilon)
+            # Add new pvm ovbervation to the buffer   
+            self.rb.add(pvm_obs, next_pvm_obs, motor_actions, sensory_actions, rewards, dones, {})
+            pvm_obs = next_pvm_obs
 
-            # Execute the game and log data
-            next_obs, rewards, dones, _, infos = self.env.step({
-                "motor": motor_actions, 
-                "sensory": [self.sensory_action_set[a] for a in  sensory_actions] 
-            })
-
-            # Record episode returns
-            if "final_info" in infos and True in dones:
-                # Get the index of the env that finished 
-                idx = np.argmax(dones)
-                print((
-                    f"[T: {time.time()-self.start_time:.2f}] "
-                    f"[N: {self.current_timestep:07,d}] "
-                    f"[R: {infos['final_info'][idx]['reward']:.2f}] "
-                    f"[Pauses: {infos['final_info'][idx]['n_pauses']} x ({-infos['final_info'][idx]['pause_cost']})]"
-                ))    
-                self.writer.add_scalar("charts/episodic_return", infos['final_info'][idx]["reward"], self.current_timestep)
-                self.writer.add_scalar("charts/episodic_length", infos['final_info'][idx]["ep_len"], self.current_timestep)
-                self.writer.add_scalar("charts/epsilon", epsilon, self.current_timestep)
-
-            # Save data to reply buffer; handle `terminal_observation`
-            real_next_obs = next_obs
-            if True in dones:
-                idx = np.argmax(dones)
-                real_next_obs[idx] = infos["final_observation"][idx]
-            pvm_buffer_copy = self.pvm_buffer.copy()
-            pvm_buffer_copy.append(real_next_obs)
-            real_next_pvm_obs = pvm_buffer_copy.get_obs(mode="stack_max")
-            self.rb.add(pvm_obs, real_next_pvm_obs, motor_actions, sensory_actions, rewards, dones, {})
-            obs = next_obs
-
+            # Only train if a full batch is available
             self.current_timestep += self.n_envs
+            if self.current_timestep > self.batch_size:
 
-            obs_backup = obs
+                # Training
+                if self.current_timestep % self.train_frequency == 0:
+                    self.train()
+                if self.current_timestep % 100 == 0:
+                    self.writer.add_scalar("charts/SPS", int(self.current_timestep / (time.time() - self.start_time)), self.current_timestep)
 
-            # Continue gathering observations 
-            # if no batches can can be formed from the buffer yet
-            if self.current_timestep < self.batch_size:
-                continue
-
-            # Training
-            if self.current_timestep % self.train_frequency == 0:
-                self.train()
-            if self.current_timestep % 100 == 0:
-                self.writer.add_scalar("charts/SPS", int(self.current_timestep / (time.time() - self.start_time)), self.current_timestep)
-
-            # Evaluation
-            if (self.current_timestep % self.eval_frequency == 0 and self.eval_frequency > 0) or \
-            (self.current_timestep >= n):
-                self.evaluate(env_name, experiment_name)
-            
-            # Restore obs if eval occurs
-            obs = obs_backup 
+                # Evaluation
+                if (self.current_timestep % self.eval_frequency == 0 and self.eval_frequency > 0) or \
+                (self.current_timestep >= n):
+                    self.evaluate(env_name, experiment_name)
 
         self.env.close()
-        # eval_env.close()
         self.writer.close()
 
     def train(self):
         """
         Performs one training iteration from the replay buffer
         """
+        # Replay buffer sampling
         # Counter-balance the true global transitions used for training
-        data = self.rb.sample(self.batch_size // self.n_envs) # counter-balance the true global transitions used for training
+        data = self.rb.sample(self.batch_size // self.n_envs)
 
-        # SFN learning
-        # Concat at dimension T
-        concat_observation = torch.concat([data.next_observations, data.observations], dim=1) 
-        pred_motor_actions = self.sfn(Resize(self.obs_size)(concat_observation))
-        sfn_loss = self.sfn.get_loss(pred_motor_actions, data.motor_actions.flatten())
-        self.sfn_optimizer.zero_grad()
-        sfn_loss.backward()
-        self.sfn_optimizer.step()
-        observ_r = F.softmax(pred_motor_actions).gather(1, data.motor_actions).squeeze().detach()
+        # SFN training
+        observ_r = self._train_sfn(data)
 
-        # Q network learning
+        # DQN training
         if self.current_timestep > self.learning_start:
-            with torch.no_grad():
-                motor_target, sensory_target = self.target_network(Resize(self.obs_size)(data.next_observations))
-                motor_target_max, _ = motor_target.max(dim=1)
-                sensory_target_max, _ = sensory_target.max(dim=1)
-                # Scale step-wise reward with observ_r
-                observ_r_adjusted = observ_r.clone()
-                observ_r_adjusted[data.rewards.flatten() > 0] = 1 - observ_r_adjusted[data.rewards.flatten() > 0]
-                td_target = data.rewards.flatten() - (1 - observ_r) * self.sugarl_r_scale + self.gamma * (motor_target_max+sensory_target_max) * (1 - data.dones.flatten())
-                original_td_target = data.rewards.flatten() + self.gamma * (motor_target_max+sensory_target_max) * (1 - data.dones.flatten())
-
-            old_motor_q_val, old_sensory_q_val = self.q_network(Resize(self.obs_size)(data.observations))
-            old_motor_val = old_motor_q_val.gather(1, data.motor_actions).squeeze()
-            old_sensory_val = old_sensory_q_val.gather(1, data.sensory_actions).squeeze()
-            old_val = old_motor_val + old_sensory_val
-            
-            loss = F.mse_loss(td_target, old_val)
-
-            if self.current_timestep % 100 == 0:
-                self.writer.add_scalar("losses/td_loss", loss, self.current_timestep)
-                self.writer.add_scalar("losses/q_values", old_val.mean().item(), self.current_timestep)
-                self.writer.add_scalar("losses/motor_q_values", old_motor_val.mean().item(), self.current_timestep)
-                self.writer.add_scalar("losses/sensor_q_values", old_sensory_val.mean().item(), self.current_timestep)
-                self.writer.add_scalar("losses/sfn_loss", sfn_loss.item(), self.current_timestep)
-                self.writer.add_scalar("losses/observ_r", observ_r.mean().item(), self.current_timestep)
-                self.writer.add_scalar("losses/original_td_target", original_td_target.mean().item(), self.current_timestep)
-                self.writer.add_scalar("losses/sugarl_r_scaled_td_target", td_target.mean().item(), self.current_timestep)
-
-            # Optimize the model
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-
-        # Update the target network
-        if (self.current_timestep // self.n_envs) % self.target_network_frequency == 0:
-            self.target_network.load_state_dict(self.q_network.state_dict())
+            self._train_dqn(data, observ_r)
 
     def evaluate(self, env_name: str, experiment_name: str):
         # Set networks to eval mode
         self.q_network.eval()
         self.sfn.eval()
         
-        eval_episodic_returns, eval_episodic_lengths, eval_ns_pauses = [], [], []
-        eval_prevented_pause_actions = []
+        episodic_returns, episode_lengths = [], []
+        pause_counts, prevented_pauses = [], []
 
         for eval_ep in range(self.n_evals):
+            # Create env
             eval_env = self.eval_env_generator(eval_ep)
             single_eval_env = eval_env.envs[0] if isinstance(eval_env, VectorEnv) else eval_env
             n_eval_envs = eval_env.num_envs if isinstance(eval_env, VectorEnv) else 1
 
-            obs_eval, _ = eval_env.reset()
+            # Init env
+            obs, _ = eval_env.reset()
             done = False
-
-            pvm_buffer_eval = PVMBuffer(
+            eval_pvm_buffer = PVMBuffer(
                 self.pvm_stack, 
                 (n_eval_envs, self.frame_stack, *self.obs_size)
             )
+            eval_pvm_buffer.append(obs)
+            pvm_obs = eval_pvm_buffer.get_obs(mode="stack_max")
 
             # One episode in the environment
-            successive_pause_actions, prevented_pause_actions = 0, 0
             while not done:
-                pvm_buffer_eval.append(obs_eval)
-                pvm_obs_eval = pvm_buffer_eval.get_obs(mode="stack_max")
+                # Chose an action from the Q network
+                motor_actions, sensory_actions \
+                    = self.q_network.chose_eval_action(pvm_obs)
 
-                motor_actions, sensory_actions = self.q_network.chose_eval_action(pvm_obs_eval)
-
-                # Keep track of successive pause actions to prevent the system from halting
-                successive_pause_actions += single_eval_env.pause_action
-                if prevented_pause_actions > 50 or successive_pause_actions > 20:
-                    # print("Warning: Using random action selection to prevent successive pause actions")
-                    motor_actions, sensory_actions = self.q_network.chose_action(eval_env, pvm_obs_eval, epsilon=1.)
-                    successive_pause_actions = 0
-                    prevented_pause_actions += 1
-
-                next_obs_eval, rewards, dones, _, infos = eval_env.step({
-                    "motor": motor_actions, 
-                    "sensory": [self.sensory_action_set[a] for a in sensory_actions]
-                })
-                obs_eval = next_obs_eval
+                # Perform the action in the environment
+                next_pvm_obs, rewards, dones, infos = self._step(
+                    eval_env, 
+                    eval_pvm_buffer,
+                    motor_actions,
+                    sensory_actions,
+                    eval=True
+                )
                 done = dones[0]
+                pvm_obs = next_pvm_obs
 
-            eval_episodic_returns.append(infos['final_info'][0]["reward"])
-            eval_episodic_lengths.append(infos['final_info'][0]["ep_len"])
-            eval_ns_pauses.append(infos['final_info'][0]["n_pauses"])
-            eval_prevented_pause_actions.append(prevented_pause_actions)
+            episodic_returns.append(infos['final_info'][0]["reward"])
+            episode_lengths.append(infos['final_info'][0]["ep_len"])
+            pause_counts.append(infos['final_info'][0]["n_pauses"])
+            prevented_pauses.append(infos['final_info'][0]["prevented_pauses"])
 
             def _save_output(output_type: str, file_prefix: str, save_fn: Callable[[str], None]):
                 """
@@ -564,7 +491,7 @@ class CRDQN:
                 save_fn(os.path.join(pvm_vis_dir, file_name))
 
             # Save a visualization of the pvm buffer
-            _save_output("pvms", "png", pvm_buffer_eval.to_png)
+            _save_output("pvms", "png", eval_pvm_buffer.to_png)
 
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
@@ -576,20 +503,115 @@ class CRDQN:
                 save_fn = lambda s: torch.save({"sfn": self.sfn.state_dict(), "q": self.q_network.state_dict()}, s)
                 _save_output("trained_models", "pt", save_fn)
 
-        self.writer.add_scalar("charts/eval_episodic_return", np.mean(eval_episodic_returns), self.current_timestep)
-        self.writer.add_scalar("charts/eval_episodic_return_std", np.std(eval_episodic_returns), self.current_timestep)
-        print((
-            f"[N: {self.current_timestep:07,d}] "
-            f"[Eval R: {np.mean(eval_episodic_returns):.2f}+/-{np.std(eval_episodic_returns):.2f}]\n"
-            f"[R list: {','.join([f'{r:.2f}' for r in eval_episodic_returns])}]\n"
-            f"[Pauses: {','.join([str(n) for n in eval_ns_pauses])}]"
-        ))
-        if not all(n == 0 for n in eval_prevented_pause_actions):
-            print(f"WARNING: [Prevented Pauses]: {','.join(map(str, eval_prevented_pause_actions))}")
+            eval_env.close()
+
+        # Log results
+        self._log_eval_episodes(episodic_returns, episode_lengths, pause_counts, prevented_pauses)
 
         # Set the networks back to training mode
         self.q_network.train()
         self.sfn.train()
+
+    def _step(self, env: gym.Env, pvm_buffer: PVMBuffer, motor_actions, sensory_actions, eval = False):
+        """
+        Given an action, the agent does one step in the environment, 
+        returning the next observation
+        """
+        # Take an action in the environment
+        next_obs, rewards, dones, _, infos = env.step({
+            "motor": motor_actions, 
+            "sensory": [self.sensory_action_set[a] for a in sensory_actions]
+        })
+
+        # Log episode returns and handle `terminal_observation`
+        if not eval and "final_info" in infos and True in dones:
+            finished_env_index = np.argmax(dones)
+            self._log_episode(finished_env_index, infos)
+            next_obs[finished_env_index] = infos["final_observation"][finished_env_index]
+
+        # Get the next pvm observation
+        pvm_buffer.append(next_obs)
+        next_pvm_obs = pvm_buffer.get_obs(mode="stack_max")
+
+        return next_pvm_obs, rewards, dones, infos
+
+    def _log_episode(self, finished_env_index: int, infos):
+        print((
+            f"[T: {time.time()-self.start_time:.2f}] "
+            f"[N: {self.current_timestep:07,d}] "
+            f"[R: {infos['final_info'][finished_env_index]['reward']:.2f}] "
+            f"[Pauses: {infos['final_info'][finished_env_index]['n_pauses']} x ({-infos['final_info'][finished_env_index]['pause_cost']})]"
+        ))    
+        self.writer.add_scalar("charts/episodic_return", infos['final_info'][finished_env_index]["reward"], self.current_timestep)
+        self.writer.add_scalar("charts/episode_length", infos['final_info'][finished_env_index]["ep_len"], self.current_timestep)
+        self.writer.add_scalar("charts/epsilon", self.epsilon, self.current_timestep)
+
+    def _log_eval_episodes(self, episodic_returns, episode_lengths, pause_counts, prevented_pauses):
+        self.writer.add_scalar("charts/eval_episodic_return", np.mean(episodic_returns), self.current_timestep)
+        self.writer.add_scalar("charts/eval_episodic_return_std", np.std(episodic_returns), self.current_timestep)
+        print((
+            f"[N: {self.current_timestep:07,d}] "
+            f"[Eval Return: {np.mean(episodic_returns):.2f}+/-{np.std(episodic_returns):.2f}]\n"
+            f"[Returns: {','.join([f'{r:.2f}' for r in episodic_returns])}]\n"
+            f"[Episode Lengths: {','.join([f'{r:.2f}' for r in episode_lengths])}]\n"
+            f"[Pauses: {','.join([str(n) for n in pause_counts])}]"
+        ))
+        if not all(n == 0 for n in prevented_pauses):
+            print(f"WARNING: [Prevented Pauses]: {','.join(map(str, prevented_pauses))}")
+
+    def _train_sfn(self, data):
+        # Prediction
+        concat_observation = torch.concat([data.next_observations, data.observations], dim=1) 
+        pred_motor_actions = self.sfn(Resize(self.obs_size)(concat_observation))
+        self.sfn_loss = self.sfn.get_loss(pred_motor_actions, data.motor_actions.flatten())
+
+        # Back propagation
+        self.sfn_optimizer.zero_grad()
+        self.sfn_loss.backward()
+        self.sfn_optimizer.step()
+
+        # TODO: Return what? 
+        observ_r = F.softmax(pred_motor_actions).gather(1, data.motor_actions).squeeze().detach()
+        return observ_r
+
+    def _train_dqn(self, data, observ_r):
+        # Target network prediction
+        with torch.no_grad():
+            motor_target, sensory_target = self.target_network(Resize(self.obs_size)(data.next_observations))
+            motor_target_max, _ = motor_target.max(dim=1)
+            sensory_target_max, _ = sensory_target.max(dim=1)
+            # Scale step-wise reward with observ_r
+            observ_r_adjusted = observ_r.clone()
+            observ_r_adjusted[data.rewards.flatten() > 0] = 1 - observ_r_adjusted[data.rewards.flatten() > 0]
+            td_target = data.rewards.flatten() - (1 - observ_r) * self.sugarl_r_scale + self.gamma * (motor_target_max+sensory_target_max) * (1 - data.dones.flatten())
+            original_td_target = data.rewards.flatten() + self.gamma * (motor_target_max+sensory_target_max) * (1 - data.dones.flatten())
+
+        # Q network prediction
+        old_motor_q_val, old_sensory_q_val = self.q_network(Resize(self.obs_size)(data.observations))
+        old_motor_val = old_motor_q_val.gather(1, data.motor_actions).squeeze()
+        old_sensory_val = old_sensory_q_val.gather(1, data.sensory_actions).squeeze()
+        old_val = old_motor_val + old_sensory_val
+
+        # Back propagation
+        loss = F.mse_loss(td_target, old_val)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        # Tensorboard logging
+        if self.current_timestep % 100 == 0:
+            self.writer.add_scalar("losses/td_loss", loss, self.current_timestep)
+            self.writer.add_scalar("losses/q_values", old_val.mean().item(), self.current_timestep)
+            self.writer.add_scalar("losses/motor_q_values", old_motor_val.mean().item(), self.current_timestep)
+            self.writer.add_scalar("losses/sensor_q_values", old_sensory_val.mean().item(), self.current_timestep)
+            self.writer.add_scalar("losses/sfn_loss", self.sfn_loss.item(), self.current_timestep)
+            self.writer.add_scalar("losses/observ_r", observ_r.mean().item(), self.current_timestep)
+            self.writer.add_scalar("losses/original_td_target", original_td_target.mean().item(), self.current_timestep)
+            self.writer.add_scalar("losses/sugarl_r_scaled_td_target", td_target.mean().item(), self.current_timestep)
+        
+        # Update the target network with self.target_network_frequency
+        if (self.current_timestep // self.n_envs) % self.target_network_frequency == 0:
+            self.target_network.load_state_dict(self.q_network.state_dict())
 
     def _epsilon_schedule(self, total_timesteps: int):
         """

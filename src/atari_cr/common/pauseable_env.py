@@ -32,12 +32,18 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
         self.pause_action = False
 
         # Count and log the number of pauses made and their cost
-        self.n_pauses = 0
         self.pause_cost = pause_cost
+        self.n_pauses = 0
+
+        # Count successive pause actions to prevent the system
+        # from halting
+        self.successive_pauses = 0
+        self.prevented_pauses = 0
 
     def step(self, action):
         # The pause action is the last action in the action set
-        self.pause_action = action["motor"] == len(self.env.actions)
+        prev_pause_action = self.pause_action
+        self.pause_action = self._is_pause(action["motor"])
         if self.pause_action:
             # Disallow a pause on the first episode step because there is no
             # observation to look at yet
@@ -45,15 +51,27 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
                 action["motor"] = np.random.randint(1, len(self.env.actions))
                 return self.step(action)
 
+            # Log another pause
+            self.n_pauses += 1
+            if prev_pause_action:
+                self.successive_pauses += 1
+            else:
+                self.successive_pauses = 0
+
+            # Perform a random motor action if too many pauses
+            # have happened in a row
+            if self.prevented_pauses > 50 or self.successive_pauses > 20:
+                while self.pause_action:
+                    action["motor"] = self.action_space["motor"].sample()
+                    self.pause_action = self._is_pause(action["motor"])
+                self.pause_action = False
+                self.prevented_pauses += 1
+                
             # Only make a sensory step with a small cost
             reward, done, truncated = -self.pause_cost, False, False
             info = { "raw_reward": reward }
-
-            # Log another pause
-            self.n_pauses += 1
-            
-            # Sensory step
             fov_state = self._fov_step(full_state=self.state, action=action["sensory"])
+
             # Manually execute the RecordWrapper.step code
             assert isinstance(self.env, RecordWrapper), "This code assumes that the parent is a RecordWrapper"
             self.env.ep_len += 1
@@ -73,6 +91,7 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
 
         info["pause_cost"] = self.pause_cost
         info["n_pauses"] = self.n_pauses
+        info["prevented_pauses"] = self.prevented_pauses
         info["fov_loc"] = self.fov_loc.copy()
         if self.record:
             if not done:
@@ -112,6 +131,12 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
             self.prev_record_buffer["state"] = [0] * len(self.prev_record_buffer["reward"])
             torch.save(self.prev_record_buffer, file_path)
             video_writer.release()
+
+    def _is_pause(self, motor_action):
+        """
+        Checks if a given motor action is the pause action
+        """
+        return motor_action == len(self.env.actions)
 
 class SlowableFixedFovealEnv(PauseableFixedFovealEnv):
     """
