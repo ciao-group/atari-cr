@@ -87,9 +87,9 @@ class PVMBuffer:
             return np.stack(self.fov_loc_buffer, axis=1)
         #[B, T, *fov_locs_size], maybe [B, T, 2] for 2d or [B, T, 4, 4] for 3d
 
-    def display(self, out_file = "output/debug.png"):
+    def to_png(self, out_file = "output/debug.png"):
         """
-        Display the current content of the buffer by saving it as an image
+        Save the current content of the buffer as an image
         """
         self.to_img().save(out_file)
 

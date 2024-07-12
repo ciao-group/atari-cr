@@ -250,6 +250,7 @@ class CRDQN:
             eval_env_generator: Callable[[int], gym.Env],
             writer: SummaryWriter, 
             sugarl_r_scale: float,
+            seed = 0,
             fov_size = 50,
             sensory_action_space_granularity: Tuple[int] = (4, 4),
             learning_rate = 0.0001,
@@ -275,6 +276,7 @@ class CRDQN:
             Function, outputting an eval env given a seed
         self.writer : `tensorboard.SummaryWriter`
         sugarl_r_scale : float
+        seed : int
         fov_size : int
         sensory_action_space_granularity : tuple of int
             The number of smallest sensory steps it takes 
@@ -311,6 +313,7 @@ class CRDQN:
         self.env = env
         self.writer = writer
         self.sugarl_r_scale = sugarl_r_scale
+        self.seed = seed
         self.fov_size = fov_size
         self.epsilon_interval = epsilon_interval
         self.exploration_fraction = exploration_fraction
@@ -550,22 +553,28 @@ class CRDQN:
             eval_ns_pauses.append(infos['final_info'][0]["n_pauses"])
             eval_prevented_pause_actions.append(prevented_pause_actions)
 
+            def _save_output(output_type: str, file_prefix: str, save_fn: Callable[[str], None]):
+                """
+                Saves different types of eval output to the file system
+                """
+                run_identifier = os.path.join(experiment_name, os.path.basename(__file__).rstrip(".py"), env_name)
+                pvm_vis_dir = os.path.join("output", output_type, run_identifier)
+                os.makedirs(pvm_vis_dir, exist_ok=True)
+                file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}.{file_prefix}"
+                save_fn(os.path.join(pvm_vis_dir, file_name))
+
+            # Save a visualization of the pvm buffer
+            _save_output("pvms", "png", pvm_buffer_eval.to_png)
+
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
             if single_eval_env.env.record and eval_ep % 4 == 0:
-                record_file_dir = os.path.join("output/recordings", experiment_name, os.path.basename(__file__).rstrip(".py"), env_name)
-                os.makedirs(record_file_dir, exist_ok=True)
-                record_file_fn = f"{env_name}_seed{args.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}_record.pt"
-                single_eval_env.save_record_to_file(os.path.join(record_file_dir, record_file_fn))
+                _save_output("recordings", "pt", single_eval_env.save_record_to_file)
                 
-                if eval_ep == 0:
-                    # Safe the model file
-                    model_file_dir = os.path.join("output/trained_models", experiment_name, os.path.basename(__file__).rstrip(".py"), env_name)
-                    os.makedirs(model_file_dir, exist_ok=True)
-                    model_fn = f"{env_name}_seed{args.seed}_step{self.current_timestep:07d}_model.pt"
-                    torch.save({"sfn": self.sfn.state_dict(), "q": self.q_network.state_dict()}, os.path.join(model_file_dir, model_fn))
-
-        pvm_buffer_eval.display()
+            # Safe the model file in the first eval run
+            if eval_ep == 0:
+                save_fn = lambda s: torch.save({"sfn": self.sfn.state_dict(), "q": self.q_network.state_dict()}, s)
+                _save_output("trained_models", "pt", save_fn)
 
         self.writer.add_scalar("charts/eval_episodic_return", np.mean(eval_episodic_returns), self.current_timestep)
         self.writer.add_scalar("charts/eval_episodic_return_std", np.std(eval_episodic_returns), self.current_timestep)
@@ -615,6 +624,7 @@ if __name__ == "__main__":
         make_eval_env, 
         writer, 
         sugarl_r_scale,
+        seed=args.seed,
         fov_size=args.fov_size,
         replay_buffer_size=args.buffer_size,
         learning_start=args.learning_start,
