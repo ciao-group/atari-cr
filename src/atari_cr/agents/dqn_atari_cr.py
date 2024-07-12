@@ -96,8 +96,11 @@ def parse_args():
         help="eval frequency. default -1 is eval at the end.")
     parser.add_argument("--eval-num", type=int, default=10,
         help="eval frequency. default -1 is eval at the end.")
+    
+    parser.add_argument("--pause-cost", type=float, default=0.01,
+        help="Cost for looking without taking an env action. Prevents the agent from abusing too many pauses")
     args = parser.parse_args()
-    # fmt: on
+
     return args
 
 
@@ -118,7 +121,7 @@ def make_env(seed, **kwargs):
             mask_out=True,
             **kwargs
         )
-        env = PauseableAtariFixedFovealEnv(env_args)
+        env = PauseableAtariFixedFovealEnv(env_args, args.pause_cost)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
         return env
@@ -396,7 +399,7 @@ class CRDQN:
                 # Get the index of the env that finished 
                 idx = np.argmax(dones)
                 print((
-                    f"[T: {time.time()-self.start_time:.2f}]"
+                    f"[T: {time.time()-self.start_time:.2f}] "
                     f"[N: {self.current_timestep:07,d}] "
                     f"[R: {infos['final_info'][idx]['reward']:.2f}] "
                     f"[Pauses: {infos['final_info'][idx]['n_pauses']} x ({-infos['final_info'][idx]['pause_cost']})]"
@@ -567,9 +570,9 @@ class CRDQN:
         self.writer.add_scalar("charts/eval_episodic_return", np.mean(eval_episodic_returns), self.current_timestep)
         self.writer.add_scalar("charts/eval_episodic_return_std", np.std(eval_episodic_returns), self.current_timestep)
         print((
-            f"[N: {self.current_timestep:07,d}]"
-            f"[Eval R: {np.mean(eval_episodic_returns):.2f}+/-{np.std(eval_episodic_returns):.2f}]"
-            f"[R list: {','.join([f'{r:.2f}' for r in eval_episodic_returns])}]"
+            f"[N: {self.current_timestep:07,d}] "
+            f"[Eval R: {np.mean(eval_episodic_returns):.2f}+/-{np.std(eval_episodic_returns):.2f}]\n"
+            f"[R list: {','.join([f'{r:.2f}' for r in eval_episodic_returns])}]\n"
             f"[Pauses: {','.join([str(n) for n in eval_ns_pauses])}]"
         ))
         if not all(n == 0 for n in eval_prevented_pause_actions):

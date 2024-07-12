@@ -28,7 +28,8 @@
                 "--total-timesteps", "20000",
                 "--buffer-size", "100000",
                 "--learning-start", "1000",
-                "--pvm-stack", "6"
+                "--pvm-stack", "6",
+                "--pause-cost", "0.01"
             ],
             "justMyCode": false
         },

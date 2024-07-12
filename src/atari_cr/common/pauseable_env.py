@@ -6,16 +6,20 @@ import cv2
 import torch
 import numpy as np
 
-# Small cost for a vision step without actual env step 
-# to prevent the model from abusing only vision steps
-PAUSE_COST = 0.005
 
 class PauseableFixedFovealEnv(FixedFovealEnv):
     """
     Environemt making it possible to be paused to only take
     a sensory action without progressing the game.
     """
-    def __init__(self, env: gym.Env, args):
+    def __init__(self, env: gym.Env, args, pause_cost = 0.01):
+        """
+        Parameters
+        ----------
+        pause_cost : float
+            Negative reward for the agent whenever they chose to not take
+            an action in the environment to only look; prevents abuse of pausing
+        """
         super().__init__(env, args)
         self.action_space = Dict({
             # One additional action lets the agent stop the game to perform a 
@@ -29,7 +33,7 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
 
         # Count and log the number of pauses made and their cost
         self.n_pauses = 0
-        self.pause_cost = PAUSE_COST
+        self.pause_cost = pause_cost
 
     def step(self, action):
         # The pause action is the last action in the action set
@@ -42,7 +46,7 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
                 return self.step(action)
 
             # Only make a sensory step with a small cost
-            reward, done, truncated = -PAUSE_COST, False, False
+            reward, done, truncated = -self.pause_cost, False, False
             info = { "raw_reward": reward }
 
             # Log another pause
@@ -67,7 +71,7 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
             # Sensory step
             fov_state = self._fov_step(full_state=self.state, action=action["sensory"])   
 
-        info["pause_cost"] = PAUSE_COST
+        info["pause_cost"] = self.pause_cost
         info["n_pauses"] = self.n_pauses
         info["fov_loc"] = self.fov_loc.copy()
         if self.record:
@@ -190,10 +194,10 @@ class FovealRecordWrapper(RecordWrapper):
             video_writer.release()
 
 
-def PauseableAtariFixedFovealEnv(args: AtariEnvArgs) -> gym.Wrapper:
+def PauseableAtariFixedFovealEnv(args: AtariEnvArgs, pause_cost) -> gym.Wrapper:
     env = AtariEnv(args)
     env = FovealRecordWrapper(env, args)
-    env = PauseableFixedFovealEnv(env, args)
+    env = PauseableFixedFovealEnv(env, args, pause_cost)
     return env
     
 def AtariHeadFixedFovealEnv(args: AtariEnvArgs) -> gym.Wrapper:
