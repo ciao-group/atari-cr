@@ -51,14 +51,7 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
                 action["motor"] = np.random.randint(1, len(self.env.actions))
                 return self.step(action)
 
-            # Log another pause
-            self.n_pauses += 1
-            if prev_pause_action:
-                self.successive_pauses += 1
-            else:
-                self.successive_pauses = 0
-
-            # Perform a random motor action if too many pauses
+            # Perform a random motor action instead if too many pauses
             # have happened in a row
             if self.prevented_pauses > 50 or self.successive_pauses > 20:
                 while self.pause_action:
@@ -66,6 +59,14 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
                     self.pause_action = self._is_pause(action["motor"])
                 self.pause_action = False
                 self.prevented_pauses += 1
+                return self.step(action)
+
+            # Log another pause
+            self.n_pauses += 1
+            if prev_pause_action:
+                self.successive_pauses += 1
+            else:
+                self.successive_pauses = 0
                 
             # Only make a sensory step with a small cost
             reward, done, truncated = -self.pause_cost, False, False
@@ -132,7 +133,7 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
             torch.save(self.prev_record_buffer, file_path)
             video_writer.release()
 
-    def _is_pause(self, motor_action):
+    def _is_pause(self, motor_action: int):
         """
         Checks if a given motor action is the pause action
         """

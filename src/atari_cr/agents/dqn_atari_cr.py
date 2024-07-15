@@ -512,6 +512,11 @@ class CRDQN:
         self.q_network.train()
         self.sfn.train()
 
+    def load_checkpoint(self, file_path: str):
+        checkpoint = torch.load(file_path)
+        self.sfn.load_state_dict(checkpoint["sfn"])
+        self.q_network.load_state_dict(checkpoint["q"])
+
     def _step(self, env: gym.Env, pvm_buffer: PVMBuffer, motor_actions, sensory_actions, eval = False):
         """
         Given an action, the agent does one step in the environment, 
