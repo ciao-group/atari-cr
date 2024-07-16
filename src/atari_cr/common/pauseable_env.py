@@ -12,13 +12,16 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
     Environemt making it possible to be paused to only take
     a sensory action without progressing the game.
     """
-    def __init__(self, env: gym.Env, args, pause_cost = 0.01):
+    def __init__(self, env: gym.Env, args, pause_cost = 0.01, successive_pause_limit = 20):
         """
         Parameters
         ----------
         pause_cost : float
             Negative reward for the agent whenever they chose to not take
             an action in the environment to only look; prevents abuse of pausing
+        successive_pause_limit : int
+            Limit to the amount of successive pauses the agent can make before
+            a random action is selected instead. This prevents the agent from halting
         """
         super().__init__(env, args)
         self.action_space = Dict({
@@ -33,6 +36,7 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
 
         # Count and log the number of pauses made and their cost
         self.pause_cost = pause_cost
+        self.successive_pause_limit = successive_pause_limit
         self.n_pauses = 0
 
         # Count successive pause actions to prevent the system
@@ -54,7 +58,7 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
             # Prevent the agent from being stuck on only using pauses
             # Perform a random motor action instead if too many pauses
             # have happened in a row
-            if self.prevented_pauses > 50 or self.successive_pauses > 20:
+            if self.prevented_pauses > 50 or self.successive_pauses > self.successive_pause_limit:
                 while self.pause_action:
                     action["motor"] = self.action_space["motor"].sample()
                     self.pause_action = self._is_pause(action["motor"])
@@ -223,10 +227,10 @@ class FovealRecordWrapper(RecordWrapper):
             video_writer.release()
 
 
-def PauseableAtariFixedFovealEnv(args: AtariEnvArgs, pause_cost) -> gym.Wrapper:
+def PauseableAtariFixedFovealEnv(args: AtariEnvArgs, pause_cost: float, successive_pause_limit: int) -> gym.Wrapper:
     env = AtariEnv(args)
     env = FovealRecordWrapper(env, args)
-    env = PauseableFixedFovealEnv(env, args, pause_cost)
+    env = PauseableFixedFovealEnv(env, args, pause_cost, successive_pause_limit)
     return env
     
 def AtariHeadFixedFovealEnv(args: AtariEnvArgs) -> gym.Wrapper:

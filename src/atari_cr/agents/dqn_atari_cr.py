@@ -97,10 +97,14 @@ def parse_args():
     parser.add_argument("--eval-num", type=int, default=10,
         help="eval frequency. default -1 is eval at the end.")
     
+    # Pause args
     parser.add_argument("--pause-cost", type=float, default=0.01,
         help="Cost for looking without taking an env action. Prevents the agent from abusing too many pauses")
+    parser.add_argument("--successive-pause-limit", type=int, default=20,
+        help="Limit to the amount of successive pauses the agent can make before a random action is selected instead. \
+            This prevents the agent from halting")
+    
     args = parser.parse_args()
-
     return args
 
 
@@ -121,7 +125,7 @@ def make_env(seed, **kwargs):
             mask_out=True,
             **kwargs
         )
-        env = PauseableAtariFixedFovealEnv(env_args, args.pause_cost)
+        env = PauseableAtariFixedFovealEnv(env_args, args.pause_cost, args.successive_pause_limit)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
         return env
@@ -200,17 +204,10 @@ class QNetwork(nn.Module):
 
 
 class SelfPredictionNetwork(nn.Module):
-    def __init__(self, env, sensory_action_set=None):
+    def __init__(self, env):
         super().__init__()
-        if isinstance(env.single_action_space, Discrete):
-            motor_action_space_size = env.single_action_space.n
-            sensory_action_space_size = None
-        elif isinstance(env.single_action_space, Dict):
-            motor_action_space_size = env.single_action_space["motor"].n
-            if sensory_action_set is not None:
-                sensory_action_space_size = len(sensory_action_set)
-            else:
-                sensory_action_space_size = env.single_action_space["sensory"].n
+        assert isinstance(env.single_action_space, Dict), "SelfPredictionNetwork only works with Dict action space"
+        motor_action_space_size = env.single_action_space["motor"].n
         
         self.backbone = nn.Sequential(
             nn.Conv2d(8, 32, 8, stride=4),
@@ -357,7 +354,7 @@ class CRDQN:
         self.target_network.load_state_dict(self.q_network.state_dict())
 
         # Self Prediction Networks; used to judge the quality of sensory actions
-        self.sfn = SelfPredictionNetwork(self.env, self.sensory_action_set).to(device)
+        self.sfn = SelfPredictionNetwork(self.env).to(device)
         self.sfn_optimizer = optim.Adam(self.sfn.parameters(), lr=learning_rate)
 
         # Replay Buffer aka. Long Term Memory
@@ -413,8 +410,6 @@ class CRDQN:
                 # Training
                 if self.current_timestep % self.train_frequency == 0:
                     self.train()
-                if self.current_timestep % 100 == 0:
-                    self.writer.add_scalar("charts/SPS", int(self.current_timestep / (time.time() - self.start_time)), self.current_timestep)
 
                 # Evaluation
                 if (self.current_timestep % self.eval_frequency == 0 and self.eval_frequency > 0) or \
@@ -433,11 +428,11 @@ class CRDQN:
         data = self.rb.sample(self.batch_size // self.n_envs)
 
         # SFN training
-        observ_r = self._train_sfn(data)
+        observation_quality = self._train_sfn(data)
 
         # DQN training
         if self.current_timestep > self.learning_start:
-            self._train_dqn(data, observ_r)
+            self._train_dqn(data, observation_quality)
 
     def evaluate(self, env_name: str, experiment_name: str):
         # Set networks to eval mode
@@ -565,7 +560,7 @@ class CRDQN:
         self.writer.add_scalar("charts/epsilon", self.epsilon, self.current_timestep)
         self.writer.add_scalar("charts/pauses", episode_info['n_pauses'], self.current_timestep)
         self.writer.add_scalar("charts/prevented_pauses", episode_info['prevented_pauses'], self.current_timestep)
-        self.writer.add_scalar("charts/raw_episodic_re", raw_reward, self.current_timestep)
+        self.writer.add_scalar("charts/raw_episodic_return", raw_reward, self.current_timestep)
 
     def _log_eval_episodes(self, episode_infos: List[Dict]):
         # Unpack episode_infos
@@ -609,20 +604,29 @@ class CRDQN:
         self.sfn_loss.backward()
         self.sfn_optimizer.step()
 
-        # TODO: Return what? 
-        observ_r = F.softmax(pred_motor_actions).gather(1, data.motor_actions).squeeze().detach()
-        return observ_r
+        # Return the probabilites the sfn would have also selected the truely selected action, given the limited observation
+        # Higher probabilities suggest better information was provided from the visual input
+        observation_quality = F.softmax(pred_motor_actions).gather(1, data.motor_actions).squeeze().detach()
 
-    def _train_dqn(self, data, observ_r):
+        # Tensorboard
+        if self.current_timestep % 100 == 0:
+            sfn_accuray = (pred_motor_actions.argmax(axis=1) == data.motor_actions.flatten()).sum() / pred_motor_actions.shape[0]
+            self.writer.add_scalar("losses/sfn_loss", self.sfn_loss.item(), self.current_timestep)
+            self.writer.add_scalar("losses/sfn_accuray", sfn_accuray, self.current_timestep)
+            self.writer.add_scalar("losses/observation_quality", observation_quality.mean().item(), self.current_timestep)
+        
+        return observation_quality
+
+    def _train_dqn(self, data, observation_quality):
         # Target network prediction
         with torch.no_grad():
             motor_target, sensory_target = self.target_network(Resize(self.obs_size)(data.next_observations))
             motor_target_max, _ = motor_target.max(dim=1)
             sensory_target_max, _ = sensory_target.max(dim=1)
-            # Scale step-wise reward with observ_r
-            observ_r_adjusted = observ_r.clone()
-            observ_r_adjusted[data.rewards.flatten() > 0] = 1 - observ_r_adjusted[data.rewards.flatten() > 0]
-            td_target = data.rewards.flatten() - (1 - observ_r) * self.sugarl_r_scale + self.gamma * (motor_target_max+sensory_target_max) * (1 - data.dones.flatten())
+            # Scale step-wise reward with observation_quality
+            observation_quality_adjusted = observation_quality.clone()
+            observation_quality_adjusted[data.rewards.flatten() > 0] = 1 - observation_quality_adjusted[data.rewards.flatten() > 0]
+            td_target = data.rewards.flatten() - (1 - observation_quality) * self.sugarl_r_scale + self.gamma * (motor_target_max+sensory_target_max) * (1 - data.dones.flatten())
             original_td_target = data.rewards.flatten() + self.gamma * (motor_target_max+sensory_target_max) * (1 - data.dones.flatten())
 
         # Q network prediction
@@ -643,8 +647,6 @@ class CRDQN:
             self.writer.add_scalar("losses/q_values", old_val.mean().item(), self.current_timestep)
             self.writer.add_scalar("losses/motor_q_values", old_motor_val.mean().item(), self.current_timestep)
             self.writer.add_scalar("losses/sensor_q_values", old_sensory_val.mean().item(), self.current_timestep)
-            self.writer.add_scalar("losses/sfn_loss", self.sfn_loss.item(), self.current_timestep)
-            self.writer.add_scalar("losses/observ_r", observ_r.mean().item(), self.current_timestep)
             self.writer.add_scalar("losses/original_td_target", original_td_target.mean().item(), self.current_timestep)
             self.writer.add_scalar("losses/sugarl_r_scaled_td_target", td_target.mean().item(), self.current_timestep)
         

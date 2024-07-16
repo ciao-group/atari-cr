@@ -37,6 +37,7 @@ do
                                                   --learning-start $learningstarts \
                                                   --pvm-stack 6 \
                                                   --pause-cost 0.02 \
+                                                  --successive-pause-limit 20 \
                                                   ${@:2} >> ${logdir}/${envlist[$i]}__${basename}__${seed}.txt
         done
     ) &
