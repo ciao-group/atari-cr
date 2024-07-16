@@ -141,7 +141,6 @@ def make_eval_env(seed):
     return gym.vector.SyncVectorEnv(envs)
 
 
-# ALGO LOGIC: initialize agent here:
 class QNetwork(nn.Module):
     def __init__(self, env, sensory_action_set=None):
         super().__init__()
@@ -230,7 +229,6 @@ class SelfPredictionNetwork(nn.Module):
     def get_loss(self, x, target) -> torch.Tensor:
         return self.loss(x, target)
         
-
     def forward(self, x):
         x = self.backbone(x)
         x = self.head(x)
@@ -370,8 +368,6 @@ class CRDQN:
         )
 
         # PVM Buffer aka. Short Term Memory, combining multiple observations
-        # TODO: Investigation into pvm_buffer and its 4 channels
-        # TODO: Better Belief Map than PVM maybe
         self.pvm_buffer = PVMBuffer(pvm_stack, (self.n_envs, frame_stack, *self.obs_size))
 
     def learn(self, n: int, env_name: str, experiment_name: str):
@@ -380,6 +376,15 @@ class CRDQN:
         """
         # Log pause cost
         print(f"Training start with pause cost {self.single_env.pause_cost}")
+        self.run_identifier = os.path.join(experiment_name, os.path.basename(__file__).rstrip(".py"), env_name)
+
+        # Load existing run if there is one
+        exp_dir = f"output/trained_models/{self.run_identifier}"
+        if os.path.exists(exp_dir):
+            print("Loading existing checkpoint")
+            file_name = list(filter(lambda s: f"seed{self.seed}" in s, os.listdir(exp_dir)))[0]
+            self.load_checkpoint(f"{exp_dir}/{file_name}")
+            n += self.current_timestep
 
         self.start_time = time.time()
         obs, infos = self.env.reset()
@@ -414,7 +419,7 @@ class CRDQN:
                 # Evaluation
                 if (self.current_timestep % self.eval_frequency == 0 and self.eval_frequency > 0) or \
                 (self.current_timestep >= n):
-                    self.evaluate(env_name, experiment_name)
+                    self.evaluate()
 
         self.env.close()
         self.writer.close()
@@ -434,23 +439,13 @@ class CRDQN:
         if self.current_timestep > self.learning_start:
             self._train_dqn(data, observation_quality)
 
-    def evaluate(self, env_name: str, experiment_name: str):
+    def evaluate(self):
         # Set networks to eval mode
         self.q_network.eval()
         self.sfn.eval()
         
         episode_infos = []
         for eval_ep in range(self.n_evals):
-            def _save_output(output_type: str, file_prefix: str, save_fn: Callable[[str], None]):
-                """
-                Saves different types of eval output to the file system in the context of the current episode
-                """
-                run_identifier = os.path.join(experiment_name, os.path.basename(__file__).rstrip(".py"), env_name)
-                pvm_vis_dir = os.path.join("output", output_type, run_identifier)
-                os.makedirs(pvm_vis_dir, exist_ok=True)
-                file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}.{file_prefix}"
-                save_fn(os.path.join(pvm_vis_dir, file_name))
-
             # Create env
             eval_env = self.eval_env_generator(eval_ep)
             single_eval_env = eval_env.envs[0] if isinstance(eval_env, VectorEnv) else eval_env
@@ -485,19 +480,18 @@ class CRDQN:
 
                 # Save a visualization of the pvm buffer in the middle of the episode
                 if infos["ep_len"] == 50:
-                    _save_output("pvms", "png", eval_pvm_buffer.to_png)
+                    self._save_output("pvms", eval_ep, "png", eval_pvm_buffer.to_png)
 
             episode_infos.append(infos['final_info'][0])
 
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
             if single_eval_env.env.record and eval_ep % 4 == 0:
-                _save_output("recordings", "pt", single_eval_env.save_record_to_file)
+                self._save_output("recordings", eval_ep, "pt", single_eval_env.save_record_to_file)
                 
             # Safe the model file in the first eval run
             if eval_ep == 0:
-                save_fn = lambda s: torch.save({"sfn": self.sfn.state_dict(), "q": self.q_network.state_dict()}, s)
-                _save_output("trained_models", "pt", save_fn)
+                self._save_output("trained_models", eval_ep, "pt", self.save_checkpoint)
 
             eval_env.close()
 
@@ -508,11 +502,30 @@ class CRDQN:
         self.q_network.train()
         self.sfn.train()
 
+    def save_checkpoint(self, file_path: str):
+        torch.save(
+            {
+                "sfn": self.sfn.state_dict(), 
+                "q": self.q_network.state_dict(), 
+                "training_steps": self.current_timestep
+            }, 
+            file_path
+        )
+
     def load_checkpoint(self, file_path: str):
         checkpoint = torch.load(file_path)
         self.sfn.load_state_dict(checkpoint["sfn"])
         self.q_network.load_state_dict(checkpoint["q"])
-        # TODO: implement automatic loading of existing checkpoints
+        self.current_timestep = checkpoint["training_steps"]
+    
+    def _save_output(self, output_type: str, eval_ep: int, file_prefix: str, save_fn: Callable[[str], None]):
+        """
+        Saves different types of eval output to the file system in the context of the current episode
+        """
+        output_dir = os.path.join("output", output_type, self.run_identifier)
+        os.makedirs(output_dir, exist_ok=True)
+        file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}.{file_prefix}"
+        save_fn(os.path.join(output_dir, file_name))
 
     def _step(self, env: gym.Env, pvm_buffer: PVMBuffer, motor_actions, sensory_actions, eval = False):
         """
@@ -673,6 +686,7 @@ if __name__ == "__main__":
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
+    # TODO: make writer load previous run
 
     seed_everything(args.seed)
 
