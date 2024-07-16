@@ -43,6 +43,7 @@ class PVMBuffer:
         return copy.deepcopy(self)
 
     def get_obs(self, mode="stack_max") -> np.ndarray:
+        # TODO: Visualize other modes
         if mode == "stack_max":
             return np.amax(np.stack(self.buffer, axis=1), axis=1) # leading dim is batch dim [B, 1, C, H, W]
         elif mode == "stack_mean":
@@ -91,6 +92,7 @@ class PVMBuffer:
         """
         Save the current content of the buffer as an image
         """
+        # TODO: Debug buffer: why is the last image constant? why are so many diagonal images repeated?
         self.to_img().save(out_file)
 
     def to_img(self):

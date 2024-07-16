@@ -9,7 +9,7 @@ from distutils.util import strtobool
 sys.path.append(osp.dirname(osp.dirname(osp.realpath(__file__))))
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-from typing import Callable, Tuple
+from typing import Callable, List, Tuple
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -26,7 +26,7 @@ from torchvision.transforms import Resize
 from common.buffer import DoubleActionReplayBuffer
 from common.pvm_buffer import PVMBuffer
 from common.utils import get_timestr, seed_everything, get_sugarl_reward_scale_atari, linear_schedule
-from common.pauseable_env import PauseableAtariFixedFovealEnv
+from common.pauseable_env import PauseableAtariFixedFovealEnv, PauseableFixedFovealEnv
 from torch.utils.tensorboard import SummaryWriter
 
 from active_gym.atari_env import AtariEnvArgs
@@ -332,7 +332,9 @@ class CRDQN:
         self.current_timestep = 0
 
         # Get the observation size
-        self.single_env = env.envs[0] if isinstance(env, VectorEnv) else env
+        self.single_env: PauseableFixedFovealEnv = env.envs[0] if isinstance(env, VectorEnv) else env
+        assert isinstance(self.single_env, PauseableFixedFovealEnv), \
+            "The environment is expected to be wrapped in a PauseableFixedFovealEnv"
         self.obs_size = env.observation_space.shape[2:]
         assert len(self.obs_size) == 2, "The CRDQN agent only supports 2D Environments"
 
@@ -379,6 +381,9 @@ class CRDQN:
         """
         Acts in the environment and trains the agent for n timesteps
         """
+        # Log pause cost
+        print(f"Training start with pause cost {self.single_env.pause_cost}")
+
         self.start_time = time.time()
         obs, infos = self.env.reset()
         self.pvm_buffer.append(obs)
@@ -439,10 +444,18 @@ class CRDQN:
         self.q_network.eval()
         self.sfn.eval()
         
-        episodic_returns, episode_lengths = [], []
-        pause_counts, prevented_pauses = [], []
-
+        episode_infos = []
         for eval_ep in range(self.n_evals):
+            def _save_output(output_type: str, file_prefix: str, save_fn: Callable[[str], None]):
+                """
+                Saves different types of eval output to the file system in the context of the current episode
+                """
+                run_identifier = os.path.join(experiment_name, os.path.basename(__file__).rstrip(".py"), env_name)
+                pvm_vis_dir = os.path.join("output", output_type, run_identifier)
+                os.makedirs(pvm_vis_dir, exist_ok=True)
+                file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}.{file_prefix}"
+                save_fn(os.path.join(pvm_vis_dir, file_name))
+
             # Create env
             eval_env = self.eval_env_generator(eval_ep)
             single_eval_env = eval_env.envs[0] if isinstance(eval_env, VectorEnv) else eval_env
@@ -475,23 +488,11 @@ class CRDQN:
                 done = dones[0]
                 pvm_obs = next_pvm_obs
 
-            episodic_returns.append(infos['final_info'][0]["reward"])
-            episode_lengths.append(infos['final_info'][0]["ep_len"])
-            pause_counts.append(infos['final_info'][0]["n_pauses"])
-            prevented_pauses.append(infos['final_info'][0]["prevented_pauses"])
+                # Save a visualization of the pvm buffer in the middle of the episode
+                if infos["ep_len"] == 50:
+                    _save_output("pvms", "png", eval_pvm_buffer.to_png)
 
-            def _save_output(output_type: str, file_prefix: str, save_fn: Callable[[str], None]):
-                """
-                Saves different types of eval output to the file system
-                """
-                run_identifier = os.path.join(experiment_name, os.path.basename(__file__).rstrip(".py"), env_name)
-                pvm_vis_dir = os.path.join("output", output_type, run_identifier)
-                os.makedirs(pvm_vis_dir, exist_ok=True)
-                file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}.{file_prefix}"
-                save_fn(os.path.join(pvm_vis_dir, file_name))
-
-            # Save a visualization of the pvm buffer
-            _save_output("pvms", "png", eval_pvm_buffer.to_png)
+            episode_infos.append(infos['final_info'][0])
 
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
@@ -506,7 +507,7 @@ class CRDQN:
             eval_env.close()
 
         # Log results
-        self._log_eval_episodes(episodic_returns, episode_lengths, pause_counts, prevented_pauses)
+        self._log_eval_episodes(episode_infos)
 
         # Set the networks back to training mode
         self.q_network.train()
@@ -516,6 +517,7 @@ class CRDQN:
         checkpoint = torch.load(file_path)
         self.sfn.load_state_dict(checkpoint["sfn"])
         self.q_network.load_state_dict(checkpoint["q"])
+        # TODO: implement automatic loading of existing checkpoints
 
     def _step(self, env: gym.Env, pvm_buffer: PVMBuffer, motor_actions, sensory_actions, eval = False):
         """
@@ -541,28 +543,60 @@ class CRDQN:
         return next_pvm_obs, rewards, dones, infos
 
     def _log_episode(self, finished_env_index: int, infos):
+        episode_info = infos['final_info'][finished_env_index]
+        # Reward without pause costs
+        raw_reward = episode_info['reward'] + episode_info['n_pauses'] * episode_info['pause_cost']
+        prevented_pauses_warning = f"\nWARNING: [Prevented Pauses: {episode_info['prevented_pauses']}]" if episode_info['prevented_pauses'] else "" 
+
         print((
             f"[T: {time.time()-self.start_time:.2f}] "
             f"[N: {self.current_timestep:07,d}] "
-            f"[R: {infos['final_info'][finished_env_index]['reward']:.2f}] "
-            f"[Pauses: {infos['final_info'][finished_env_index]['n_pauses']} x ({-infos['final_info'][finished_env_index]['pause_cost']})]"
+            f"[R, Raw R: {episode_info['reward']:.2f}, {raw_reward:.2f}] "
+            f"[Pauses: {episode_info['n_pauses']}] "
+            f"{prevented_pauses_warning}"
         ))    
-        self.writer.add_scalar("charts/episodic_return", infos['final_info'][finished_env_index]["reward"], self.current_timestep)
-        self.writer.add_scalar("charts/episode_length", infos['final_info'][finished_env_index]["ep_len"], self.current_timestep)
-        self.writer.add_scalar("charts/epsilon", self.epsilon, self.current_timestep)
+        # Log the amount of prevented pauses over the entire learning period
+        if not self.single_env.prevented_pauses == 0:
+            print(f"WARNING: [Prevented Pauses]: {','.join(map(str, self.single_env.prevented_pauses))}")
 
-    def _log_eval_episodes(self, episodic_returns, episode_lengths, pause_counts, prevented_pauses):
-        self.writer.add_scalar("charts/eval_episodic_return", np.mean(episodic_returns), self.current_timestep)
-        self.writer.add_scalar("charts/eval_episodic_return_std", np.std(episodic_returns), self.current_timestep)
+        # Tensorboard
+        self.writer.add_scalar("charts/episodic_return", episode_info["reward"], self.current_timestep)
+        self.writer.add_scalar("charts/episode_length", episode_info["ep_len"], self.current_timestep)
+        self.writer.add_scalar("charts/epsilon", self.epsilon, self.current_timestep)
+        self.writer.add_scalar("charts/pauses", episode_info['n_pauses'], self.current_timestep)
+        self.writer.add_scalar("charts/prevented_pauses", episode_info['prevented_pauses'], self.current_timestep)
+        self.writer.add_scalar("charts/raw_episodic_re", raw_reward, self.current_timestep)
+
+    def _log_eval_episodes(self, episode_infos: List[Dict]):
+        # Unpack episode_infos
+        episodic_returns, episode_lengths = [], []
+        pause_counts, prevented_pauses = [], []
+        for episode_info in episode_infos:
+            episodic_returns.append(episode_info["reward"])
+            episode_lengths.append(episode_info["ep_len"])
+            pause_counts.append(episode_info["n_pauses"])
+            prevented_pauses.append(episode_info["prevented_pauses"])
+        pause_cost = episode_info["pause_cost"]
+        raw_episodic_returns = [episodic_return + pause_cost * pauses for episodic_return, pauses in zip(episodic_returns, pause_counts)]
+        
+        # Log everything
         print((
-            f"[N: {self.current_timestep:07,d}] "
-            f"[Eval Return: {np.mean(episodic_returns):.2f}+/-{np.std(episodic_returns):.2f}]\n"
-            f"[Returns: {','.join([f'{r:.2f}' for r in episodic_returns])}]\n"
-            f"[Episode Lengths: {','.join([f'{r:.2f}' for r in episode_lengths])}]\n"
-            f"[Pauses: {','.join([str(n) for n in pause_counts])}]"
+            f"[N: {self.current_timestep:07,d}]"
+            f" [Eval Return, Raw Eval Return: {np.mean(episodic_returns):.2f}+/-{np.std(episodic_returns):.2f}"
+                f", {np.mean(raw_episodic_returns):.2f}+/-{np.std(raw_episodic_returns):.2f}]"
+            f"\n[Returns: {','.join([f'{r:.2f}' for r in episodic_returns])}]"
+            f"\n[Episode Lengths: {','.join([f'{r:.2f}' for r in episode_lengths])}]"
+            f"\n[Pauses: {','.join([str(n) for n in pause_counts])} with cost {pause_cost}]"
         ))
         if not all(n == 0 for n in prevented_pauses):
             print(f"WARNING: [Prevented Pauses]: {','.join(map(str, prevented_pauses))}")
+
+        # Tensorboard
+        for env_num in range(len(episode_infos)):
+            self.writer.add_scalar("eval/episodic_return", np.mean(episodic_returns[env_num]), env_num)
+            self.writer.add_scalar("eval/raw_episodic_return", np.mean(raw_episodic_returns[env_num]), env_num)
+            self.writer.add_scalar("eval/episode_lengths", np.mean(episode_lengths[env_num]), env_num)
+            self.writer.add_scalar("eval/pause_counts", np.mean(pause_counts[env_num]), env_num)
 
     def _train_sfn(self, data):
         # Prediction
