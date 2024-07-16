@@ -51,6 +51,7 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
                 action["motor"] = np.random.randint(1, len(self.env.actions))
                 return self.step(action)
 
+            # Prevent the agent from being stuck on only using pauses
             # Perform a random motor action instead if too many pauses
             # have happened in a row
             if self.prevented_pauses > 50 or self.successive_pauses > 20:
@@ -83,6 +84,7 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
                 rgb = self.env.env.render()
                 self.env._save_transition(self.state, action, self.env.cumulative_reward, done, truncated, info, rgb=rgb, return_reward=reward)
         else:
+            self.successive_pauses = 0
             # Normal step
             state, reward, done, truncated, info = self.env.step(action=action["motor"])
             # Safe the state for the next sensory step
@@ -98,9 +100,10 @@ class PauseableFixedFovealEnv(FixedFovealEnv):
             if not done:
                 self.save_transition(info["fov_loc"])   
 
-        # Reset the pause number for the next episode
+        # Reset the number of pauses and prevented pauses for the next episode
         if done:
             self.n_pauses = 0
+            self.prevented_pauses = 0
 
         return fov_state, reward, done, truncated, info
     
