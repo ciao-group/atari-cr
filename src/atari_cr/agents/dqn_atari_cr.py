@@ -26,10 +26,10 @@ from torchvision.transforms import Resize
 from common.buffer import DoubleActionReplayBuffer
 from common.pvm_buffer import PVMBuffer
 from common.utils import get_timestr, seed_everything, get_sugarl_reward_scale_atari, linear_schedule
-from common.pauseable_env import PauseableAtariFixedFovealEnv, PauseableFixedFovealEnv
+from common.pauseable_env import PauseableFixedFovealEnv
 from torch.utils.tensorboard import SummaryWriter
 
-from active_gym.atari_env import AtariEnvArgs
+from active_gym.atari_env import AtariEnv, AtariEnvArgs
 
 
 def parse_args():
@@ -125,7 +125,9 @@ def make_env(seed, **kwargs):
             mask_out=True,
             **kwargs
         )
-        env = PauseableAtariFixedFovealEnv(env_args, args.pause_cost, args.successive_pause_limit)
+        env = AtariEnv(env_args)
+        env = PauseableFixedFovealEnv(env, env_args, 
+            args.pause_cost, args.successive_pause_limit)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
         return env
@@ -381,10 +383,13 @@ class CRDQN:
         # Load existing run if there is one
         exp_dir = f"output/trained_models/{self.run_identifier}"
         if os.path.exists(exp_dir):
-            print("Loading existing checkpoint")
-            file_name = list(filter(lambda s: f"seed{self.seed}" in s, os.listdir(exp_dir)))[0]
-            self.load_checkpoint(f"{exp_dir}/{file_name}")
-            n += self.current_timestep
+            seeded_models = list(filter(lambda s: f"seed{self.seed}" in s, os.listdir(exp_dir)))
+            if len(seeded_models) > 0:
+                print("Loading existing checkpoint")
+                timesteps = [int(model.split("_")[1][4:]) for model in seeded_models]
+                latest_model = seeded_models[np.argmax(timesteps)]
+                self.load_checkpoint(f"{exp_dir}/{latest_model}")
+                n += self.current_timestep
 
         self.start_time = time.time()
         obs, infos = self.env.reset()
@@ -411,6 +416,10 @@ class CRDQN:
             # Only train if a full batch is available
             self.current_timestep += self.n_envs
             if self.current_timestep > self.batch_size:
+
+                # Save the model every 1M timesteps
+                if self.current_timestep % 1000000 == 0:
+                    self._save_output("trained_models", "pt", self.save_checkpoint)
 
                 # Training
                 if self.current_timestep % self.train_frequency == 0:
@@ -480,18 +489,18 @@ class CRDQN:
 
                 # Save a visualization of the pvm buffer in the middle of the episode
                 if infos["ep_len"] == 50:
-                    self._save_output("pvms", eval_ep, "png", eval_pvm_buffer.to_png)
+                    self._save_output("pvms", "png", eval_pvm_buffer.to_png, eval_ep)
 
             episode_infos.append(infos['final_info'][0])
 
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
             if single_eval_env.env.record and eval_ep % 4 == 0:
-                self._save_output("recordings", eval_ep, "pt", single_eval_env.save_record_to_file)
+                self._save_output("recordings", "pt", single_eval_env.save_record_to_file, eval_ep)
                 
             # Safe the model file in the first eval run
             if eval_ep == 0:
-                self._save_output("trained_models", eval_ep, "pt", self.save_checkpoint)
+                self._save_output("trained_models", "pt", self.save_checkpoint, eval_ep)
 
             eval_env.close()
 
@@ -518,7 +527,7 @@ class CRDQN:
         self.q_network.load_state_dict(checkpoint["q"])
         self.current_timestep = checkpoint["training_steps"]
     
-    def _save_output(self, output_type: str, eval_ep: int, file_prefix: str, save_fn: Callable[[str], None]):
+    def _save_output(self, output_type: str, file_prefix: str, save_fn: Callable[[str], None], eval_ep: int = 0):
         """
         Saves different types of eval output to the file system in the context of the current episode
         """
@@ -676,7 +685,6 @@ class CRDQN:
 if __name__ == "__main__":
     args = parse_args()
     args.env = args.env.lower()
-    run_name = f"{args.env}__{os.path.basename(__file__)}__{args.seed}__{get_timestr()}"
     run_dir = os.path.join("output/runs", args.exp_name)
     if not os.path.exists(run_dir):
         os.makedirs(run_dir, exist_ok=True)
@@ -686,7 +694,6 @@ if __name__ == "__main__":
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
-    # TODO: make writer load previous run
 
     seed_everything(args.seed)
 
