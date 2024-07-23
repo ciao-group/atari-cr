@@ -583,6 +583,7 @@ class CRDQN:
         self.writer.add_scalar("charts/pauses", episode_info['n_pauses'], self.current_timestep)
         self.writer.add_scalar("charts/prevented_pauses", episode_info['prevented_pauses'], self.current_timestep)
         self.writer.add_scalar("charts/raw_episodic_return", raw_reward, self.current_timestep)
+        self.writer.add_scalar("charts/no_action_pauses", episode_info["no_action_pauses"], self.current_timestep)
 
     def _log_eval_episodes(self, episode_infos: List[Dict]):
         # Unpack episode_infos

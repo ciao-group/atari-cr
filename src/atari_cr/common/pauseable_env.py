@@ -77,7 +77,10 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.pause_cost = pause_cost
         self.successive_pause_limit = successive_pause_limit
         self.n_pauses = 0
+
+        # Count the number of pauses without a sensory action for every episode
         self.no_action_pause_cost = no_action_pause_cost
+        self.no_action_pauses = 0
 
         # Count successive pause actions to prevent the system
         # from halting
@@ -100,16 +103,13 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # The pause action is the last action in the action set
         prev_pause_action = self.pause_action
         self.pause_action = self._is_pause(action["motor"])
+
         if self.pause_action:
             # Disallow a pause on the first episode step because there is no
-            # observation to look at yet
+            # observation to look at yet and do a random action instead
             if not hasattr(self, "state"):
                 action["motor"] = np.random.randint(1, len(self.env.actions))
                 return self.step(action)
-            
-            # Penalize a pause action without moving the fovea because it is useless
-            if self.fov_loc == action["sensory"]:
-                return self._skip_step(-self.no_action_pause_cost)
 
             # Prevent the agent from being stuck on only using pauses
             # Perform a random motor action instead if too many pauses
@@ -128,10 +128,15 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 self.successive_pauses += 1
             else:
                 self.successive_pauses = 0
-                
-            # Only make a sensory step with a small cost
-            _, reward, done, truncated, info = self._skip_step(-self.pause_cost)
-            fov_state = self._fov_step(full_state=self.state, action=action["sensory"])
+
+            if np.all(self.fov_loc == action["sensory"]):  
+                # Penalize a pause action without moving the fovea because it is useless
+                state, reward, done, truncated, info = self._skip_step(-self.no_action_pause_cost)
+                self.no_action_pauses += 1
+            else:
+                # Only make a sensory step with a small cost
+                _, reward, done, truncated, info = self._skip_step(-self.pause_cost)
+                state = self._fov_step(full_state=self.state, action=action["sensory"])
 
         else:
             self.successive_pauses = 0
@@ -140,33 +145,17 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             # Safe the state for the next sensory step
             self.state = state
             # Sensory step
-            fov_state = self._fov_step(full_state=self.state, action=action["sensory"])  
+            state = self._fov_step(full_state=self.state, action=action["sensory"])  
 
-        # RecordWrapper.step code
-        self.ep_len += 1
-        self.cumulative_reward += reward
-        info = self._update_info(info)
-        info["pause_cost"] = self.pause_cost
-        info["n_pauses"] = self.n_pauses
-        info["prevented_pauses"] = self.prevented_pauses
-        info["fov_loc"] = self.fov_loc.copy()
+        self._log_step(reward, action, done, truncated, info)
 
-        if self.record:
-            rgb = self.env.render()
-            self._save_transition(self.state, 
-                action, self.cumulative_reward, 
-                done, truncated, info, rgb=rgb, 
-                return_reward=reward, 
-                episode_pauses=self.n_pauses,
-                fov_loc=self.fov_loc
-            )
-
-        # Reset the number of pauses and prevented pauses for the next episode
+        # Reset counters at the end of an episode
         if done:
             self.n_pauses = 0
             self.prevented_pauses = 0
+            self.no_action_pauses = 0
 
-        return fov_state, reward, done, truncated, info
+        return state, reward, done, truncated, info
     
     def reset(self):
         full_state, info = self.env.reset()
@@ -228,6 +217,26 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.prev_record_buffer["state"] = [0] * len(self.prev_record_buffer["reward"])
             torch.save(self.prev_record_buffer, file_path)
             video_writer.release()
+
+    def _log_step(self, reward, action, done, truncated, info):
+        self.ep_len += 1
+        self.cumulative_reward += reward
+        info = self._update_info(info)
+        info["pause_cost"] = self.pause_cost
+        info["n_pauses"] = self.n_pauses
+        info["prevented_pauses"] = self.prevented_pauses
+        info["fov_loc"] = self.fov_loc.copy()
+        info["no_action_pauses"] = self.no_action_pauses
+
+        if self.record:
+            rgb = self.env.render()
+            self._save_transition(self.state, 
+                action, self.cumulative_reward, 
+                done, truncated, info, rgb=rgb, 
+                return_reward=reward, 
+                episode_pauses=self.n_pauses,
+                fov_loc=self.fov_loc
+            )
 
     def _skip_step(self, reward):
         """
