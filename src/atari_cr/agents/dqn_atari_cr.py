@@ -495,7 +495,7 @@ class CRDQN:
 
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
-            if single_eval_env.env.record and eval_ep % 4 == 0:
+            if single_eval_env.record and eval_ep % 4 == 0:
                 self._save_output("recordings", "pt", single_eval_env.save_record_to_file, eval_ep)
                 
             # Safe the model file in the first eval run
