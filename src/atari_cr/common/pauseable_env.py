@@ -36,7 +36,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     Environemt making it possible to be paused to only take
     a sensory action without progressing the game.
     """
-    def __init__(self, env: gym.Env, args, pause_cost = 0.01, successive_pause_limit = 20):
+    def __init__(self, env: gym.Env, args, pause_cost = 0.01, successive_pause_limit = 20, no_action_pause_cost = 0.1):
         """
         Parameters
         ----------
@@ -77,6 +77,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.pause_cost = pause_cost
         self.successive_pause_limit = successive_pause_limit
         self.n_pauses = 0
+        self.no_action_pause_cost = no_action_pause_cost
 
         # Count successive pause actions to prevent the system
         # from halting
@@ -105,6 +106,10 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             if not hasattr(self, "state"):
                 action["motor"] = np.random.randint(1, len(self.env.actions))
                 return self.step(action)
+            
+            # Penalize a pause action without moving the fovea because it is useless
+            if self.fov_loc == action["sensory"]:
+                return self._skip_step(-self.no_action_pause_cost)
 
             # Prevent the agent from being stuck on only using pauses
             # Perform a random motor action instead if too many pauses
@@ -125,8 +130,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 self.successive_pauses = 0
                 
             # Only make a sensory step with a small cost
-            reward, done, truncated = -self.pause_cost, False, False
-            info = { "raw_reward": reward }
+            _, reward, done, truncated, info = self._skip_step(-self.pause_cost)
             fov_state = self._fov_step(full_state=self.state, action=action["sensory"])
 
         else:
@@ -185,9 +189,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         return fov_state, info
 
-    def save_record_to_file(self, file_path: str, draw_focus = True):
-        # TODO: Draw the number of pauses onto the screen for better debugging
-        # Pauses just look like lag in the video. 
+    def save_record_to_file(self, file_path: str, draw_focus = True, draw_pauses = True):
         # TODO: Investigate why the fovea is appearently not moved when pausing
         if self.record:
             video_path = file_path.replace(".pt", ".mp4")
@@ -212,11 +214,32 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                     color = (255, 0, 0)
                     thickness = 1
                     frame = cv2.rectangle(frame, top_left, bottom_right, color, thickness)
+
+                if draw_pauses:
+                    text = f"Number of pauses: {self.prev_record_buffer['episode_pauses'][i]}"
+                    position = (10, 10)
+                    font = cv2.FONT_HERSHEY_COMPLEX
+                    font_scale = 0.1
+                    frame = cv2.putText(frame, text, position, font, font_scale, color, thickness)
+
                 video_writer.write(frame)
+
             self.prev_record_buffer["rgb"] = video_path
             self.prev_record_buffer["state"] = [0] * len(self.prev_record_buffer["reward"])
             torch.save(self.prev_record_buffer, file_path)
             video_writer.release()
+
+    def _skip_step(self, reward):
+        """
+        Make a step without actually making a step. 
+        
+        Returns
+        -------
+        state, the given reward, done, truncated, info
+        """
+        done, truncated = False, False
+        info = { "raw_reward": reward }
+        return self.state, reward, done, truncated, info
 
     def _is_pause(self, motor_action: int):
         """
@@ -322,8 +345,8 @@ class SlowableFixedFovealEnv(PauseableFixedFovealEnv):
             
         fov_state, reward, done, truncated, info = super().step(action)
 
-        # Progress the time because a vision step has happened
-        # TODO: depending on how big the sensory action was
+        # TODO: Progress the time because a vision step has happened
+        # depending on how big the sensory action was
         # Time for a saccade is fixed to 20 ms for now
         self.ms_since_motor_step += 20
 
