@@ -24,10 +24,12 @@ class RecordBuffer(TypedDict):
     return_reward: List[np.ndarray]
     episode_pauses: List[int]
     fov_loc: List[np.ndarray]
-    fov_size: List[np.ndarray]
+    fov_size: Tuple[int, int]
 
     def new():
-        return dict((key, []) for key in RecordBuffer.__annotations__)        
+        buffer = dict((key, []) for key in RecordBuffer.__annotations__)
+        buffer["fov_size"] = (0, 0)
+        return buffer     
 
 class PauseableFixedFovealEnv(gym.Wrapper):
     """
@@ -152,12 +154,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 done, truncated, info, rgb=rgb, 
                 return_reward=reward, 
                 episode_pauses=self.n_pauses,
-                fov_loc=self.fov_loc,
-                fov_size=self.fov_size
+                fov_loc=self.fov_loc
             )
-
-            if not done:
-                self.record_buffer["fov_loc"].append(info["fov_loc"])
 
         # Reset the number of pauses and prevented pauses for the next episode
         if done:
@@ -173,13 +171,13 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.ep_len = 0
         self.fov_loc = np.rint(np.array(self.fov_init_loc, copy=True)).astype(np.int32)
         fov_state = self._get_fov_state(full_state)
+
         info["fov_loc"] = self.fov_loc.copy()
         info = self._update_info(info)
 
         if self.record:
             # Reset record_buffer
             self.record_buffer["fov_size"] = self.fov_size
-            self.record_buffer["fov_loc"] = [info["fov_loc"]]
             # Record Wrapper Stuff
             rgb = self.env.render()
             self._reset_record_buffer()
@@ -276,7 +274,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
     def _save_transition(self, state, action=None, reward=None, done=None, 
             truncated=None, info=None, rgb=None, return_reward=None, 
-            episode_pauses=None, fov_size=None, fov_loc=None):
+            episode_pauses=None, fov_loc=None):
         if (done is not None) and (not done):
             self.record_buffer["state"].append(state)
             self.record_buffer["rgb"].append(rgb)
@@ -296,6 +294,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.record_buffer["return_reward"].append(return_reward)
         if episode_pauses is not None:
             self.record_buffer["episode_pauses"].append(episode_pauses)
+        if fov_loc is not None:
+            self.record_buffer["fov_loc"].append(fov_loc)
 
 
 class SlowableFixedFovealEnv(PauseableFixedFovealEnv):
