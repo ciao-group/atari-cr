@@ -30,7 +30,8 @@
                 "--learning-start", "1000",
                 "--pvm-stack", "6",
                 "--pause-cost", "0.01",
-                "--successive-pause-limit", "20"
+                "--successive-pause-limit", "20",
+                "--ignore-sugarl"
             ],
             "justMyCode": false
         },

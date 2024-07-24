@@ -179,7 +179,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         return fov_state, info
 
     def save_record_to_file(self, file_path: str, draw_focus = True, draw_pauses = True):
-        # TODO: Investigate why the fovea is appearently not moved when pausing
         if self.record:
             video_path = file_path.replace(".pt", ".mp4")
             self.prev_record_buffer: RecordBuffer
@@ -208,7 +207,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                     text = f"Number of pauses: {self.prev_record_buffer['episode_pauses'][i]}"
                     position = (10, 10)
                     font = cv2.FONT_HERSHEY_COMPLEX
-                    font_scale = 0.1
+                    font_scale = 0.4
                     frame = cv2.putText(frame, text, position, font, font_scale, color, thickness)
 
                 video_writer.write(frame)

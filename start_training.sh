@@ -5,8 +5,8 @@ numgpus=${2:-$(nvidia-smi --list-gpus | wc -l)}
 #envlist=(alien amidar assault asterix bank_heist battle_zone boxing breakout chopper_command crazy_climber demon_attack freeway frostbite gopher hero jamesbond kangaroo krull kung_fu_master ms_pacman pong private_eye qbert road_runner seaquest up_n_down) #pong qbert seaquest zaxxon
 envlist=(boxing)
 
-expname="boxing_pauseable122_2m"
-totaltimesteps="2000000"
+expname="boxing_pauseable123_1m"
+totaltimesteps="1000000"
 buffersize="100000"
 learningstarts="10000"
 
@@ -20,7 +20,7 @@ for i in ${!envlist[@]}
 do
     gpuid=$(( $i % $numgpus ))
     (
-        for seed in 0
+        for seed in 0 1
         do
             echo "${expname} GPU: ${gpuid} Env: ${envlist[$i]} Seed: ${seed} ${1}"
             basename=$(basename $1)
@@ -39,7 +39,8 @@ do
                 --pvm-stack 6 \
                 --pause-cost 0.025 \
                 --successive-pause-limit 30 \
-                ${@:2} >> ${logdir}/${envlist[$i]}__${basename}__${seed}.txt
+                --ignore-sugarl \
+                ${@:2} >> ${logdir}/${envlist[$i]}__${basename}__${seed}.txt &
         done
     ) &
 done

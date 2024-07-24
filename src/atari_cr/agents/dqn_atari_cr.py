@@ -103,6 +103,8 @@ def parse_args():
     parser.add_argument("--successive-pause-limit", type=int, default=20,
         help="Limit to the amount of successive pauses the agent can make before a random action is selected instead. \
             This prevents the agent from halting")
+    parser.add_argument("--ignore-sugarl", action="store_true",
+        help="Whether to ignore the sugarl term in the loss calculation")
     
     args = parser.parse_args()
     return args
@@ -263,7 +265,8 @@ class CRDQN:
             eval_frequency = -1,
             gamma = 0.99,
             cuda = True,
-            n_evals = 10
+            n_evals = 10,
+            ignore_sugarl = True
         ):
         """
         Parameters
@@ -306,6 +309,8 @@ class CRDQN:
             Whether to use cuda or not
         n_evals : int
             Number of eval episodes to be played
+        ignore_sugarl : bool
+            Whether to ignore the sugarl term in the loss calculation
         """
         self.env = env
         self.writer = writer
@@ -324,6 +329,7 @@ class CRDQN:
         self.eval_env_generator = eval_env_generator
         self.pvm_stack = pvm_stack
         self.frame_stack = frame_stack
+        self.ignore_sugarl = ignore_sugarl
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.current_timestep = 0
@@ -563,6 +569,8 @@ class CRDQN:
         episode_info = infos['final_info'][finished_env_index]
         # Reward without pause costs
         raw_reward = episode_info['reward'] + episode_info['n_pauses'] * episode_info['pause_cost']
+        # TODO: Reward without sugarl reward
+        # TODO: Raw reward with neither sugarl reward nor pause cost
         prevented_pauses_warning = f"\nWARNING: [Prevented Pauses: {episode_info['prevented_pauses']}]" if episode_info['prevented_pauses'] else "" 
 
         print((
@@ -641,16 +649,30 @@ class CRDQN:
         return observation_quality
 
     def _train_dqn(self, data, observation_quality):
+        """
+        Trains the behavior q network and copies it to the target q network with self.target_network_frequency.
+
+        :param NDArray data: A sample from the replay buffer
+        :param NDArray[Shape[self.batch_size], Float] observation_quality: A batch of probabilities of the SFN predicting the action that the agent selected  
+        """
+        # TODO: Investigate how pausing interacts with sugarl reward
+        # TODO: Log reward without sugarl 
+        # TODO: Understand what the change in q values over time means
+        # TODO: Investigate why the fovea is so far off when the sfn should actually be good
         # Target network prediction
         with torch.no_grad():
+            # Assign a value to every possible action in the next state for one batch 
+            # motor_target.shape: [32, 19]
             motor_target, sensory_target = self.target_network(Resize(self.obs_size)(data.next_observations))
+            # Get the maximum action value for one batch
+            # motor_target_max.shape: [32]
             motor_target_max, _ = motor_target.max(dim=1)
             sensory_target_max, _ = sensory_target.max(dim=1)
             # Scale step-wise reward with observation_quality
             observation_quality_adjusted = observation_quality.clone()
             observation_quality_adjusted[data.rewards.flatten() > 0] = 1 - observation_quality_adjusted[data.rewards.flatten() > 0]
-            td_target = data.rewards.flatten() - (1 - observation_quality) * self.sugarl_r_scale + self.gamma * (motor_target_max+sensory_target_max) * (1 - data.dones.flatten())
-            original_td_target = data.rewards.flatten() + self.gamma * (motor_target_max+sensory_target_max) * (1 - data.dones.flatten())
+            td_target = data.rewards.flatten() - (1 - observation_quality) * self.sugarl_r_scale + self.gamma * (motor_target_max + sensory_target_max) * (1 - data.dones.flatten())
+            original_td_target = data.rewards.flatten() + self.gamma * (motor_target_max + sensory_target_max) * (1 - data.dones.flatten())
 
         # Q network prediction
         old_motor_q_val, old_sensory_q_val = self.q_network(Resize(self.obs_size)(data.observations))
@@ -659,18 +681,21 @@ class CRDQN:
         old_val = old_motor_val + old_sensory_val
 
         # Back propagation
+        loss_without_sugarl = F.mse_loss(original_td_target, old_val)
         loss = F.mse_loss(td_target, old_val)
+        backprop_loss = loss_without_sugarl if self.ignore_sugarl else loss
         self.optimizer.zero_grad()
-        loss.backward()
+        backprop_loss.backward()
         self.optimizer.step()
 
         # Tensorboard logging
         if self.current_timestep % 100 == 0:
-            self.writer.add_scalar("losses/td_loss", loss, self.current_timestep)
+            self.writer.add_scalar("losses/loss", loss, self.current_timestep)
+            self.writer.add_scalar("losses/loss_without_sugarl", loss, self.current_timestep)
             self.writer.add_scalar("losses/q_values", old_val.mean().item(), self.current_timestep)
             self.writer.add_scalar("losses/motor_q_values", old_motor_val.mean().item(), self.current_timestep)
             self.writer.add_scalar("losses/sensor_q_values", old_sensory_val.mean().item(), self.current_timestep)
-            self.writer.add_scalar("losses/original_td_target", original_td_target.mean().item(), self.current_timestep)
+            # self.writer.add_scalar("losses/original_td_target", original_td_target.mean().item(), self.current_timestep)
             self.writer.add_scalar("losses/sugarl_r_scaled_td_target", td_target.mean().item(), self.current_timestep)
         
         # Update the target network with self.target_network_frequency
