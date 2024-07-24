@@ -21,8 +21,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision.transforms import Resize
 
-from common.buffer import ReplayBuffer
-from common.utils import get_timestr, seed_everything
+from atari_cr.common.buffer import ReplayBuffer
+from atari_cr.common.utils import get_timestr, seed_everything
 from torch.utils.tensorboard import SummaryWriter
 
 from active_gym import AtariFixedFovealPeripheralEnv, AtariEnvArgs

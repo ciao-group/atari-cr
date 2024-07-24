@@ -10,11 +10,7 @@ totaltimesteps="1000000"
 buffersize="100000"
 learningstarts="10000"
 
-logdir=output/logs/${expname}
-mkdir -p output
-mkdir -p ${logdir}
-mkdir -p output/recordings/${expname}
-mkdir -p output/trained_models/${expname}
+logdir=output/${expname}/logs
 
 for i in ${!envlist[@]}
 do

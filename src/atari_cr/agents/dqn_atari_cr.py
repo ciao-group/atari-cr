@@ -1,12 +1,11 @@
 import argparse
-import os, sys
-import os.path as osp
+import os
 import random
 import time
 from itertools import product
 from distutils.util import strtobool
+import logging
 
-sys.path.append(osp.dirname(osp.dirname(osp.realpath(__file__))))
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 from typing import Callable, List, Tuple
@@ -22,14 +21,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision.transforms import Resize
-
-from common.buffer import DoubleActionReplayBuffer
-from common.pvm_buffer import PVMBuffer
-from common.utils import get_timestr, seed_everything, get_sugarl_reward_scale_atari, linear_schedule
-from common.pauseable_env import PauseableFixedFovealEnv
 from torch.utils.tensorboard import SummaryWriter
 
 from active_gym.atari_env import AtariEnv, AtariEnvArgs
+
+from atari_cr.common.buffer import DoubleActionReplayBuffer
+from atari_cr.common.pvm_buffer import PVMBuffer
+from atari_cr.common.utils import seed_everything, get_sugarl_reward_scale_atari, linear_schedule
+from atari_cr.common.pauseable_env import PauseableFixedFovealEnv
 
 
 def parse_args():
@@ -105,6 +104,7 @@ def parse_args():
             This prevents the agent from halting")
     parser.add_argument("--ignore-sugarl", action="store_true",
         help="Whether to ignore the sugarl term in the loss calculation")
+    parser.add_argument("--log-dir", type=str, default="output/logs")
     
     args = parser.parse_args()
     return args
@@ -537,7 +537,7 @@ class CRDQN:
         """
         Saves different types of eval output to the file system in the context of the current episode
         """
-        output_dir = os.path.join("output", output_type, self.run_identifier)
+        output_dir = os.path.join("output", self.run_identifier, output_type)
         os.makedirs(output_dir, exist_ok=True)
         file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}.{file_prefix}"
         save_fn(os.path.join(output_dir, file_name))
@@ -692,6 +692,7 @@ class CRDQN:
         if self.current_timestep % 100 == 0:
             self.writer.add_scalar("losses/loss", loss, self.current_timestep)
             self.writer.add_scalar("losses/loss_without_sugarl", loss, self.current_timestep)
+            self.writer.add_scalar("losses/sugarl_loss", loss - loss_without_sugarl, self.current_timestep)
             self.writer.add_scalar("losses/q_values", old_val.mean().item(), self.current_timestep)
             self.writer.add_scalar("losses/motor_q_values", old_motor_val.mean().item(), self.current_timestep)
             self.writer.add_scalar("losses/sensor_q_values", old_sensory_val.mean().item(), self.current_timestep)
@@ -710,6 +711,14 @@ class CRDQN:
 
 if __name__ == "__main__":
     args = parse_args()
+
+    # Logging   
+    experiment_identifer = os.path.join(args.exp_name, os.path.basename(__file__).rstrip(".py"), args.env)
+    experiment_dir = os.path.join("output", experiment_identifer)
+    log_dir = os.path.join(experiment_dir, "logs")
+    # log_file = os.path.join(log_dir, f"seed{args.seed}.log")
+    os.makedirs(log_dir, exist_ok=True)
+
     args.env = args.env.lower()
     run_dir = os.path.join("output/runs", args.exp_name)
     if not os.path.exists(run_dir):

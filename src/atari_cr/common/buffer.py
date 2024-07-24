@@ -12,7 +12,7 @@ import torch as th
 from gymnasium import spaces
 from gymnasium.vector import VectorEnv
 
-from common.utils import get_action_dim, get_obs_shape, get_device
+from atari_cr.common.utils import get_action_dim, get_obs_shape, get_device
 
 try:
     # Check memory used by replay buffer when possible

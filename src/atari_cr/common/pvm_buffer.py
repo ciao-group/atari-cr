@@ -64,7 +64,6 @@ class PVMBuffer:
                 for b in range(len(self.fov_loc_buffer[t])):
                     extrinsic = self.fov_loc_buffer[t][b]
                     target_extrinsic = self.fov_loc_buffer[t][-1]
-                    # print (extrinsic, extrinsic.shape)
                     if np.linalg.det(extrinsic):
                         extrinsic_inv = np.linalg.inv(extrinsic)
                         transform = np.dot(target_extrinsic, extrinsic_inv)
@@ -81,7 +80,6 @@ class PVMBuffer:
                         A = H / H[2, 2]
                         affine = A[:2, :]
                         transforms[t][b] = affine
-            # print (transforms, [x.shape for x in transforms])
             return np.stack(transforms, axis=1) # [B, T, 2, 3]
         else:
             return np.stack(self.fov_loc_buffer, axis=1)
