@@ -1,7 +1,6 @@
 #!/bin/bash
 numgpus=${2:-$(nvidia-smi --list-gpus | wc -l)}
 
-# envlist=(boxing)
 envlist=(boxing freeway)
 
 expname="pauseable123_1m"

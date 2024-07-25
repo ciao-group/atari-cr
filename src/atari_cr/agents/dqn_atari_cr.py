@@ -28,6 +28,7 @@ from atari_cr.common.buffer import DoubleActionReplayBuffer
 from atari_cr.common.pvm_buffer import PVMBuffer
 from atari_cr.common.utils import seed_everything, get_sugarl_reward_scale_atari, linear_schedule
 from atari_cr.common.pauseable_env import PauseableFixedFovealEnv
+from atari_cr.common.models import SensoryActionMode
 
 
 def parse_args():
@@ -56,8 +57,11 @@ def parse_args():
     # fov setting
     parser.add_argument("--fov-size", type=int, default=50)
     parser.add_argument("--fov-init-loc", type=int, default=0)
-    parser.add_argument("--sensory-action-mode", type=str, default="absolute")
-    parser.add_argument("--sensory-action-space", type=int, default=10) # ignored when sensory_action_mode="relative"
+    parser.add_argument("--sensory-action-mode", type=str, default="absolute",
+        help="How the sensory action is interpreted by the env. Either 'absolute' or 'relative'")
+    # TODO: Investigate how relative sensory actions are split into a discrete set of actions
+    parser.add_argument("--sensory-action-space", type=int, default=10,
+        help="Maximum size of pixels to move the fovea in one relative sensory step. Ignored for absolute sensory action mode") 
     parser.add_argument("--resize-to-full", default=False, action="store_true")
     # for discrete observ action
     parser.add_argument("--sensory-action-x-size", type=int, default=4)
@@ -120,7 +124,7 @@ def make_env(seed, **kwargs):
             action_repeat=args.action_repeat,
             fov_size=(args.fov_size, args.fov_size), 
             fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
-            sensory_action_mode=args.sensory_action_mode,
+            sensory_action_mode=sensory_action_mode,
             sensory_action_space=(-args.sensory_action_space, args.sensory_action_space),
             resize_to_full=args.resize_to_full,
             clip_reward=args.clip_reward,
@@ -146,12 +150,11 @@ def make_eval_env(seed):
 
 
 class QNetwork(nn.Module):
-    def __init__(self, env, sensory_action_set=None):
+    def __init__(self, env, sensory_action_set):
         super().__init__()
 
         # Get the size of the different network heads
         assert isinstance(env.single_action_space, Dict)
-        assert sensory_action_set
         self.motor_action_space_size = env.single_action_space["motor"].n
         self.sensory_action_space_size = len(sensory_action_set)
 
@@ -182,10 +185,7 @@ class QNetwork(nn.Module):
         """
         Epsilon greedy action selection
 
-        Parameters
-        ----------
-        epsilon : float
-            Probability of selecting a random action
+        :param float epsilon: Probability of selecting a random action
         """
         # Execute random motor and sensory action with probability epsilon
         if random.random() < epsilon:
@@ -198,6 +198,9 @@ class QNetwork(nn.Module):
         return motor_actions, sensory_actions
     
     def chose_eval_action(self, pvm_obs: np.ndarray):
+        """
+        Greedy action selection
+        """
         resize = Resize(pvm_obs.shape[2:])
         motor_q_values, sensory_q_values = self(resize(torch.from_numpy(pvm_obs)).to(device))
         motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
@@ -238,14 +241,13 @@ class SelfPredictionNetwork(nn.Module):
         x = self.head(x)
         return x
 
-
 class CRDQN:
     """
     Algorithm for DQN with Computational Rationality
     """
     def __init__(
             self, 
-            env: gym.Env, 
+            env: PauseableFixedFovealEnv, 
             eval_env_generator: Callable[[int], gym.Env],
             sugarl_r_scale: float,
             seed = 0,
@@ -327,12 +329,15 @@ class CRDQN:
         self.pvm_stack = pvm_stack
         self.frame_stack = frame_stack
         self.ignore_sugarl = ignore_sugarl
+        self.sensory_action_mode = sensory_action_mode
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.current_timestep = 0
 
         # Get the observation size
+        # TODO: Remove single_env everywhere in favor of envs
         self.single_env: PauseableFixedFovealEnv = env.envs[0] if isinstance(env, VectorEnv) else env
+        self.envs = env.envs if isinstance(env, VectorEnv) else [env]
         assert isinstance(self.single_env, PauseableFixedFovealEnv), \
             "The environment is expected to be wrapped in a PauseableFixedFovealEnv"
         self.obs_size = env.observation_space.shape[2:]
@@ -420,7 +425,10 @@ class CRDQN:
         while self.current_timestep < n:
             # Chose action from q network
             self.epsilon = self._epsilon_schedule(n)
-            motor_actions, sensory_actions = self.q_network.chose_action(self.env, pvm_obs, self.epsilon)
+            motor_actions, sensory_action_indices = self.q_network.chose_action(self.env, pvm_obs, self.epsilon)
+
+            # Transform the action to an absolute fovea position
+            sensory_actions = np.array([self.sensory_action_set[i] for i in sensory_action_indices])
 
             # Perform the action in the environment
             next_pvm_obs, rewards, dones, _ = self._step(
@@ -431,7 +439,7 @@ class CRDQN:
             )
 
             # Add new pvm ovbervation to the buffer   
-            self.rb.add(pvm_obs, next_pvm_obs, motor_actions, sensory_actions, rewards, dones, {})
+            self.rb.add(pvm_obs, next_pvm_obs, motor_actions, sensory_action_indices, rewards, dones, {})
             pvm_obs = next_pvm_obs
 
             # Only train if a full batch is available
@@ -494,8 +502,12 @@ class CRDQN:
             # One episode in the environment
             while not done:
                 # Chose an action from the Q network
-                motor_actions, sensory_actions \
+                motor_actions, sensory_action_indices \
                     = self.q_network.chose_eval_action(pvm_obs)
+                
+                # Translate the action to an absolute fovea position
+                # TODO: Check if relative sensory action mode produces viable fovea steps
+                sensory_actions = np.array([self.sensory_action_set[i] for i in sensory_action_indices])
 
                 # Perform the action in the environment
                 next_pvm_obs, rewards, dones, infos = self._step(
@@ -572,7 +584,7 @@ class CRDQN:
         # Take an action in the environment
         next_obs, rewards, dones, _, infos = env.step({
             "motor": motor_actions, 
-            "sensory": [self.sensory_action_set[a] for a in sensory_actions]
+            "sensory": sensory_actions
         })
 
         # Log episode returns and handle `terminal_observation`
@@ -730,9 +742,10 @@ class CRDQN:
         Maps the current number of timesteps to a value of epsilon.
         """
         return linear_schedule(*self.epsilon_interval, self.exploration_fraction * total_timesteps, self.current_timestep)
-# TODO: FIX LOG PATH FOR NORMAL TRAINING START
+
 if __name__ == "__main__":
     args = parse_args()
+    sensory_action_mode = SensoryActionMode.from_string(args.sensory_action_mode)
 
     seed_everything(args.seed)
 

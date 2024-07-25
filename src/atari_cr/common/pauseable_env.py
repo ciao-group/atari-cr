@@ -9,6 +9,8 @@ from typing import TypedDict, List, Tuple
 import copy
 from torchvision.transforms import Resize
 
+from atari_cr.common.models import SensoryActionMode
+
 
 class RecordBuffer(TypedDict):
     """
@@ -52,10 +54,11 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.fov_init_loc: Tuple[int, int] = args.fov_init_loc
         assert (np.array(self.fov_size) < np.array(self.obs_size)).all()
 
-        self.sensory_action_mode: str = args.sensory_action_mode 
-        if self.sensory_action_mode == "relative":
+        # Get sensory action space for the sensory action mode
+        self.sensory_action_mode: SensoryActionMode = args.sensory_action_mode 
+        if self.sensory_action_mode == SensoryActionMode.RELATIVE:
             self.sensory_action_space = np.array(args.sensory_action_space)
-        elif self.sensory_action_mode == "absolute":
+        elif self.sensory_action_mode == SensoryActionMode.ABSOLUTE:
             self.sensory_action_space = np.array(self.obs_size) - np.array(self.fov_size)
         else:
             raise ValueError("sensory_action_mode needs to be either 'absolute' or 'relative'")
@@ -272,13 +275,11 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         elif type(action) is Tuple:
             action = np.array(action)
 
-        if self.sensory_action_mode == "absolute":
-            action = self._clip_to_valid_fov(action)
-            self.fov_loc = action
-        elif self.sensory_action_mode == "relative":
+        # Move the fovea
+        if self.sensory_action_mode == SensoryActionMode.RELATIVE:
             action = self._clip_to_valid_sensory_action_space(action)
-            fov_loc = self.fov_loc + action
-            self.fov_loc = self._clip_to_valid_fov(fov_loc)
+            action = self.fov_loc + action
+        self.fov_loc = self._clip_to_valid_fov(action)
 
         fov_state = self._get_fov_state(full_state)
         
