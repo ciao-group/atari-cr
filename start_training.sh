@@ -20,7 +20,6 @@ do
         do
             echo "${expname} GPU: ${gpuid} Env: ${envlist[$i]} Seed: ${seed} ${1}"
             basename=$(basename $1)
-            echo "========" >> ${logdir}/${envlist[$i]}__${basename}__${seed}.txt
             CUDA_VISIBLE_DEVICES=$gpuid python $1 \
                 --env ${envlist[$i]} \
                 --env-num 1 \
@@ -35,8 +34,7 @@ do
                 --pvm-stack 6 \
                 --pause-cost 0.025 \
                 --successive-pause-limit 30 \
-                --ignore-sugarl \
-                ${@:2} >> ${logdir}/${envlist[$i]}__${basename}__${seed}.txt &
+                --ignore-sugarl
         done
     ) &
 done

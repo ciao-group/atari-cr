@@ -573,16 +573,16 @@ class CRDQN:
         # TODO: Raw reward with neither sugarl reward nor pause cost
         prevented_pauses_warning = f"\nWARNING: [Prevented Pauses: {episode_info['prevented_pauses']}]" if episode_info['prevented_pauses'] else "" 
 
-        print((
-            f"[T: {time.time()-self.start_time:.2f}] "
-            f"[N: {self.current_timestep:07,d}] "
-            f"[R, Raw R: {episode_info['reward']:.2f}, {raw_reward:.2f}] "
-            f"[Pauses: {episode_info['n_pauses']}] "
-            f"{prevented_pauses_warning}"
-        ))    
+        # print((
+        #     f"[T: {time.time()-self.start_time:.2f}] "
+        #     f"[N: {self.current_timestep:07,d}] "
+        #     f"[R, Raw R: {episode_info['reward']:.2f}, {raw_reward:.2f}] "
+        #     f"[Pauses: {episode_info['n_pauses']}] "
+        #     f"{prevented_pauses_warning}"
+        # ))    
         # Log the amount of prevented pauses over the entire learning period
-        if not self.single_env.prevented_pauses == 0:
-            print(f"WARNING: [Prevented Pauses]: {','.join(map(str, self.single_env.prevented_pauses))}")
+        # if not self.single_env.prevented_pauses == 0:
+        #     print(f"WARNING: [Prevented Pauses]: {','.join(map(str, self.single_env.prevented_pauses))}")
 
         # Tensorboard
         self.writer.add_scalar("charts/episodic_return", episode_info["reward"], self.current_timestep)
@@ -708,7 +708,7 @@ class CRDQN:
         Maps the current number of timesteps to a value of epsilon.
         """
         return linear_schedule(*self.epsilon_interval, self.exploration_fraction * total_timesteps, self.current_timestep)
-
+# TODO: FIX LOG PATH FOR NORMAL TRAINING START
 if __name__ == "__main__":
     args = parse_args()
 
@@ -717,12 +717,9 @@ if __name__ == "__main__":
     experiment_dir = os.path.join("output", experiment_identifer)
     log_dir = os.path.join(experiment_dir, "logs")
     # log_file = os.path.join(log_dir, f"seed{args.seed}.log")
+    run_dir = os.path.join(experiment_dir, "runs")
     os.makedirs(log_dir, exist_ok=True)
-
-    args.env = args.env.lower()
-    run_dir = os.path.join("output/runs", args.exp_name)
-    if not os.path.exists(run_dir):
-        os.makedirs(run_dir, exist_ok=True)
+    os.makedirs(run_dir, exist_ok=True)
     
     writer = SummaryWriter(run_dir)
     writer.add_text(

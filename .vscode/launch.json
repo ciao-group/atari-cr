@@ -29,7 +29,7 @@
                 "--buffer-size", "100000",
                 "--learning-start", "1000",
                 "--pvm-stack", "6",
-                "--pause-cost", "0.01",
+                "--pause-cost", "0.025",
                 "--successive-pause-limit", "20",
                 "--ignore-sugarl"
             ],
