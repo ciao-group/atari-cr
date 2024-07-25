@@ -247,7 +247,6 @@ class CRDQN:
             self, 
             env: gym.Env, 
             eval_env_generator: Callable[[int], gym.Env],
-            writer: SummaryWriter, 
             sugarl_r_scale: float,
             seed = 0,
             fov_size = 50,
@@ -274,7 +273,6 @@ class CRDQN:
         env : `gymnasium.Env`
         eval_env_generator : Callable
             Function, outputting an eval env given a seed
-        self.writer : `tensorboard.SummaryWriter`
         sugarl_r_scale : float
         seed : int
         fov_size : int
@@ -313,7 +311,6 @@ class CRDQN:
             Whether to ignore the sugarl term in the loss calculation
         """
         self.env = env
-        self.writer = writer
         self.sugarl_r_scale = sugarl_r_scale
         self.seed = seed
         self.fov_size = fov_size
@@ -382,21 +379,39 @@ class CRDQN:
         """
         Acts in the environment and trains the agent for n timesteps
         """
+        # Define output paths
+        run_identifier = os.path.join(experiment_name, env_name)
+        self.run_dir = os.path.join("output", run_identifier)
+        self.log_dir = os.path.join(self.run_dir, "logs")
+        self.tb_dir = os.path.join(self.run_dir, "tensorboard")
+        self.video_dir = os.path.join(self.run_dir, "recordings")
+        self.pvm_dir = os.path.join(self.run_dir, "pvms")
+        self.model_dir = os.path.join(self.run_dir, "trained_models")
+
+        # Init text logging and tensorboard logging
+        os.makedirs(self.log_dir, exist_ok=True)
+        os.makedirs(self.tb_dir, exist_ok=True)
+        self.log_file = os.path.join(self.log_dir, f"seed{self.seed}.txt")
+        self.writer = SummaryWriter(self.tb_dir)
+        self.writer.add_text(
+            "hyperparameters",
+            "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+        )
+
         # Log pause cost
-        print(f"Training start with pause cost {self.single_env.pause_cost}")
-        self.run_identifier = os.path.join(experiment_name, os.path.basename(__file__).rstrip(".py"), env_name)
+        self._log(f"---\nTraining start with pause cost {self.single_env.pause_cost}")
 
         # Load existing run if there is one
-        exp_dir = f"output/trained_models/{self.run_identifier}"
-        if os.path.exists(exp_dir):
-            seeded_models = list(filter(lambda s: f"seed{self.seed}" in s, os.listdir(exp_dir)))
+        if os.path.exists(self.model_dir):
+            seeded_models = list(filter(lambda s: f"seed{self.seed}" in s, os.listdir(self.model_dir)))
             if len(seeded_models) > 0:
-                print("Loading existing checkpoint")
+                self._log("Loading existing checkpoint")
                 timesteps = [int(model.split("_")[1][4:]) for model in seeded_models]
                 latest_model = seeded_models[np.argmax(timesteps)]
-                self.load_checkpoint(f"{exp_dir}/{latest_model}")
+                self.load_checkpoint(f"{self.model_dir}/{latest_model}")
                 n += self.current_timestep
 
+        # Start acting in the environment
         self.start_time = time.time()
         obs, infos = self.env.reset()
         self.pvm_buffer.append(obs)
@@ -425,7 +440,7 @@ class CRDQN:
 
                 # Save the model every 1M timesteps
                 if self.current_timestep % 1000000 == 0:
-                    self._save_output("trained_models", "pt", self.save_checkpoint)
+                    self._save_output(self.model_dir, "pt", self.save_checkpoint)
 
                 # Training
                 if self.current_timestep % self.train_frequency == 0:
@@ -495,18 +510,18 @@ class CRDQN:
 
                 # Save a visualization of the pvm buffer in the middle of the episode
                 if infos["ep_len"] == 50:
-                    self._save_output("pvms", "png", eval_pvm_buffer.to_png, eval_ep)
+                    self._save_output(self.pvm_dir, "png", eval_pvm_buffer.to_png, eval_ep)
 
             episode_infos.append(infos['final_info'][0])
 
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
             if single_eval_env.record and eval_ep % 4 == 0:
-                self._save_output("recordings", "pt", single_eval_env.save_record_to_file, eval_ep)
+                self._save_output(self.video_dir, "pt", single_eval_env.save_record_to_file, eval_ep)
                 
             # Safe the model file in the first eval run
             if eval_ep == 0:
-                self._save_output("trained_models", "pt", self.save_checkpoint, eval_ep)
+                self._save_output(self.model_dir, "pt", self.save_checkpoint, eval_ep)
 
             eval_env.close()
 
@@ -532,12 +547,19 @@ class CRDQN:
         self.sfn.load_state_dict(checkpoint["sfn"])
         self.q_network.load_state_dict(checkpoint["q"])
         self.current_timestep = checkpoint["training_steps"]
+
+    def _log(self, s: str):
+        """
+        Own print function. logging module does not work with the current gymnasium installation for some reason.
+        """
+        assert self.log_file, "self._log needs self.log_file to bet set"
+        with open(self.log_file, "a") as f:
+            f.write(f"\n{s}")
     
-    def _save_output(self, output_type: str, file_prefix: str, save_fn: Callable[[str], None], eval_ep: int = 0):
+    def _save_output(self, output_dir: str, file_prefix: str, save_fn: Callable[[str], None], eval_ep: int = 0):
         """
         Saves different types of eval output to the file system in the context of the current episode
         """
-        output_dir = os.path.join("output", self.run_identifier, output_type)
         os.makedirs(output_dir, exist_ok=True)
         file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}.{file_prefix}"
         save_fn(os.path.join(output_dir, file_name))
@@ -573,16 +595,16 @@ class CRDQN:
         # TODO: Raw reward with neither sugarl reward nor pause cost
         prevented_pauses_warning = f"\nWARNING: [Prevented Pauses: {episode_info['prevented_pauses']}]" if episode_info['prevented_pauses'] else "" 
 
-        # print((
-        #     f"[T: {time.time()-self.start_time:.2f}] "
-        #     f"[N: {self.current_timestep:07,d}] "
-        #     f"[R, Raw R: {episode_info['reward']:.2f}, {raw_reward:.2f}] "
-        #     f"[Pauses: {episode_info['n_pauses']}] "
-        #     f"{prevented_pauses_warning}"
-        # ))    
+        self._log((
+            f"[T: {time.time()-self.start_time:.2f}] "
+            f"[N: {self.current_timestep:07,d}] "
+            f"[R, Raw R: {episode_info['reward']:.2f}, {raw_reward:.2f}] "
+            f"[Pauses: {episode_info['n_pauses']}] "
+            f"{prevented_pauses_warning}"
+        ))    
         # Log the amount of prevented pauses over the entire learning period
-        # if not self.single_env.prevented_pauses == 0:
-        #     print(f"WARNING: [Prevented Pauses]: {','.join(map(str, self.single_env.prevented_pauses))}")
+        if not self.single_env.prevented_pauses == 0:
+            self._log(f"WARNING: [Prevented Pauses]: {','.join(map(str, self.single_env.prevented_pauses))}")
 
         # Tensorboard
         self.writer.add_scalar("charts/episodic_return", episode_info["reward"], self.current_timestep)
@@ -606,16 +628,16 @@ class CRDQN:
         raw_episodic_returns = [episodic_return + pause_cost * pauses for episodic_return, pauses in zip(episodic_returns, pause_counts)]
         
         # Log everything
-        print((
+        prevented_pauses_warning = "" if all(n == 0 for n in prevented_pauses) else \
+            f"WARNING: [Prevented Pauses]: {','.join(map(str, prevented_pauses))}"
+        self._log((
             f"[N: {self.current_timestep:07,d}]"
             f" [Eval Return, Raw Eval Return: {np.mean(episodic_returns):.2f}+/-{np.std(episodic_returns):.2f}"
                 f", {np.mean(raw_episodic_returns):.2f}+/-{np.std(raw_episodic_returns):.2f}]"
             f"\n[Returns: {','.join([f'{r:.2f}' for r in episodic_returns])}]"
             f"\n[Episode Lengths: {','.join([f'{r:.2f}' for r in episode_lengths])}]"
-            f"\n[Pauses: {','.join([str(n) for n in pause_counts])} with cost {pause_cost}]"
+            f"\n[Pauses: {','.join([str(n) for n in pause_counts])} with cost {pause_cost}]{prevented_pauses_warning}"
         ))
-        if not all(n == 0 for n in prevented_pauses):
-            print(f"WARNING: [Prevented Pauses]: {','.join(map(str, prevented_pauses))}")
 
         # Tensorboard
         for env_num in range(len(episode_infos)):
@@ -712,21 +734,6 @@ class CRDQN:
 if __name__ == "__main__":
     args = parse_args()
 
-    # Logging   
-    experiment_identifer = os.path.join(args.exp_name, os.path.basename(__file__).rstrip(".py"), args.env)
-    experiment_dir = os.path.join("output", experiment_identifer)
-    log_dir = os.path.join(experiment_dir, "logs")
-    # log_file = os.path.join(log_dir, f"seed{args.seed}.log")
-    run_dir = os.path.join(experiment_dir, "runs")
-    os.makedirs(log_dir, exist_ok=True)
-    os.makedirs(run_dir, exist_ok=True)
-    
-    writer = SummaryWriter(run_dir)
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
-
     seed_everything(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
@@ -738,7 +745,6 @@ if __name__ == "__main__":
     agent = CRDQN(
         env, 
         make_eval_env, 
-        writer, 
         sugarl_r_scale,
         seed=args.seed,
         fov_size=args.fov_size,

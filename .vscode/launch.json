@@ -5,18 +5,15 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Current File",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal",
-        },
-        {
             "name": "DQN CR Sugarl Debug",
             "type": "debugpy",
             "request": "launch",
             "program": "src/atari_cr/agents/dqn_atari_cr.py",
             "console": "integratedTerminal",
+            "pythonArgs": [
+                // Not having this displays a warning because frozen modules bad
+                "-Xfrozen_modules=off"
+            ],
             "args": [
                 "--env", "boxing",
                 "--env-num", "1",
