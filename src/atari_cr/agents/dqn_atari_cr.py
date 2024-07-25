@@ -4,7 +4,6 @@ import random
 import time
 from itertools import product
 from distutils.util import strtobool
-import logging
 
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -104,7 +103,8 @@ def parse_args():
             This prevents the agent from halting")
     parser.add_argument("--ignore-sugarl", action="store_true",
         help="Whether to ignore the sugarl term in the loss calculation")
-    parser.add_argument("--log-dir", type=str, default="output/logs")
+    parser.add_argument("--no-action-pause-cost", type=float, default=0.1,
+        help="Penalty for performing a useless pause without a sensory action. This is meant to speed up training")
     
     args = parser.parse_args()
     return args
@@ -129,7 +129,7 @@ def make_env(seed, **kwargs):
         )
         env = AtariEnv(env_args)
         env = PauseableFixedFovealEnv(env, env_args, 
-            args.pause_cost, args.successive_pause_limit)
+            args.pause_cost, args.successive_pause_limit, args.no_action_pause_cost)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
         return env
@@ -543,7 +543,7 @@ class CRDQN:
         )
 
     def load_checkpoint(self, file_path: str):
-        checkpoint = torch.load(file_path)
+        checkpoint = torch.load(file_path, weights_only=True)
         self.sfn.load_state_dict(checkpoint["sfn"])
         self.q_network.load_state_dict(checkpoint["q"])
         self.current_timestep = checkpoint["training_steps"]
@@ -629,7 +629,7 @@ class CRDQN:
         
         # Log everything
         prevented_pauses_warning = "" if all(n == 0 for n in prevented_pauses) else \
-            f"WARNING: [Prevented Pauses]: {','.join(map(str, prevented_pauses))}"
+            f"\nWARNING: [Prevented Pauses]: {','.join(map(str, prevented_pauses))}"
         self._log((
             f"[N: {self.current_timestep:07,d}]"
             f" [Eval Return, Raw Eval Return: {np.mean(episodic_returns):.2f}+/-{np.std(episodic_returns):.2f}"
