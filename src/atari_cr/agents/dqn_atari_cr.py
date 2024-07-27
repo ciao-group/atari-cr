@@ -59,7 +59,6 @@ def parse_args():
     parser.add_argument("--fov-init-loc", type=int, default=0)
     parser.add_argument("--sensory-action-mode", type=str, default="absolute",
         help="How the sensory action is interpreted by the env. Either 'absolute' or 'relative'")
-    # TODO: Investigate how relative sensory actions are split into a discrete set of actions
     parser.add_argument("--sensory-action-space", type=int, default=10,
         help="Maximum size of pixels to move the fovea in one relative sensory step. Ignored for absolute sensory action mode") 
     parser.add_argument("--resize-to-full", default=False, action="store_true")
@@ -335,11 +334,10 @@ class CRDQN:
         self.current_timestep = 0
 
         # Get the observation size
-        # TODO: Remove single_env everywhere in favor of envs
-        self.single_env: PauseableFixedFovealEnv = env.envs[0] if isinstance(env, VectorEnv) else env
         self.envs = env.envs if isinstance(env, VectorEnv) else [env]
-        assert isinstance(self.single_env, PauseableFixedFovealEnv), \
-            "The environment is expected to be wrapped in a PauseableFixedFovealEnv"
+        for env in self.envs:
+            assert isinstance(env, PauseableFixedFovealEnv), \
+                "The environment is expected to be wrapped in a PauseableFixedFovealEnv"
         self.obs_size = env.observation_space.shape[2:]
         assert len(self.obs_size) == 2, "The CRDQN agent only supports 2D Environments"
 
@@ -404,7 +402,7 @@ class CRDQN:
         )
 
         # Log pause cost
-        self._log(f"---\nTraining start with pause cost {self.single_env.pause_cost}")
+        self._log(f"---\nTraining start with pause costs {[env.pause_cost for env in self.envs]}")
 
         # Load existing run if there is one
         if os.path.exists(self.model_dir):
@@ -603,8 +601,6 @@ class CRDQN:
         episode_info = infos['final_info'][finished_env_index]
         # Reward without pause costs
         raw_reward = episode_info['reward'] + episode_info['n_pauses'] * episode_info['pause_cost']
-        # TODO: Reward without sugarl reward
-        # TODO: Raw reward with neither sugarl reward nor pause cost
         prevented_pauses_warning = f"\nWARNING: [Prevented Pauses: {episode_info['prevented_pauses']}]" if episode_info['prevented_pauses'] else "" 
 
         self._log((
@@ -615,8 +611,9 @@ class CRDQN:
             f"{prevented_pauses_warning}"
         ))    
         # Log the amount of prevented pauses over the entire learning period
-        if not self.single_env.prevented_pauses == 0:
-            self._log(f"WARNING: [Prevented Pauses]: {','.join(map(str, self.single_env.prevented_pauses))}")
+        prevented_pause_counts = [env.prevented_pauses for env in self.envs]
+        if not all(prevented_pause_counts) == 0:
+            self._log(f"WARNING: [Prevented Pauses: {','.join(map(str, prevented_pause_counts))}]")
 
         # Tensorboard
         self.writer.add_scalar("charts/episodic_return", episode_info["reward"], self.current_timestep)
@@ -690,9 +687,8 @@ class CRDQN:
         :param NDArray[Shape[self.batch_size], Float] observation_quality: A batch of probabilities of the SFN predicting the action that the agent selected  
         """
         # TODO: Investigate how pausing interacts with sugarl reward
-        # TODO: Log reward without sugarl 
         # TODO: Understand what the change in q values over time means
-        # TODO: Investigate why the fovea is so far off when the sfn should actually be good
+        # TODO: run 122_5: Investigate why the fovea is so far off when the sfn should actually be good
         # Target network prediction
         with torch.no_grad():
             # Assign a value to every possible action in the next state for one batch 

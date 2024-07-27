@@ -32,7 +32,8 @@ do
                 --pvm-stack 6 \
                 --pause-cost 0.01 \
                 --successive-pause-limit 30 \
-                --no-action-pause-cost 0.1
+                --no-action-pause-cost 0.1 \
+                --sensory-action-mode relative
         done
     ) &
 done
