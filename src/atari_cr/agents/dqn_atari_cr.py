@@ -353,7 +353,7 @@ class CRDQN:
         for env in self.envs:
             assert isinstance(env, PauseableFixedFovealEnv), \
                 "The environment is expected to be wrapped in a PauseableFixedFovealEnv"
-        self.obs_size = env.observation_space.shape[2:]
+        self.obs_size = self.env.observation_space.shape[2:]
         assert len(self.obs_size) == 2, "The CRDQN agent only supports 2D Environments"
 
         # Get the sensory action set as a list of discrete actions
@@ -377,6 +377,10 @@ class CRDQN:
         # Self Prediction Networks; used to judge the quality of sensory actions
         self.sfn = SelfPredictionNetwork(self.env).to(device)
         self.sfn_optimizer = optim.Adam(self.sfn.parameters(), lr=learning_rate)
+
+        # Grokking
+        self.sfn_grads = None
+        self.q_network_grads = None
 
         # Replay Buffer aka. Long Term Memory
         self.rb = DoubleActionReplayBuffer(
@@ -680,7 +684,7 @@ class CRDQN:
         self.sfn_optimizer.zero_grad()
         self.sfn_loss.backward()
         if self.grokfast:
-            grads = gradfilter_ema(self.sfn, grads=grads)
+            self.sfn_grads = gradfilter_ema(self.sfn, grads=self.sfn_grads)
         self.sfn_optimizer.step()
 
         # Return the probabilites the sfn would have also selected the truely selected action, given the limited observation
@@ -734,7 +738,7 @@ class CRDQN:
         self.optimizer.zero_grad()
         backprop_loss.backward()
         if self.grokfast:
-            grads = gradfilter_ema(self.q_network, grads=grads)
+            self.q_network_grads = gradfilter_ema(self.q_network, grads=self.q_network_grads)
         self.optimizer.step()
 
         # Tensorboard logging

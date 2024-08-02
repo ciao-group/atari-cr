@@ -3,8 +3,8 @@ numgpus=${2:-$(nvidia-smi --list-gpus | wc -l)}
 
 envlist=(boxing freeway)
 
-expname="pauseable123_1m"
-totaltimesteps="1000000"
+expname="pauseable124_5m"
+totaltimesteps="5000000"
 buffersize="100000"
 learningstarts="10000"
 
@@ -14,7 +14,7 @@ for i in ${!envlist[@]}
 do
     gpuid=$(( $i % $numgpus ))
     (
-        for seed in 0 1
+        for seed in 0
         do
             echo "${expname} GPU: ${gpuid} Env: ${envlist[$i]} Seed: ${seed} ${1}"
             basename=$(basename $1)
@@ -33,7 +33,8 @@ do
                 --pause-cost 0.01 \
                 --successive-pause-limit 30 \
                 --no-action-pause-cost 0.1 \
-                --sensory-action-mode relative
+                --sensory-action-mode relative \
+                --grokfast
         done
     ) &
 done
