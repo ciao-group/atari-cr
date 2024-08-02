@@ -29,6 +29,16 @@ from atari_cr.common.pvm_buffer import PVMBuffer
 from atari_cr.common.utils import seed_everything, get_sugarl_reward_scale_atari, linear_schedule
 from atari_cr.common.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.common.models import SensoryActionMode
+from atari_cr.common.grokking import gradfilter_ema
+
+# TODO: Remove normal pause cost in favor of a bigger penalty for 30 pauses in a row
+# TODO: Do 20M steps (propably not veeery helpful)
+# TODO: Test realtive actions better
+# TODO: Go back to absolute actions because they are not really worse from a cr perspective
+# TODO: Test other games
+# TODO: Add saccade costs for foveal distance traveled
+
+# TODO: Weitermachen mit Road Runner, Ms. Pac-Man, und Breakout; Boxing ist nicht in Atari-HEAD 
 
 
 def parse_args():
@@ -108,6 +118,7 @@ def parse_args():
         help="Whether to ignore the sugarl term in the loss calculation")
     parser.add_argument("--no-action-pause-cost", type=float, default=0.1,
         help="Penalty for performing a useless pause without a sensory action. This is meant to speed up training")
+    parser.add_argument("--grokfast", action="store_true")
     
     args = parser.parse_args()
     return args
@@ -266,7 +277,8 @@ class CRDQN:
             gamma = 0.99,
             cuda = True,
             n_evals = 10,
-            ignore_sugarl = True
+            ignore_sugarl = True,
+            grokfast = False
         ):
         """
         Parameters
@@ -310,6 +322,8 @@ class CRDQN:
             Number of eval episodes to be played
         ignore_sugarl : bool
             Whether to ignore the sugarl term in the loss calculation
+        grokfast : bool
+            Whether to use grokfast (https://doi.org/10.48550/arXiv.2405.20233)
         """
         self.env = env
         self.sugarl_r_scale = sugarl_r_scale
@@ -329,6 +343,7 @@ class CRDQN:
         self.frame_stack = frame_stack
         self.ignore_sugarl = ignore_sugarl
         self.sensory_action_mode = sensory_action_mode
+        self.grokfast = grokfast
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.current_timestep = 0
@@ -384,7 +399,7 @@ class CRDQN:
         """
         # Define output paths
         run_identifier = os.path.join(experiment_name, env_name)
-        self.run_dir = os.path.join("output", run_identifier)
+        self.run_dir = os.path.join("output/runs", run_identifier)
         self.log_dir = os.path.join(self.run_dir, "logs")
         self.tb_dir = os.path.join(self.run_dir, "tensorboard")
         self.video_dir = os.path.join(self.run_dir, "recordings")
@@ -664,6 +679,8 @@ class CRDQN:
         # Back propagation
         self.sfn_optimizer.zero_grad()
         self.sfn_loss.backward()
+        if self.grokfast:
+            grads = gradfilter_ema(self.sfn, grads=grads)
         self.sfn_optimizer.step()
 
         # Return the probabilites the sfn would have also selected the truely selected action, given the limited observation
@@ -716,6 +733,8 @@ class CRDQN:
         backprop_loss = loss_without_sugarl if self.ignore_sugarl else loss
         self.optimizer.zero_grad()
         backprop_loss.backward()
+        if self.grokfast:
+            grads = gradfilter_ema(self.q_network, grads=grads)
         self.optimizer.step()
 
         # Tensorboard logging
@@ -759,7 +778,8 @@ if __name__ == "__main__":
         fov_size=args.fov_size,
         replay_buffer_size=args.buffer_size,
         learning_start=args.learning_start,
-        pvm_stack=args.pvm_stack
+        pvm_stack=args.pvm_stack,
+        grokfast=args.grokfast
     )
 
     agent.learn(args.total_timesteps, args.env, args.exp_name)
