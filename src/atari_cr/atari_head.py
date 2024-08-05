@@ -60,11 +60,11 @@ class GazePredictionNetwork(nn.Module):
         
         # Deconvolutional layers
         x = self.deconv1(x)
-        x = F.relu()
+        x = F.relu(x)
         x = self.deconv1_norm(x)
         x = self.dropout(x)
         x = self.deconv2(x)
-        x = F.relu()
+        x = F.relu(x)
         x = self.deconv2_norm(x)
         x = self.dropout(x)
         x = self.deconv3(x)
