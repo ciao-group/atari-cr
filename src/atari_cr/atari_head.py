@@ -25,27 +25,48 @@ class GazePredictionNetwork(nn.Module):
         super(GazePredictionNetwork, self).__init__()
         
         # Convolutional layers
-        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=4, dtype=torch.float32)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2, dtype=torch.float32)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, dtype=torch.float32)
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
+        self.conv1_norm = nn.BatchNorm2d(32)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
+        self.conv2_norm = nn.BatchNorm2d(64)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+        self.conv3_norm = nn.BatchNorm2d(64)
         
         # Deconvolutional (transpose convolution) layers
-        self.deconv1 = nn.ConvTranspose2d(64, 64, kernel_size=3, stride=1, dtype=torch.float32)
-        self.deconv2 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, dtype=torch.float32)
-        self.deconv3 = nn.ConvTranspose2d(32, 1, kernel_size=8, stride=4, dtype=torch.float32)
+        self.deconv1 = nn.ConvTranspose2d(64, 64, kernel_size=3, stride=1)
+        self.deconv1_norm = nn.BatchNorm2d(64)
+        self.deconv2 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2)
+        self.deconv2_norm = nn.BatchNorm2d(32)
+        self.deconv3 = nn.ConvTranspose2d(32, 1, kernel_size=8, stride=4)
         
         # Softmax layer; Uses log softmax to conform to the KLDiv expected input
         self.softmax = nn.LogSoftmax(dim=1)
+        self.dropout = nn.Dropout(0.1)
 
     def forward(self, x):
         # Convolutional layers
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = self.conv1_norm(x)
+        x = self.dropout(x)
+        x = self.conv2(x)
+        x = F.relu(x)
+        x = self.conv2_norm(x)
+        x = self.dropout(x)
+        x = self.conv3(x)
+        x = F.relu(x)
+        x = self.conv3_norm(x)
+        x = self.dropout(x)
         
         # Deconvolutional layers
-        x = F.relu(self.deconv1(x))
-        x = F.relu(self.deconv2(x))
+        x = self.deconv1(x)
+        x = F.relu()
+        x = self.deconv1_norm(x)
+        x = self.dropout(x)
+        x = self.deconv2(x)
+        x = F.relu()
+        x = self.deconv2_norm(x)
+        x = self.dropout(x)
         x = self.deconv3(x)
         
         # Reshape and apply softmax
@@ -84,9 +105,12 @@ class GazeDataset(Dataset):
                 image_df["image_tensor"] = image_df["image_path"] \
                     .apply(lambda path: self.transform(read_image(path, ImageReadMode.GRAY)))
                 image_df = image_df.set_index("frame_id")
-
-                # TODO: Create saliency maps in df
                 
+                # Create saliency maps
+                df["saliency_map"] = df["gaze_positions"].apply(
+                    lambda s: self._create_saliency_map(self._parse_gaze_string(s))
+                )
+            
                 # Function to create the image_ids list
                 image_ids = deque(maxlen=4)
                 def get_image_ids(frame_id):
@@ -151,10 +175,8 @@ class GazeDataset(Dataset):
             images.append(self.image_df.loc[id]["image_tensor"])
         images = torch.vstack(images)
 
-        # Create saliency map
-        gaze_string = self.data.iloc[idx]['gaze_positions']
-        gaze_positions = self._parse_gaze_string(gaze_string)
-        saliency_map = self._create_saliency_map(gaze_positions)
+        # Load saliency map
+        saliency_map = self.data.iloc[idx]["saliency_map"]
 
         # Convert to float to work with neural network
         images = (images * 255).to(torch.float32)
@@ -178,7 +200,7 @@ class GazePredictor():
 
         # Loss function, optimizer, compute device and tesorboard writer
         self.loss_function = nn.KLDivLoss(reduction="batchmean")
-        self.optimizer = optim.Adam(self.prediction_network.parameters(), lr=0.001)
+        self.optimizer = optim.Adadelta(self.prediction_network.parameters(), lr=1.0, rho=0.95, eps=1e-08, weight_decay=0.0)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.prediction_network.to(self.device)
         self.writer = SummaryWriter(os.path.join(output_dir, "tensorboard"))
@@ -240,7 +262,6 @@ class GazePredictor():
             }, 
             os.path.join(self.output_dir, "models", f"{self.epoch}.pth")
         )
-        # TODO: Finish implementing tensorboard
 
     def _init_data_loaders(self, dataset: GazeDataset):
         """
@@ -336,6 +357,6 @@ if __name__ == "__main__":
         gaze_predictor = GazePredictor.from_save_file(save_path, dataset, output_dir)
     else:
         gaze_predictor = GazePredictor(GazePredictionNetwork(), dataset, output_dir)
-    gaze_predictor.train(n_epochs=100)
+    gaze_predictor.train(n_epochs=1)
 
     # Compare a run made by the agent with a run from atari head
