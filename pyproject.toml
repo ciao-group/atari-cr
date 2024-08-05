@@ -15,7 +15,8 @@ dependencies = [
     "cython<3",
     "tb-nightly",
     "opencv-python>=4.10",
-    "gymnasium>=0.29"
+    "gymnasium>=0.29",
+    "pandas"
 ]
 classifiers = [
     "Private :: Do Not Upload"

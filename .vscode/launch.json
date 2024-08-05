@@ -5,6 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "GazePrediction Debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/atari_cr/atari_head.py",
+            "console": "integratedTerminal",
+        },
+        {
             "name": "DQN CR Sugarl Debug",
             "type": "debugpy",
             "request": "launch",
