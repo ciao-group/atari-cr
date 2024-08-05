@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 import torch.optim as optim
 from torchvision import transforms
 from torchvision.io import read_image, ImageReadMode
@@ -169,17 +170,18 @@ class GazePredictor():
             self, 
             prediction_network: GazePredictionNetwork,
             dataset: GazeDataset,
-            save_path: str
+            output_dir: str
         ):
         self.prediction_network = prediction_network
         self.train_loader, self.val_loader = self._init_data_loaders(dataset)
-        self.save_path = save_path
+        self.output_dir = output_dir
 
-        # Loss function, optimizer and compute device
+        # Loss function, optimizer, compute device and tesorboard writer
         self.loss_function = nn.KLDivLoss(reduction="batchmean")
         self.optimizer = optim.Adam(self.prediction_network.parameters(), lr=0.001)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.prediction_network.to(self.device)
+        self.writer = SummaryWriter(os.path.join(output_dir, "tensorboard"))
 
         # Init Grokfast
         self.grads = None
@@ -204,8 +206,10 @@ class GazePredictor():
 
                 running_loss += loss.item()
 
-                # Print every 100 mini-batches
+                # Log every 100 mini-batches
                 if batch_idx % 100 == 99:  
+                    global_batch_count = epoch * len(self.train_loader) / self.train_loader.batch_size + batch_idx
+                    self.writer.add_scalar("Train Loss", running_loss / 100, global_batch_count)
                     print(f'[Epoch {epoch + 1}, Batch {batch_idx + 1}] Loss: {running_loss / 100:.3f}')
                     running_loss = 0.0
 
@@ -214,7 +218,7 @@ class GazePredictor():
         print('Training finished')
         
         # Save the trained model
-        self.epoch = epoch
+        self.epoch += n_epochs
         self.save()
 
     def eval(self):
@@ -226,6 +230,7 @@ class GazePredictor():
                 outputs = self.prediction_network(inputs)
                 val_loss += self.loss_function(outputs, targets).item()
 
+        self.writer.add_scalar("Validation Loss", val_loss / len(self.val_loader), self.epoch)
         print(f'Epoch {self.epoch + 1} completed. Validation Loss: {val_loss / len(self.val_loader):.3f}')
     
     def save(self):
@@ -233,8 +238,9 @@ class GazePredictor():
                 "prediction_network": self.prediction_network.state_dict(),
                 "epoch": self.epoch
             }, 
-            self.save_path
+            os.path.join(self.output_dir, "models", f"{self.epoch}.pth")
         )
+        # TODO: Finish implementing tensorboard
 
     def _init_data_loaders(self, dataset: GazeDataset):
         """
@@ -260,9 +266,9 @@ class GazePredictor():
         return train_loader, val_loader
     
     @staticmethod
-    def from_save_file(save_path: str, dataset: GazeDataset):
+    def from_save_file(save_path: str, dataset: GazeDataset, output_dir: str):
         checkpoint = torch.load(save_path)
-        model = checkpoint["prediction_network"]
+        model = GazePredictionNetwork().load_state_dict(checkpoint["prediction_network"])
         epoch = checkpoint["epoch"]
 
         predictor = GazePredictor(model, dataset, save_path)
@@ -321,15 +327,15 @@ if __name__ == "__main__":
 
     # Initialize the model
     env_name = "freeway"
-    output_dir = "output/atari_head_saliency_networks"
+    output_dir = f"output/atari_head/{env_name}"
     os.makedirs(output_dir, exist_ok=True)
     save_path = os.path.join(output_dir, env_name + ".pth")
 
     if os.path.exists(save_path):
         print("Loading existing gaze predictor")
-        gaze_predictor = GazePredictor.from_save_file(save_path, dataset)
+        gaze_predictor = GazePredictor.from_save_file(save_path, dataset, output_dir)
     else:
-        gaze_predictor = GazePredictor(GazePredictionNetwork(), dataset, save_path)
+        gaze_predictor = GazePredictor(GazePredictionNetwork(), dataset, output_dir)
     gaze_predictor.train(n_epochs=100)
 
     # Compare a run made by the agent with a run from atari head
