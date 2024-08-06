@@ -10,10 +10,10 @@ from torchvision import transforms
 from torchvision.io import read_image, ImageReadMode
 import pandas as pd
 from PIL import Image
-import tarfile
-import io
 import numpy as np
 from collections import deque
+from sklearn.metrics import roc_auc_score
+from typing import List, Tuple
 
 from atari_cr.common.grokking import gradfilter_ema
 
@@ -41,7 +41,7 @@ class GazePredictionNetwork(nn.Module):
         
         # Softmax layer; Uses log softmax to conform to the KLDiv expected input
         self.softmax = nn.LogSoftmax(dim=1)
-        self.dropout = nn.Dropout(0.1)
+        self.dropout = nn.Dropout(0.3)
 
     def forward(self, x):
         # Convolutional layers
@@ -99,6 +99,7 @@ class GazeDataset(Dataset):
                 df = df.set_index("frame_id")
 
                 # Load the images
+                print("Loading images...")
                 image_df = pd.DataFrame(columns=["frame_id", "image_path", "image_tensor"])
                 image_df["frame_id"] = pd.Series(df.index)
                 image_df["image_path"] = image_df["frame_id"].apply(lambda id: os.path.join(dirpath, subdir_name, id + ".png"))
@@ -107,9 +108,9 @@ class GazeDataset(Dataset):
                 image_df = image_df.set_index("frame_id")
                 
                 # Create saliency maps
-                df["saliency_map"] = df["gaze_positions"].apply(
-                    lambda s: self._create_saliency_map(self._parse_gaze_string(s))
-                )
+                print("Creating saliency maps...")
+                df["gaze_positions"] = df["gaze_positions"].apply(self._parse_gaze_string)
+                df["saliency_map"] = df["gaze_positions"].apply(self._create_saliency_map)
             
                 # Function to create the image_ids list
                 image_ids = deque(maxlen=4)
@@ -142,25 +143,45 @@ class GazeDataset(Dataset):
                 for s in gaze_string.replace("(", "").replace("'", "").split(")")[:-1]
         ])
 
-    def _create_saliency_map(self, gaze_positions):
-        saliency_map = torch.zeros((84, 84), dtype=torch.uint8)
+    def _create_saliency_map(self, gaze_positions: torch.Tensor):
+        if gaze_positions.shape[0] == 0:
+            return torch.zeros((84, 84), dtype=torch.uint8)
 
         # Generate x and y indices
         x = torch.arange(0, 84, 1)
         y = torch.arange(0, 84, 1)
-        x, y = torch.meshgrid(x, y)
+        x, y = torch.meshgrid(x, y, indexing="xy")
 
         # Adjust sigma to correspond to one visual degree
         # Screen Size: 44,6 x 28,5 visual degrees; Visual Degrees per Pixel: 0,5310 x 0,3393
         sigma = 2
-        for x0, y0 in gaze_positions:
-            # Scale the coords from the original resolution down to 84 x 84
-            x0 = (x0 * 84) / 160
-            y0 = (y0 * 84) / 210
-            gaussian = (torch.exp(-((x - x0)**2 + (y - y0)**2) / (2 * sigma**2)) * 255).to(torch.uint8)
-            saliency_map = torch.max(saliency_map, gaussian)
+        # Scale the coords from the original resolution down to 84 x 84
+        gaze_positions *= torch.Tensor([84/160, 84/210])
 
-        return saliency_map
+        # Expand the original tensors for broadcasting
+        n_positions = gaze_positions.shape[0]
+        gaze_positions = gaze_positions.view(n_positions, 2, 1, 1).expand(-1, -1, 84, 84)
+        x = x.view(1, 84, 84).expand(n_positions, 84, 84)
+        y = y.view(1, 84, 84).expand(n_positions, 84, 84)
+        mesh = torch.stack([x, y], dim=1)
+        saliency_map, _ = torch.max(torch.exp(-torch.sum((mesh - gaze_positions)**2, dim=1) / (2 * sigma**2)), dim=0)
+
+        # self._show_tensor((saliency_map * 255).to(torch.uint8))
+        return  (saliency_map * 255).to(torch.uint8)
+
+    @staticmethod
+    def _show_tensor(t: torch.Tensor, save_path = "debug.png"):
+        """
+        Saves a grayscale tensor as a .png image for debugging.
+        """
+        if t.dtype == torch.float32:
+            t = t - t.min()  # Shift to positive range
+            t = t / t.max()  # Normalize to [0, 1]
+            t = (t * 255).byte()  # Scale to [0, 255] and convert to uint8
+
+        image = Image.fromarray(t.numpy(), "L")
+        image.save(save_path)
+
 
     def __len__(self):
         return len(self.data)
@@ -182,7 +203,7 @@ class GazeDataset(Dataset):
         images = (images * 255).to(torch.float32)
         saliency_map = (saliency_map * 255).to(torch.float32)
 
-        return images, saliency_map
+        return images, saliency_map, self.data.iloc[idx]["gaze_positions"]
     
 class GazePredictor():
     """
@@ -212,11 +233,11 @@ class GazePredictor():
         self.epoch = 0
 
     def train(self, n_epochs: int):
-        for epoch in range(self.epoch + n_epochs):
+        for self.epoch in range(self.epoch + n_epochs):
             self.prediction_network.train()
             running_loss = 0.0
 
-            for batch_idx, (inputs, targets) in enumerate(self.train_loader):
+            for batch_idx, (inputs, targets, _) in enumerate(self.train_loader):
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
 
                 self.optimizer.zero_grad()
@@ -230,37 +251,39 @@ class GazePredictor():
 
                 # Log every 100 mini-batches
                 if batch_idx % 100 == 99:  
-                    global_batch_count = epoch * len(self.train_loader) / self.train_loader.batch_size + batch_idx
+                    global_batch_count = self.epoch * len(self.train_loader) / self.train_loader.batch_size + batch_idx
                     self.writer.add_scalar("Train Loss", running_loss / 100, global_batch_count)
-                    print(f'[Epoch {epoch + 1}, Batch {batch_idx + 1}] Loss: {running_loss / 100:.3f}')
+                    print(f'[Epoch {self.epoch + 1}, Batch {batch_idx + 1}] Loss: {running_loss / 100:.3f}')
                     running_loss = 0.0
 
             self.eval()
 
+            if self.epoch % 10 == 9:
+                self.save()
+
         print('Training finished')
         
         # Save the trained model
-        self.epoch += n_epochs
         self.save()
 
     def eval(self):
         self.prediction_network.eval()
         val_loss = 0.0
+        aucs = 0.0
         with torch.no_grad():
-            for inputs, targets in self.val_loader:
+            for inputs, targets, gaze_positions_batch in self.val_loader:
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
                 outputs = self.prediction_network(inputs)
                 val_loss += self.loss_function(outputs, targets).item()
+                aucs += compute_auc(targets, gaze_positions_batch)
 
         self.writer.add_scalar("Validation Loss", val_loss / len(self.val_loader), self.epoch)
         print(f'Epoch {self.epoch + 1} completed. Validation Loss: {val_loss / len(self.val_loader):.3f}')
     
     def save(self):
-        torch.save({
-                "prediction_network": self.prediction_network.state_dict(),
-                "epoch": self.epoch
-            }, 
-            os.path.join(self.output_dir, "models", f"{self.epoch}.pth")
+        torch.save(
+            self.prediction_network.state_dict(), 
+            os.path.join(self.output_dir, "models", f"{self.epoch + 1}.pth")
         )
 
     def _init_data_loaders(self, dataset: GazeDataset):
@@ -287,15 +310,37 @@ class GazePredictor():
         return train_loader, val_loader
     
     @staticmethod
-    def from_save_file(save_path: str, dataset: GazeDataset, output_dir: str):
-        checkpoint = torch.load(save_path)
-        model = GazePredictionNetwork().load_state_dict(checkpoint["prediction_network"])
-        epoch = checkpoint["epoch"]
+    def from_save_file(save_path: str, dataset: GazeDataset):
+        model = GazePredictionNetwork().load_state_dict(torch.load(save_path))
 
         predictor = GazePredictor(model, dataset, save_path)
-        predictor.epoch = epoch
+        predictor.epoch = int(save_path.split("/")[-1][:-4])
 
         return predictor
+
+def compute_auc(saliency_map: torch.Tensor, fixation_coords: torch.Tensor):
+    """
+    Computes the AUC score given a batch of saliency maps and a batch of fixation coordinates.
+
+    :param saliency_map Tensor[BxWxH]: The saliency heatmaps with values between 0 and 1.
+    :param fixation_coords Tensor[BxNx2]: Lists of (x, y) coordinates of fixations.
+
+    :returns float: The computed AUC score.
+    """
+    # TODO
+
+    # Flatten the saliency map
+    saliency_flat = saliency_map.flatten()
+
+    # Create labels: 1 for fixated locations, 0 for all other locations
+    labels = np.zeros(saliency_flat.shape)
+    fixation_indices = [y * saliency_map.shape[1] + x for x, y in fixation_coords]
+    labels[fixation_indices] = 1
+
+    # Compute the AUC score
+    auc_score = roc_auc_score(labels, saliency_flat)
+
+    return auc_score
     
 def transform_to_proper_csv(game_dir: str):
     """
@@ -349,12 +394,16 @@ if __name__ == "__main__":
     # Initialize the model
     env_name = "freeway"
     output_dir = f"output/atari_head/{env_name}"
-    os.makedirs(output_dir, exist_ok=True)
-    save_path = os.path.join(output_dir, env_name + ".pth")
+    model_dir = os.path.join(output_dir, "models")
+    os.makedirs(model_dir, exist_ok=True)
+    # save_path = os.path.join(output_dir, env_name + ".pth")
 
-    if os.path.exists(save_path):
+    model_files = os.listdir(model_dir)
+    if len(model_files) > 0:
         print("Loading existing gaze predictor")
-        gaze_predictor = GazePredictor.from_save_file(save_path, dataset, output_dir)
+        latest_epoch = sorted([int(file[:-4]) for file in model_files])[-1]
+        save_path = os.path.join(model_dir, f"{latest_epoch}.pth")
+        gaze_predictor = GazePredictor.from_save_file(save_path, dataset)
     else:
         gaze_predictor = GazePredictor(GazePredictionNetwork(), dataset, output_dir)
     gaze_predictor.train(n_epochs=1)
