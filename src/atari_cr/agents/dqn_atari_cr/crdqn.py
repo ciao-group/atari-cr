@@ -1,255 +1,27 @@
-import argparse
-import os
-import random
-import time
+from typing import Union, Callable, Tuple, List, Dict
 from itertools import product
-from distutils.util import strtobool
+import os
+import time
 
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-from typing import Callable, List, Tuple
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning)
-
-import gymnasium as gym
-from gymnasium.spaces import Discrete, Dict
-from gymnasium.vector import VectorEnv
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torchvision.transforms import Resize
+from torch.optim import Adam
 from torch.utils.tensorboard import SummaryWriter
+import torch.nn.functional as F
+from torchvision.transforms import Resize
 
-from active_gym.atari_env import AtariEnv, AtariEnvArgs
+import gymnasium as gym
+from gymnasium.vector import VectorEnv
+from gymnasium.spaces import Discrete
 
-from atari_cr.common.buffer import DoubleActionReplayBuffer
-from atari_cr.common.pvm_buffer import PVMBuffer
-from atari_cr.common.utils import seed_everything, get_sugarl_reward_scale_atari, linear_schedule
+from active_gym import FixedFovealEnv
 from atari_cr.common.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.common.models import SensoryActionMode
+from atari_cr.common.buffer import DoubleActionReplayBuffer
+from atari_cr.common.pvm_buffer import PVMBuffer
+from atari_cr.common.utils import linear_schedule
+from atari_cr.agents.dqn_atari_cr.networks import QNetwork, SelfPredictionNetwork
 from atari_cr.common.grokking import gradfilter_ema
-
-# TODO: Remove normal pause cost in favor of a bigger penalty for 30 pauses in a row
-# TODO: Do 20M steps (propably not veeery helpful)
-# TODO: Test realtive actions better
-# TODO: Go back to absolute actions because they are not really worse from a cr perspective
-# TODO: Test other games
-# TODO: Add saccade costs for foveal distance traveled
-
-# TODO: Weitermachen mit Road Runner, Ms. Pac-Man, und Breakout; Boxing ist nicht in Atari-HEAD 
-
-
-def parse_args():
-    # fmt: off
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
-        help="the name of this experiment")
-    parser.add_argument("--seed", type=int, default=1,
-        help="seed of the experiment")
-    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
-        help="if toggled, cuda will be enabled by default")
-    parser.add_argument("--capture-video", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
-        help="whether to capture videos of the agent performances (check out `videos` folder)")
-
-    # env setting
-    parser.add_argument("--env", type=str, default="breakout",
-        help="the id of the environment")
-    parser.add_argument("--env-num", type=int, default=1, 
-        help="# envs in parallel")
-    parser.add_argument("--frame-stack", type=int, default=4,
-        help="frame stack #")
-    parser.add_argument("--action-repeat", type=int, default=4,
-        help="action repeat #")
-    parser.add_argument("--clip-reward", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
-
-    # fov setting
-    parser.add_argument("--fov-size", type=int, default=50)
-    parser.add_argument("--fov-init-loc", type=int, default=0)
-    parser.add_argument("--sensory-action-mode", type=str, default="absolute",
-        help="How the sensory action is interpreted by the env. Either 'absolute' or 'relative'")
-    parser.add_argument("--sensory-action-space", type=int, default=10,
-        help="Maximum size of pixels to move the fovea in one relative sensory step. Ignored for absolute sensory action mode") 
-    parser.add_argument("--resize-to-full", default=False, action="store_true")
-    # for discrete observ action
-    parser.add_argument("--sensory-action-x-size", type=int, default=4)
-    parser.add_argument("--sensory-action-y-size", type=int, default=4)
-    # pvm setting
-    parser.add_argument("--pvm-stack", type=int, default=3)
-
-    # Algorithm specific arguments
-    parser.add_argument("--total-timesteps", type=int, default=3000000,
-        help="total timesteps of the experiments")
-    parser.add_argument("--learning-rate", type=float, default=1e-4,
-        help="the learning rate of the self.optimizer")
-    parser.add_argument("--buffer-size", type=int, default=500000,
-        help="the replay memory buffer size")
-    parser.add_argument("--gamma", type=float, default=0.99,
-        help="the discount factor gamma")
-    parser.add_argument("--target-network-frequency", type=int, default=1000,
-        help="the timesteps it takes to update the target network")
-    parser.add_argument("--batch-size", type=int, default=32,
-        help="the batch size of sample from the reply memory")
-    parser.add_argument("--start-e", type=float, default=1,
-        help="the starting epsilon for exploration")
-    parser.add_argument("--end-e", type=float, default=0.01,
-        help="the ending epsilon for exploration")
-    parser.add_argument("--exploration-fraction", type=float, default=0.10,
-        help="the fraction of `total-timesteps` it takes from start-e to go end-e")
-    parser.add_argument("--learning-start", type=int, default=80000,
-        help="timestep to start learning")
-    parser.add_argument("--train-frequency", type=int, default=4,
-        help="the frequency of training")
-
-    # eval args
-    parser.add_argument("--eval-frequency", type=int, default=-1,
-        help="eval frequency. default -1 is eval at the end.")
-    parser.add_argument("--eval-num", type=int, default=10,
-        help="eval frequency. default -1 is eval at the end.")
-    
-    # Pause args
-    parser.add_argument("--pause-cost", type=float, default=0.01,
-        help="Cost for looking without taking an env action. Prevents the agent from abusing too many pauses")
-    parser.add_argument("--successive-pause-limit", type=int, default=20,
-        help="Limit to the amount of successive pauses the agent can make before a random action is selected instead. \
-            This prevents the agent from halting")
-    parser.add_argument("--ignore-sugarl", action="store_true",
-        help="Whether to ignore the sugarl term in the loss calculation")
-    parser.add_argument("--no-action-pause-cost", type=float, default=0.1,
-        help="Penalty for performing a useless pause without a sensory action. This is meant to speed up training")
-    parser.add_argument("--grokfast", action="store_true")
-    
-    args = parser.parse_args()
-    return args
-
-
-def make_env(seed, **kwargs):
-    def thunk():
-        env_args = AtariEnvArgs(
-            game=args.env, 
-            seed=args.seed + seed, 
-            obs_size=(84, 84), 
-            frame_stack=args.frame_stack, 
-            action_repeat=args.action_repeat,
-            fov_size=(args.fov_size, args.fov_size), 
-            fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
-            sensory_action_mode=sensory_action_mode,
-            sensory_action_space=(-args.sensory_action_space, args.sensory_action_space),
-            resize_to_full=args.resize_to_full,
-            clip_reward=args.clip_reward,
-            mask_out=True,
-            **kwargs
-        )
-        env = AtariEnv(env_args)
-        env = PauseableFixedFovealEnv(env, env_args, 
-            args.pause_cost, args.successive_pause_limit, args.no_action_pause_cost)
-        env.action_space.seed(seed)
-        env.observation_space.seed(seed)
-        return env
-
-    return thunk
-
-def make_train_env():
-    envs = [make_env(i) for i in range(args.env_num)]
-    return gym.vector.SyncVectorEnv(envs)
-
-def make_eval_env(seed):
-    envs = [make_env(seed, training=False, record=args.capture_video)]
-    return gym.vector.SyncVectorEnv(envs)
-
-
-class QNetwork(nn.Module):
-    def __init__(self, env, sensory_action_set):
-        super().__init__()
-
-        # Get the size of the different network heads
-        assert isinstance(env.single_action_space, Dict)
-        self.motor_action_space_size = env.single_action_space["motor"].n
-        self.sensory_action_space_size = len(sensory_action_set)
-
-        self.backbone = nn.Sequential(
-            nn.Conv2d(4, 32, 8, stride=4),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, 4, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, 3, stride=1),
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(3136, 512),
-            nn.ReLU(),
-        )
-
-        self.motor_action_head = nn.Linear(512, self.motor_action_space_size)
-        self.sensory_action_head = nn.Linear(512, self.sensory_action_space_size)
-
-    def forward(self, x):
-        x = self.backbone(x)
-        motor_action = self.motor_action_head(x)
-        sensory_action = None
-        if self.sensory_action_head:
-            sensory_action = self.sensory_action_head(x)
-        return motor_action, sensory_action
-
-    def chose_action(self, env: gym.vector.VectorEnv, pvm_obs: np.ndarray, epsilon: float):
-        """
-        Epsilon greedy action selection
-
-        :param float epsilon: Probability of selecting a random action
-        """
-        # Execute random motor and sensory action with probability epsilon
-        if random.random() < epsilon:
-            actions = np.array([env.single_action_space.sample() for _ in range(env.num_envs)])
-            motor_actions = np.array([actions[0]["motor"]])
-            sensory_actions = np.array([random.randint(0, self.sensory_action_space_size-1)])
-        else:
-            motor_actions, sensory_actions = self.chose_eval_action(pvm_obs)
-
-        return motor_actions, sensory_actions
-    
-    def chose_eval_action(self, pvm_obs: np.ndarray):
-        """
-        Greedy action selection
-        """
-        resize = Resize(pvm_obs.shape[2:])
-        motor_q_values, sensory_q_values = self(resize(torch.from_numpy(pvm_obs)).to(device))
-        motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
-        sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
-
-        return motor_actions, sensory_actions
-
-
-class SelfPredictionNetwork(nn.Module):
-    def __init__(self, env):
-        super().__init__()
-        assert isinstance(env.single_action_space, Dict), "SelfPredictionNetwork only works with Dict action space"
-        motor_action_space_size = env.single_action_space["motor"].n
-        
-        self.backbone = nn.Sequential(
-            nn.Conv2d(8, 32, 8, stride=4),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, 4, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, 3, stride=1),
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(3136, 512),
-            nn.ReLU(),
-        )
-
-        self.head = nn.Sequential(
-            nn.Linear(512, motor_action_space_size),
-        )
-
-        self.loss = nn.CrossEntropyLoss()
-
-    def get_loss(self, x, target) -> torch.Tensor:
-        return self.loss(x, target)
-        
-    def forward(self, x):
-        x = self.backbone(x)
-        x = self.head(x)
-        return x
 
 class CRDQN:
     """
@@ -257,7 +29,7 @@ class CRDQN:
     """
     def __init__(
             self, 
-            env: PauseableFixedFovealEnv, 
+            env: Union[PauseableFixedFovealEnv, FixedFovealEnv], 
             eval_env_generator: Callable[[int], gym.Env],
             sugarl_r_scale: float,
             seed = 0,
@@ -278,7 +50,8 @@ class CRDQN:
             cuda = True,
             n_evals = 10,
             ignore_sugarl = True,
-            grokfast = False
+            grokfast = False, 
+            sensory_action_mode = SensoryActionMode.ABSOLUTE
         ):
         """
         Parameters
@@ -351,7 +124,7 @@ class CRDQN:
         # Get the observation size
         self.envs = env.envs if isinstance(env, VectorEnv) else [env]
         for env in self.envs:
-            assert isinstance(env, PauseableFixedFovealEnv), \
+            assert isinstance(env, (PauseableFixedFovealEnv, FixedFovealEnv)), \
                 "The environment is expected to be wrapped in a PauseableFixedFovealEnv"
         self.obs_size = self.env.observation_space.shape[2:]
         assert len(self.obs_size) == 2, "The CRDQN agent only supports 2D Environments"
@@ -369,14 +142,14 @@ class CRDQN:
         assert self.device.type == "cuda"
 
         # Q networks
-        self.q_network = QNetwork(self.env, self.sensory_action_set).to(device)
-        self.optimizer = optim.Adam(self.q_network.parameters(), lr=learning_rate)
-        self.target_network = QNetwork(self.env, self.sensory_action_set).to(device)
+        self.q_network = QNetwork(self.env, self.sensory_action_set).to(self.device)
+        self.optimizer = Adam(self.q_network.parameters(), lr=learning_rate)
+        self.target_network = QNetwork(self.env, self.sensory_action_set).to(self.device)
         self.target_network.load_state_dict(self.q_network.state_dict())
 
         # Self Prediction Networks; used to judge the quality of sensory actions
-        self.sfn = SelfPredictionNetwork(self.env).to(device)
-        self.sfn_optimizer = optim.Adam(self.sfn.parameters(), lr=learning_rate)
+        self.sfn = SelfPredictionNetwork(self.env).to(self.device)
+        self.sfn_optimizer = Adam(self.sfn.parameters(), lr=learning_rate)
 
         # Grokking
         self.sfn_grads = None
@@ -386,7 +159,7 @@ class CRDQN:
         self.rb = DoubleActionReplayBuffer(
             replay_buffer_size,
             self.env.single_observation_space,
-            self.env.single_action_space["motor"],
+            self.env.single_action_space["motor_action"],
             Discrete(len(self.sensory_action_set)),
             self.device,
             n_envs=self.env.num_envs if isinstance(self.env, VectorEnv) else 1,
@@ -409,19 +182,23 @@ class CRDQN:
         self.video_dir = os.path.join(self.run_dir, "recordings")
         self.pvm_dir = os.path.join(self.run_dir, "pvms")
         self.model_dir = os.path.join(self.run_dir, "trained_models")
+        if isinstance(self.envs[0], FixedFovealEnv):
+            self.model_dir = os.path.join(self.model_dir, "no_pause")
 
         # Init text logging and tensorboard logging
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.tb_dir, exist_ok=True)
         self.log_file = os.path.join(self.log_dir, f"seed{self.seed}.txt")
         self.writer = SummaryWriter(self.tb_dir)
+        hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in self.__dict__.items()])
         self.writer.add_text(
-            "hyperparameters",
-            "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+            "hyperparameters", 
+            f"{hyper_params_table}",
         )
 
         # Log pause cost
-        self._log(f"---\nTraining start with pause costs {[env.pause_cost for env in self.envs]}")
+        if isinstance(self.env, PauseableFixedFovealEnv):
+            self._log(f"---\nTraining start with pause costs {[env.pause_cost for env in self.envs]}")
 
         # Load existing run if there is one
         if os.path.exists(self.model_dir):
@@ -442,14 +219,14 @@ class CRDQN:
         while self.current_timestep < n:
             # Chose action from q network
             self.epsilon = self._epsilon_schedule(n)
-            motor_actions, sensory_action_indices = self.q_network.chose_action(self.env, pvm_obs, self.epsilon)
+            motor_actions, sensory_action_indices = self.q_network.chose_action(self.env, pvm_obs, self.epsilon, self.device)
 
             # Transform the action to an absolute fovea position
             sensory_actions = np.array([self.sensory_action_set[i] for i in sensory_action_indices])
 
             # Perform the action in the environment
             next_pvm_obs, rewards, dones, _ = self._step(
-                env, 
+                self.env, 
                 self.pvm_buffer,
                 motor_actions, 
                 sensory_actions,
@@ -520,7 +297,7 @@ class CRDQN:
             while not done:
                 # Chose an action from the Q network
                 motor_actions, sensory_action_indices \
-                    = self.q_network.chose_eval_action(pvm_obs)
+                    = self.q_network.chose_eval_action(pvm_obs, self.device)
                 
                 # Translate the action to an absolute fovea position
                 # TODO: Check if relative sensory action mode produces viable fovea steps
@@ -591,6 +368,8 @@ class CRDQN:
         """
         os.makedirs(output_dir, exist_ok=True)
         file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}.{file_prefix}"
+        if isinstance(self.env, FixedFovealEnv):
+            file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}_no_pause.{file_prefix}"
         save_fn(os.path.join(output_dir, file_name))
 
     def _step(self, env: gym.Env, pvm_buffer: PVMBuffer, motor_actions, sensory_actions, eval = False):
@@ -600,8 +379,8 @@ class CRDQN:
         """
         # Take an action in the environment
         next_obs, rewards, dones, _, infos = env.step({
-            "motor": motor_actions, 
-            "sensory": sensory_actions
+            "motor_action": motor_actions, 
+            "sensory_action": sensory_actions
         })
 
         # Log episode returns and handle `terminal_observation`
@@ -617,7 +396,17 @@ class CRDQN:
         return next_pvm_obs, rewards, dones, infos
 
     def _log_episode(self, finished_env_index: int, infos):
+        # Prepare the episode infos for the different supported envs
         episode_info = infos['final_info'][finished_env_index]
+        if isinstance(self.envs[0], FixedFovealEnv):
+            episode_info["n_pauses"], episode_info['pause_cost'] = 0, 0
+            episode_info["no_action_pauses"], episode_info['prevented_pauses'] = 0, 0
+            prevented_pause_counts = [0] * len(self.envs)
+        elif isinstance(self.envs[0], PauseableFixedFovealEnv):
+            prevented_pause_counts = [env.prevented_pauses for env in self.envs]
+        else:
+            raise ValueError(f"Environment '{self.envs[0]}' not supported")
+
         # Reward without pause costs
         raw_reward = episode_info['reward'] + episode_info['n_pauses'] * episode_info['pause_cost']
         prevented_pauses_warning = f"\nWARNING: [Prevented Pauses: {episode_info['prevented_pauses']}]" if episode_info['prevented_pauses'] else "" 
@@ -630,7 +419,6 @@ class CRDQN:
             f"{prevented_pauses_warning}"
         ))    
         # Log the amount of prevented pauses over the entire learning period
-        prevented_pause_counts = [env.prevented_pauses for env in self.envs]
         if not all(prevented_pause_counts) == 0:
             self._log(f"WARNING: [Prevented Pauses: {','.join(map(str, prevented_pause_counts))}]")
 
@@ -638,9 +426,9 @@ class CRDQN:
         self.writer.add_scalar("charts/episodic_return", episode_info["reward"], self.current_timestep)
         self.writer.add_scalar("charts/episode_length", episode_info["ep_len"], self.current_timestep)
         self.writer.add_scalar("charts/epsilon", self.epsilon, self.current_timestep)
+        self.writer.add_scalar("charts/raw_episodic_return", raw_reward, self.current_timestep)
         self.writer.add_scalar("charts/pauses", episode_info['n_pauses'], self.current_timestep)
         self.writer.add_scalar("charts/prevented_pauses", episode_info['prevented_pauses'], self.current_timestep)
-        self.writer.add_scalar("charts/raw_episodic_return", raw_reward, self.current_timestep)
         self.writer.add_scalar("charts/no_action_pauses", episode_info["no_action_pauses"], self.current_timestep)
 
     def _log_eval_episodes(self, episode_infos: List[Dict]):
@@ -648,6 +436,12 @@ class CRDQN:
         episodic_returns, episode_lengths = [], []
         pause_counts, prevented_pauses = [], []
         for episode_info in episode_infos:
+            
+            # Prepare the episode infos for the different supported envs
+            if isinstance(self.envs[0], FixedFovealEnv):
+                episode_info["n_pauses"], episode_info['pause_cost'] = 0, 0
+                episode_info["no_action_pauses"], episode_info['prevented_pauses'] = 0, 0
+
             episodic_returns.append(episode_info["reward"])
             episode_lengths.append(episode_info["ep_len"])
             pause_counts.append(episode_info["n_pauses"])
@@ -709,7 +503,7 @@ class CRDQN:
         """
         # TODO: Investigate how pausing interacts with sugarl reward
         # TODO: Understand what the change in q values over time means
-        # TODO: run 122_5: Investigate why the fovea is so far off when the sfn should actually be good
+        # TODO: run 122_5: Investigate why the fovea is so far off when the sfn should actually be good       
         # Target network prediction
         with torch.no_grad():
             # Assign a value to every possible action in the next state for one batch 
@@ -761,29 +555,3 @@ class CRDQN:
         Maps the current number of timesteps to a value of epsilon.
         """
         return linear_schedule(*self.epsilon_interval, self.exploration_fraction * total_timesteps, self.current_timestep)
-
-if __name__ == "__main__":
-    args = parse_args()
-    sensory_action_mode = SensoryActionMode.from_string(args.sensory_action_mode)
-
-    seed_everything(args.seed)
-
-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
-    assert device.type == "cuda"
-
-    sugarl_r_scale = get_sugarl_reward_scale_atari(args.env)
-
-    env = make_train_env()
-    agent = CRDQN(
-        env, 
-        make_eval_env, 
-        sugarl_r_scale,
-        seed=args.seed,
-        fov_size=args.fov_size,
-        replay_buffer_size=args.buffer_size,
-        learning_start=args.learning_start,
-        pvm_stack=args.pvm_stack,
-        grokfast=args.grokfast
-    )
-
-    agent.learn(args.total_timesteps, args.env, args.exp_name)

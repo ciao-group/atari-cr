@@ -69,8 +69,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.action_space = Dict({
             # One additional action lets the agent stop the game to perform a 
             # sensory action without the game progressing  
-            "motor": Discrete(self.env.action_space.n + 1),
-            "sensory": Box(low=self.sensory_action_space[0], 
+            "motor_action": Discrete(self.env.action_space.n + 1),
+            "sensory_action": Box(low=self.sensory_action_space[0], 
                                  high=self.sensory_action_space[1], dtype=int),
         })
         # Whether to pause the game at the current step
@@ -105,13 +105,13 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     def step(self, action):
         # The pause action is the last action in the action set
         prev_pause_action = self.pause_action
-        self.pause_action = self._is_pause(action["motor"])
+        self.pause_action = self._is_pause(action["motor_action"])
 
         if self.pause_action:
             # Disallow a pause on the first episode step because there is no
             # observation to look at yet and do a random action instead
             if not hasattr(self, "state"):
-                action["motor"] = np.random.randint(1, len(self.env.actions))
+                action["motor_action"] = np.random.randint(1, len(self.env.actions))
                 return self.step(action)
 
             # Prevent the agent from being stuck on only using pauses
@@ -119,8 +119,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             # have happened in a row
             if self.prevented_pauses > 50 or self.successive_pauses > self.successive_pause_limit:
                 while self.pause_action:
-                    action["motor"] = self.action_space["motor"].sample()
-                    self.pause_action = self._is_pause(action["motor"])
+                    action["motor_action"] = self.action_space["motor_action"].sample()
+                    self.pause_action = self._is_pause(action["motor_action"])
                 self.pause_action = False
                 self.prevented_pauses += 1
                 return self.step(action)
@@ -132,23 +132,23 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             else:
                 self.successive_pauses = 0
 
-            if np.all(self.fov_loc == action["sensory"]):  
+            if np.all(self.fov_loc == action["sensory_action"]):  
                 # Penalize a pause action without moving the fovea because it is useless
                 state, reward, done, truncated, info = self._skip_step(-self.no_action_pause_cost)
                 self.no_action_pauses += 1
             else:
                 # Only make a sensory step with a small cost
                 _, reward, done, truncated, info = self._skip_step(-self.pause_cost)
-                state = self._fov_step(full_state=self.state, action=action["sensory"])
+                state = self._fov_step(full_state=self.state, action=action["sensory_action"])
 
         else:
             self.successive_pauses = 0
             # Normal step
-            state, reward, done, truncated, info = self.env.step(action=action["motor"])
+            state, reward, done, truncated, info = self.env.step(action=action["motor_action"])
             # Safe the state for the next sensory step
             self.state = state
             # Sensory step
-            state = self._fov_step(full_state=self.state, action=action["sensory"])  
+            state = self._fov_step(full_state=self.state, action=action["sensory_action"])  
 
         self._log_step(reward, action, done, truncated, info)
 
@@ -207,10 +207,10 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                     frame = cv2.rectangle(frame, top_left, bottom_right, color, thickness)
 
                 if draw_pauses:
-                    text = f"Number of pauses: {self.prev_record_buffer['episode_pauses'][i]}"
-                    position = (10, 10)
+                    text = f"Pauses: {self.prev_record_buffer['episode_pauses'][i]}"
+                    position = (10, 20)
                     font = cv2.FONT_HERSHEY_COMPLEX
-                    font_scale = 0.4
+                    font_scale = 0.3
                     frame = cv2.putText(frame, text, position, font, font_scale, color, thickness)
 
                 video_writer.write(frame)
@@ -343,13 +343,13 @@ class SlowableFixedFovealEnv(PauseableFixedFovealEnv):
         self.ms_since_motor_step = 0
 
     def step(self, action):
-        pause_action = action["motor"] == len(self.env.actions)
+        pause_action = action["motor_action"] == len(self.env.actions)
         if pause_action and (self.state is not None):
             # If it has been more than 50ms (results in 20 Hz) since the last motor action 
             # NOOP will be chosen as a motor action instead of continuing the pause
             SLOWED_FRAME_RATE = 20
             if self.ms_since_motor_step >= 1000/SLOWED_FRAME_RATE:
-                action["motor"] = np.int64(0)
+                action["motor_action"] = np.int64(0)
                 return self.step(action)
             
         fov_state, reward, done, truncated, info = super().step(action)

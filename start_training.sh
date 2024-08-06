@@ -3,8 +3,8 @@ numgpus=${2:-$(nvidia-smi --list-gpus | wc -l)}
 
 envlist=(boxing freeway)
 
-expname="pauseable124_5m"
-totaltimesteps="5000000"
+expname="pauseable125_1m"
+totaltimesteps="1000000"
 buffersize="100000"
 learningstarts="10000"
 
@@ -34,7 +34,8 @@ do
                 --successive-pause-limit 30 \
                 --no-action-pause-cost 0.1 \
                 --sensory-action-mode relative \
-                --grokfast
+                --grokfast \
+                --no-pause-env
         done
     ) &
 done

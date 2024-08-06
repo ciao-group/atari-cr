@@ -13,3 +13,10 @@ class SensoryActionMode(Enum):
                 return SensoryActionMode.RELATIVE
             case _:
                 raise ValueError("Invalid sensory action mode")
+            
+    def __str__(self):
+        match(self):
+            case SensoryActionMode.ABSOLUTE:
+                return "absolute"
+            case SensoryActionMode.RELATIVE:
+                return "relative"
