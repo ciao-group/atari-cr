@@ -35,8 +35,7 @@
                 "--pvm-stack", "6",
                 "--pause-cost", "0.01",
                 "--successive-pause-limit", "20",
-                "--sensory-action-mode", "absolute",
-                "--no-pause-env"
+                "--sensory-action-mode", "absolute"
             ],
             "justMyCode": false
         },

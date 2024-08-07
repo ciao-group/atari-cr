@@ -26,6 +26,12 @@ from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
 
 # TODO: Weitermachen mit Road Runner, Ms. Pac-Man, und Breakout; Boxing ist nicht in Atari-HEAD 
 
+# TODO: (wenn nichts mehr klappt) Fovea zuerst über ganzen Bildschirm machen und dann immer kleiner werden lassen; gucken ab wann es schwierig wird
+# TODO: (wenn nichts mehr klappt) Die Anzahl der Pausen pro Bild zb auf 4 festlegen
+# TODO: (wenn nichts mehr klappt) 
+
+# TODO: Bis 1.4 gab es gute rewards, bis 1.5 gab es Farbe im Tensorboard; gucken woran hats gelejen
+
 
 def parse_args():
     # fmt: off
