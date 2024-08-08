@@ -121,7 +121,7 @@ def make_env(seed, **kwargs):
     def thunk():
         env_args = AtariEnvArgs(
             game=args.env, 
-            seed=args.seed + seed, 
+            seed=seed, 
             obs_size=(84, 84), 
             frame_stack=args.frame_stack, 
             action_repeat=args.action_repeat,
@@ -148,11 +148,11 @@ def make_env(seed, **kwargs):
     return thunk
 
 def make_train_env():
-    envs = [make_env(i) for i in range(args.env_num)]
+    envs = [make_env(args.seed + i) for i in range(args.env_num)]
     return gym.vector.SyncVectorEnv(envs)
 
 def make_eval_env(seed):
-    envs = [make_env(seed, training=False, record=args.capture_video)]
+    envs = [make_env(args.seed + seed, training=False, record=args.capture_video)]
     return gym.vector.SyncVectorEnv(envs)
 
 if __name__ == "__main__":
