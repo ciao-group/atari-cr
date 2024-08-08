@@ -43,7 +43,7 @@
             "name": "Basic Sugarl Debug",
             "type": "debugpy",
             "request": "launch",
-            "program": "src/atari_cr/agents/dqn_atari_cr.py",
+            "program": "src/atari_cr/agents/dqn_atari_cr/main.py",
             "console": "integratedTerminal",
             "args": [
                 "--env", "boxing",
@@ -54,7 +54,7 @@
                 "--capture-video",
                 "--total-timesteps", "10000",
                 "--buffer-size", "100000",
-                "--learning-starts", "1000",
+                "--learning-start", "1000",
                 "--pause-cost", "0.1",
             ],
             "justMyCode": false

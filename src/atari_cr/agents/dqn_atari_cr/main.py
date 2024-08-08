@@ -168,15 +168,25 @@ if __name__ == "__main__":
 
     env = make_train_env()
     agent = CRDQN(
-        env, 
-        make_eval_env, 
-        sugarl_r_scale,
-        seed=args.seed,
+        env=env,
+        sugarl_r_scale=get_sugarl_reward_scale_atari(args.env),
+        eval_env_generator=make_eval_env,
         fov_size=args.fov_size,
+        cuda=args.cuda,
+        learning_rate=args.learning_rate,
         replay_buffer_size=args.buffer_size,
+        pvm_stack=args.pvm_stack, 
+        frame_stack=args.frame_stack,
+        batch_size=args.batch_size,
+        train_frequency=args.train_frequency,
         learning_start=args.learning_start,
-        pvm_stack=args.pvm_stack,
-        grokfast=args.grokfast
+        gamma=args.gamma,
+        target_network_frequency=args.target_network_frequency,
+        eval_frequency=args.eval_frequency,
+        n_evals=args.eval_num
     )
-
-    agent.learn(args.total_timesteps, args.env, args.exp_name)
+    agent.learn(
+        n=args.total_timesteps,
+        env_name=args.env, 
+        experiment_name=args.exp_name
+    )  
