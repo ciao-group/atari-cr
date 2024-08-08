@@ -33,7 +33,7 @@
                 "--buffer-size", "100000",
                 "--learning-start", "1000",
                 "--pvm-stack", "6",
-                "--pause-cost", "0.01",
+                "--pause-cost", "0.1",
                 "--successive-pause-limit", "20",
                 "--sensory-action-mode", "absolute"
             ],
@@ -48,7 +48,7 @@
             "args": [
                 "--env", "boxing",
                 "--seed", "1",
-                "--exp-name", "dqn_cr_debug",
+                "--exp-name", "basic_sugarl_debug",
                 "--fov-size", "20",
                 "--clip-reward",
                 "--capture-video",
