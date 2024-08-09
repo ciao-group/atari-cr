@@ -194,7 +194,7 @@ class CRDQN:
         os.makedirs(self.tb_dir, exist_ok=True)
         self.log_file = os.path.join(self.log_dir, f"seed{self.seed}.txt")
         if not self.writer:
-            self.writer = SummaryWriter(os.path.join(self.tb_dir, experiment_name))
+            self.writer = SummaryWriter(os.path.join(self.tb_dir, f"seed{self.seed}"))
         hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in self.__dict__.items()])
         self.writer.add_text(
             "Agent Hyperparameters", 

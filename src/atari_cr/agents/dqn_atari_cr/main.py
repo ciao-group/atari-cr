@@ -173,7 +173,7 @@ if __name__ == "__main__":
     run_identifier = os.path.join(args.exp_name, args.env)
     run_dir = os.path.join("output/runs", run_identifier)
     tb_dir = os.path.join(run_dir, "tensorboard")
-    writer = SummaryWriter(os.path.join(tb_dir, args.exp_name))
+    writer = SummaryWriter(os.path.join(tb_dir, f"seed{args.seed}"))
     hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in env.envs[0].__dict__.items()])
     writer.add_text(
         "Env Hyperparameters", 
