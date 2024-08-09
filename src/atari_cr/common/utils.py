@@ -5,7 +5,7 @@ Due to dependencies incompability, we cherry-pick codes here
 import os, random, re
 from datetime import datetime
 import warnings
-from typing import Dict, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
 import torch
@@ -446,3 +446,17 @@ def grid_image(array, line_color=[255, 0, 0], line_width=1):
         grid[:, j*(x+line_width)-line_width:j*(x+line_width)] = line_color
 
     return grid
+
+def get_env_attributes(env) -> List[Tuple[str, Any]]:
+    """ Returns a list of env attributes together with wrapped env attributes. """
+    attributes = []
+    
+    def extract_attributes(obj, prefix=''):
+        for key, value in obj.__dict__.items():
+            attributes.append((f"{prefix}{key}", value))
+            
+        if hasattr(obj, 'env'):
+            extract_attributes(obj.env, f"{prefix}env.")
+    
+    extract_attributes(env)
+    return attributes

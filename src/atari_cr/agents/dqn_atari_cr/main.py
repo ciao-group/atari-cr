@@ -13,7 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from active_gym.atari_env import AtariEnv, AtariEnvArgs, AtariFixedFovealEnv
 
-from atari_cr.common.utils import seed_everything, get_sugarl_reward_scale_atari
+from atari_cr.common.utils import seed_everything, get_sugarl_reward_scale_atari, get_env_attributes
 from atari_cr.common.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.common.models import SensoryActionMode
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
@@ -114,58 +114,55 @@ def parse_args():
     parser.add_argument("--grokfast", action="store_true")
     parser.add_argument("--use-pause-env", action="store_true",
         help="Whether to use the normal sugarl setting without a pausable env.")
+    parser.add_argument("--disable-tensorboard", action="store_true")
     
     args = parser.parse_args()
     return args
 
-def make_env(seed, **kwargs):
-    def thunk():
-        env_args = AtariEnvArgs(
-            game=args.env, 
-            seed=seed, 
-            obs_size=(84, 84), 
-            frame_stack=args.frame_stack, 
-            action_repeat=args.action_repeat,
-            fov_size=(args.fov_size, args.fov_size), 
-            fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
-            sensory_action_mode=sensory_action_mode,
-            sensory_action_space=(-args.sensory_action_space, args.sensory_action_space),
-            resize_to_full=args.resize_to_full,
-            clip_reward=args.clip_reward,
-            mask_out=True,
-            **kwargs
-        )
-        if args.use_pause_env:
-            env = AtariEnv(env_args)    
-            env = PauseableFixedFovealEnv(env, env_args, 
-                args.pause_cost, args.successive_pause_limit, args.no_action_pause_cost)
-        else:
-            env_args.sensory_action_mode = str(sensory_action_mode)
-            env = AtariFixedFovealEnv(env_args)
-        env.action_space.seed(seed)
-        env.observation_space.seed(seed)
-        return env
-
-    return thunk
-
-def make_train_env():
-    envs = [make_env(args.seed + i) for i in range(args.env_num)]
-    return gym.vector.SyncVectorEnv(envs)
-
-def make_eval_env(seed):
-    envs = [make_env(args.seed + seed, training=False, record=args.capture_video)]
-    return gym.vector.SyncVectorEnv(envs)
-
-if __name__ == "__main__":
-    args = parse_args()
+def main(args: argparse.Namespace):
     sensory_action_mode = SensoryActionMode.from_string(args.sensory_action_mode)
-
     seed_everything(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
     assert device.type == "cuda"
 
-    sugarl_r_scale = get_sugarl_reward_scale_atari(args.env)
+    def make_env(seed, **kwargs):
+        def thunk():
+            env_args = AtariEnvArgs(
+                game=args.env, 
+                seed=seed, 
+                obs_size=(84, 84), 
+                frame_stack=args.frame_stack, 
+                action_repeat=args.action_repeat,
+                fov_size=(args.fov_size, args.fov_size), 
+                fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
+                sensory_action_mode=sensory_action_mode,
+                sensory_action_space=(-args.sensory_action_space, args.sensory_action_space),
+                resize_to_full=args.resize_to_full,
+                clip_reward=args.clip_reward,
+                mask_out=True,
+                **kwargs
+            )
+            if args.use_pause_env:
+                env = AtariEnv(env_args)    
+                env = PauseableFixedFovealEnv(env, env_args, 
+                    args.pause_cost, args.successive_pause_limit, args.no_action_pause_cost)
+            else:
+                env_args.sensory_action_mode = str(sensory_action_mode)
+                env = AtariFixedFovealEnv(env_args)
+            env.action_space.seed(seed)
+            env.observation_space.seed(seed)
+            return env
+
+        return thunk
+
+    def make_train_env():
+        envs = [make_env(args.seed + i) for i in range(args.env_num)]
+        return gym.vector.SyncVectorEnv(envs)
+
+    def make_eval_env(seed):
+        envs = [make_env(args.seed + seed, training=False, record=args.capture_video)]
+        return gym.vector.SyncVectorEnv(envs)
 
     env = make_train_env()
 
@@ -174,7 +171,7 @@ if __name__ == "__main__":
     run_dir = os.path.join("output/runs", run_identifier)
     tb_dir = os.path.join(run_dir, "tensorboard")
     writer = SummaryWriter(os.path.join(tb_dir, f"seed{args.seed}"))
-    hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in env.envs[0].__dict__.items()])
+    hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in get_env_attributes(env.envs[0])])
     writer.add_text(
         "Env Hyperparameters", 
         f"|param|value|\n|-|-|\n{hyper_params_table}",
@@ -203,11 +200,18 @@ if __name__ == "__main__":
         exploration_fraction=args.exploration_fraction,
         ignore_sugarl=args.ignore_sugarl,
         grokfast=args.grokfast,
-        sensory_action_mode=args.sensory_action_mode
+        sensory_action_mode=args.sensory_action_mode,
+        disable_tensorboard=args.disable_tensorboard
 
     )
-    agent.learn(
+    eval_returns = agent.learn(
         n=args.total_timesteps,
         env_name=args.env, 
         experiment_name=args.exp_name
     )  
+
+    return eval_returns
+
+if __name__ == "__main__":
+    args = parse_args()
+    main(args)

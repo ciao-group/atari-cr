@@ -24,10 +24,11 @@
             "args": [
                 "--clip-reward",
                 "--capture-video",
-                // Editable
+                // Debuug config
                 "--exp-name", "dqn_cr_debug",
                 "--total-timesteps", "10000",
                 "--learning-start", "1000",
+                "--disable-tensorboard"
                 // Additional config
             ],
             "justMyCode": false

@@ -52,7 +52,11 @@ class CRDQN:
             ignore_sugarl = True,
             grokfast = False, 
             sensory_action_mode = SensoryActionMode.ABSOLUTE,
-            writer: Optional[SummaryWriter] = None
+            writer: Optional[SummaryWriter] = None,
+            disable_tensorboard = False,
+            no_model_output = False,
+            no_pvm_visualization = False,
+            no_video_output = False,
         ):
         """
         Parameters
@@ -121,6 +125,10 @@ class CRDQN:
         self.sensory_action_mode = sensory_action_mode
         self.grokfast = grokfast
         self.writer = writer
+        self.disable_tensorboard = disable_tensorboard,
+        self.no_model_output = no_model_output,
+        self.no_pvm_visualization = no_pvm_visualization,
+        self.no_video_output = no_video_output,
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.current_timestep = 0
@@ -189,17 +197,20 @@ class CRDQN:
         if isinstance(self.envs[0], FixedFovealEnv):
             self.model_dir = os.path.join(self.model_dir, "no_pause")
 
-        # Init text logging and tensorboard logging
+        # Init text logging logging
         os.makedirs(self.log_dir, exist_ok=True)
-        os.makedirs(self.tb_dir, exist_ok=True)
         self.log_file = os.path.join(self.log_dir, f"seed{self.seed}.txt")
-        if not self.writer:
-            self.writer = SummaryWriter(os.path.join(self.tb_dir, f"seed{self.seed}"))
-        hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in self.__dict__.items()])
-        self.writer.add_text(
-            "Agent Hyperparameters", 
-            f"|param|value|\n|-|-|\n{hyper_params_table}",
-        )
+
+        # Init tensorboard logging
+        if not self.disable_tensorboard:
+            os.makedirs(self.tb_dir, exist_ok=True)
+            if not self.writer:
+                self.writer = SummaryWriter(os.path.join(self.tb_dir, f"seed{self.seed}"))
+            hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in self.__dict__.items()])
+            self.writer.add_text(
+                "Agent Hyperparameters", 
+                f"|param|value|\n|-|-|\n{hyper_params_table}",
+            )
 
         # Log pause cost
         if isinstance(self.env, PauseableFixedFovealEnv):
@@ -220,6 +231,9 @@ class CRDQN:
         obs, infos = self.env.reset()
         self.pvm_buffer.append(obs)
         pvm_obs = self.pvm_buffer.get_obs(mode="stack_max")
+
+        # Init return value
+        eval_returns = []
 
         while self.current_timestep < n:
             # Chose action from q network
@@ -256,10 +270,13 @@ class CRDQN:
                 # Evaluation
                 if (self.current_timestep % self.eval_frequency == 0 and self.eval_frequency > 0) or \
                 (self.current_timestep >= n):
-                    self.evaluate()
+                    eval_returns = self.evaluate()
 
         self.env.close()
-        self.writer.close()
+        if not self.disable_tensorboard:
+            self.writer.close()
+
+        return eval_returns
 
     def train(self):
         """
@@ -342,6 +359,9 @@ class CRDQN:
         # Set the networks back to training mode
         self.q_network.train()
         self.sfn.train()
+
+        eval_returns: List[float] = [episode_info["reward"] for episode_info in episode_infos]
+        return eval_returns
 
     def save_checkpoint(self, file_path: str):
         torch.save(
@@ -428,13 +448,14 @@ class CRDQN:
             self._log(f"WARNING: [Prevented Pauses: {','.join(map(str, prevented_pause_counts))}]")
 
         # Tensorboard
-        self.writer.add_scalar("charts/episodic_return", episode_info["reward"], self.current_timestep)
-        self.writer.add_scalar("charts/episode_length", episode_info["ep_len"], self.current_timestep)
-        self.writer.add_scalar("charts/epsilon", self.epsilon, self.current_timestep)
-        self.writer.add_scalar("charts/raw_episodic_return", raw_reward, self.current_timestep)
-        self.writer.add_scalar("charts/pauses", episode_info['n_pauses'], self.current_timestep)
-        self.writer.add_scalar("charts/prevented_pauses", episode_info['prevented_pauses'], self.current_timestep)
-        self.writer.add_scalar("charts/no_action_pauses", episode_info["no_action_pauses"], self.current_timestep)
+        if not self.disable_tensorboard:
+            self.writer.add_scalar("charts/episodic_return", episode_info["reward"], self.current_timestep)
+            self.writer.add_scalar("charts/episode_length", episode_info["ep_len"], self.current_timestep)
+            self.writer.add_scalar("charts/epsilon", self.epsilon, self.current_timestep)
+            self.writer.add_scalar("charts/raw_episodic_return", raw_reward, self.current_timestep)
+            self.writer.add_scalar("charts/pauses", episode_info['n_pauses'], self.current_timestep)
+            self.writer.add_scalar("charts/prevented_pauses", episode_info['prevented_pauses'], self.current_timestep)
+            self.writer.add_scalar("charts/no_action_pauses", episode_info["no_action_pauses"], self.current_timestep)
 
     def _log_eval_episodes(self, episode_infos: List[Dict]):
         # Unpack episode_infos
@@ -467,11 +488,12 @@ class CRDQN:
         ))
 
         # Tensorboard
-        for env_num in range(len(episode_infos)):
-            self.writer.add_scalar("eval/episodic_return", np.mean(episodic_returns[env_num]), env_num)
-            self.writer.add_scalar("eval/raw_episodic_return", np.mean(raw_episodic_returns[env_num]), env_num)
-            self.writer.add_scalar("eval/episode_lengths", np.mean(episode_lengths[env_num]), env_num)
-            self.writer.add_scalar("eval/pause_counts", np.mean(pause_counts[env_num]), env_num)
+        if not self.disable_tensorboard:
+            for env_num in range(len(episode_infos)):
+                self.writer.add_scalar("eval/episodic_return", np.mean(episodic_returns[env_num]), env_num)
+                self.writer.add_scalar("eval/raw_episodic_return", np.mean(raw_episodic_returns[env_num]), env_num)
+                self.writer.add_scalar("eval/episode_lengths", np.mean(episode_lengths[env_num]), env_num)
+                self.writer.add_scalar("eval/pause_counts", np.mean(pause_counts[env_num]), env_num)
 
     def _train_sfn(self, data):
         # Prediction
@@ -491,11 +513,12 @@ class CRDQN:
         observation_quality = F.softmax(pred_motor_actions).gather(1, data.motor_actions).squeeze().detach()
 
         # Tensorboard
-        if self.current_timestep % 100 == 0:
-            sfn_accuray = (pred_motor_actions.argmax(axis=1) == data.motor_actions.flatten()).sum() / pred_motor_actions.shape[0]
-            self.writer.add_scalar("losses/sfn_loss", self.sfn_loss.item(), self.current_timestep)
-            self.writer.add_scalar("losses/sfn_accuray", sfn_accuray, self.current_timestep)
-            self.writer.add_scalar("losses/observation_quality", observation_quality.mean().item(), self.current_timestep)
+        if not self.disable_tensorboard:
+            if self.current_timestep % 100 == 0:
+                sfn_accuray = (pred_motor_actions.argmax(axis=1) == data.motor_actions.flatten()).sum() / pred_motor_actions.shape[0]
+                self.writer.add_scalar("losses/sfn_loss", self.sfn_loss.item(), self.current_timestep)
+                self.writer.add_scalar("losses/sfn_accuray", sfn_accuray, self.current_timestep)
+                self.writer.add_scalar("losses/observation_quality", observation_quality.mean().item(), self.current_timestep)
         
         return observation_quality
 
@@ -541,7 +564,7 @@ class CRDQN:
         self.optimizer.step()
 
         # Tensorboard logging
-        if self.current_timestep % 100 == 0:
+        if (not self.disable_tensorboard) and self.current_timestep % 100 == 0:
             self.writer.add_scalar("losses/loss", loss, self.current_timestep)
             self.writer.add_scalar("losses/loss_without_sugarl", loss, self.current_timestep)
             self.writer.add_scalar("losses/sugarl_loss", loss - loss_without_sugarl, self.current_timestep)

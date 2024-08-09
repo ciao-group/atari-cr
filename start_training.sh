@@ -20,8 +20,7 @@ do
                 --env ${envlist[$i]} \
                 --seed $seed \
                 --exp-name ${expname} \
-                --total-timesteps 1000000 \
-                --learning-start 80000
+                --total-timesteps 1000000
                 \
         done
     ) &
