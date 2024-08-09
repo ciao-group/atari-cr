@@ -101,7 +101,7 @@ def parse_args():
         help="eval frequency. default -1 is eval at the end.")
     
     # Pause args
-    parser.add_argument("--pause-cost", type=float, default=0.01,
+    parser.add_argument("--pause-cost", type=float, default=0.1,
         help="Cost for looking without taking an env action. Prevents the agent from abusing too many pauses")
     parser.add_argument("--successive-pause-limit", type=int, default=20,
         help="Limit to the amount of successive pauses the agent can make before a random action is selected instead. \
@@ -111,7 +111,7 @@ def parse_args():
     parser.add_argument("--no-action-pause-cost", type=float, default=0.1,
         help="Penalty for performing a useless pause without a sensory action. This is meant to speed up training")
     parser.add_argument("--grokfast", action="store_true")
-    parser.add_argument("--no-pause-env", action="store_true",
+    parser.add_argument("--use-pause-env", action="store_true",
         help="Whether to use the normal sugarl setting without a pausable env.")
     
     args = parser.parse_args()
@@ -134,13 +134,13 @@ def make_env(seed, **kwargs):
             mask_out=True,
             **kwargs
         )
-        if args.no_pause_env:
-            env_args.sensory_action_mode = str(sensory_action_mode)
-            env = AtariFixedFovealEnv(env_args)
-        else:
+        if args.use_pause_env:
             env = AtariEnv(env_args)    
             env = PauseableFixedFovealEnv(env, env_args, 
                 args.pause_cost, args.successive_pause_limit, args.no_action_pause_cost)
+        else:
+            env_args.sensory_action_mode = str(sensory_action_mode)
+            env = AtariFixedFovealEnv(env_args)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
         return env

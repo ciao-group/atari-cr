@@ -22,9 +22,7 @@ do
                 --capture-video \
                 --total-timesteps 1000000 \
                 --buffer-size 100000 \
-                --learning-start 80000 \
-                \
-                --no-pause-env
+                --learning-start 80000
         done
     ) &
 done
