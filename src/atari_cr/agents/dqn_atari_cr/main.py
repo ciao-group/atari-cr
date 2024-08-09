@@ -115,6 +115,9 @@ def parse_args():
     parser.add_argument("--use-pause-env", action="store_true",
         help="Whether to use the normal sugarl setting without a pausable env.")
     parser.add_argument("--disable-tensorboard", action="store_true")
+    parser.add_argument("--no-model-output", action="store_true")
+    parser.add_argument("--no-video-output", action="store_true")
+    parser.add_argument("--no-pvm-visualization", action="store_true")
     
     args = parser.parse_args()
     return args
@@ -167,15 +170,16 @@ def main(args: argparse.Namespace):
     env = make_train_env()
 
     # Create a tensorboard writer and log the env state
-    run_identifier = os.path.join(args.exp_name, args.env)
-    run_dir = os.path.join("output/runs", run_identifier)
-    tb_dir = os.path.join(run_dir, "tensorboard")
-    writer = SummaryWriter(os.path.join(tb_dir, f"seed{args.seed}"))
-    hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in get_env_attributes(env.envs[0])])
-    writer.add_text(
-        "Env Hyperparameters", 
-        f"|param|value|\n|-|-|\n{hyper_params_table}",
-    )
+    if not args.disable_tensorboard:
+        run_identifier = os.path.join(args.exp_name, args.env)
+        run_dir = os.path.join("output/runs", run_identifier)
+        tb_dir = os.path.join(run_dir, "tensorboard")
+        writer = SummaryWriter(os.path.join(tb_dir, f"seed{args.seed}"))
+        hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in get_env_attributes(env.envs[0])])
+        writer.add_text(
+            "Env Hyperparameters", 
+            f"|param|value|\n|-|-|\n{hyper_params_table}",
+        )
 
     agent = CRDQN(
         env=env,
@@ -201,7 +205,10 @@ def main(args: argparse.Namespace):
         ignore_sugarl=args.ignore_sugarl,
         grokfast=args.grokfast,
         sensory_action_mode=args.sensory_action_mode,
-        disable_tensorboard=args.disable_tensorboard
+        disable_tensorboard=args.disable_tensorboard,
+        no_model_output=args.no_model_output,
+        no_pvm_visualization=args.no_pvm_visualization,
+        no_video_output=args.no_video_output
 
     )
     eval_returns = agent.learn(

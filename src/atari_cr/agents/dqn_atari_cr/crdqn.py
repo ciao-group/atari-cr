@@ -260,7 +260,7 @@ class CRDQN:
             if self.current_timestep > self.batch_size:
 
                 # Save the model every 1M timesteps
-                if self.current_timestep % 1000000 == 0:
+                if (not self.no_model_output) and self.current_timestep % 1000000 == 0:
                     self._save_output(self.model_dir, "pt", self.save_checkpoint)
 
                 # Training
@@ -337,18 +337,18 @@ class CRDQN:
                 pvm_obs = next_pvm_obs
 
                 # Save a visualization of the pvm buffer in the middle of the episode
-                if infos["ep_len"] == 50:
+                if (not self.no_pvm_visualization) and infos["ep_len"] == 50:
                     self._save_output(self.pvm_dir, "png", eval_pvm_buffer.to_png, eval_ep)
 
             episode_infos.append(infos['final_info'][0])
 
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
-            if single_eval_env.record and eval_ep % 4 == 0:
+            if (not self.no_video_output) and single_eval_env.record and eval_ep % 4 == 0:
                 self._save_output(self.video_dir, "pt", single_eval_env.save_record_to_file, eval_ep)
                 
             # Safe the model file in the first eval run
-            if eval_ep == 0:
+            if (not self.no_model_output) and eval_ep == 0:
                 self._save_output(self.model_dir, "pt", self.save_checkpoint, eval_ep)
 
             eval_env.close()
