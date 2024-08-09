@@ -172,6 +172,7 @@ if __name__ == "__main__":
         sugarl_r_scale=get_sugarl_reward_scale_atari(args.env),
         eval_env_generator=make_eval_env,
         fov_size=args.fov_size,
+        seed=args.seed,
         cuda=args.cuda,
         learning_rate=args.learning_rate,
         replay_buffer_size=args.buffer_size,
@@ -183,7 +184,14 @@ if __name__ == "__main__":
         gamma=args.gamma,
         target_network_frequency=args.target_network_frequency,
         eval_frequency=args.eval_frequency,
-        n_evals=args.eval_num
+        n_evals=args.eval_num,
+        sensory_action_space_granularity=(args.sensory_action_x_size, args.sensory_action_y_size),
+        epsilon_interval=(args.start_e, args.end_e),
+        exploration_fraction=args.exploration_fraction,
+        ignore_sugarl=args.ignore_sugarl,
+        grokfast=args.grokfast,
+        sensory_action_mode=args.sensory_action_mode
+
     )
     agent.learn(
         n=args.total_timesteps,
