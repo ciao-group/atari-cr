@@ -56,7 +56,7 @@ class CRDQN:
             disable_tensorboard = False,
             no_model_output = False,
             no_pvm_visualization = False,
-            no_video_output = False,
+            capture_video = True,
         ):
         """
         Parameters
@@ -128,7 +128,7 @@ class CRDQN:
         self.disable_tensorboard = disable_tensorboard,
         self.no_model_output = no_model_output,
         self.no_pvm_visualization = no_pvm_visualization,
-        self.no_video_output = no_video_output,
+        self.capture_video = capture_video,
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.current_timestep = 0
@@ -344,7 +344,7 @@ class CRDQN:
 
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
-            if (not self.no_video_output) and single_eval_env.record and eval_ep % 4 == 0:
+            if (self.capture_video) and single_eval_env.record and eval_ep % 4 == 0:
                 self._save_output(self.video_dir, "pt", single_eval_env.save_record_to_file, eval_ep)
                 
             # Safe the model file in the first eval run

@@ -1,27 +1,26 @@
 import unittest
 from sys import argv
 
-from atari_cr.agents.dqn_atari_cr.main import main, parse_args
+from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
 
 class TestMain(unittest.TestCase):
     def test_main(self):
         """ Deterministic test for OG config """
 
         argv.extend([
-            "--clip-reward",
-            "--capture-video",
-            "--exp-name", "test_og",
-            "--total-timesteps", "5000",
-            "--learning-start", "100",
-            "--eval-num", "3",
+            "--clip_reward",
+            "--capture_video",
+            "--exp_name", "test_og",
+            "--total_timesteps", "5000",
+            "--learning_start", "100",
+            "--eval_num", "3",
             # 
-            "--no-pvm-visualization",
-            "--no-model-output",
-            "--no-video-output",
-            "--disable-tensorboard"
+            "--no_pvm_visualization",
+            "--no_model_output",
+            "--disable_tensorboard"
         ])
 
-        args = parse_args()
+        args = ArgParser().parse_args()
         eval_returns = main(args)
 
         # Try getting the expected result five times 

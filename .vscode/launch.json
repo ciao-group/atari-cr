@@ -22,34 +22,14 @@
                 "-Xfrozen_modules=off"
             ],
             "args": [
-                "--clip-reward",
-                "--capture-video",
+                "--clip_reward",
+                "--capture_video",
                 // Debuug config
-                "--exp-name", "dqn_cr_debug",
-                "--total-timesteps", "10000",
-                "--learning-start", "1000",
-                "--disable-tensorboard"
+                "--exp_name", "dqn_cr_debug",
+                "--total_timesteps", "10000",
+                "--learning_start", "1000",
+                "--disable_tensorboard"
                 // Additional config
-            ],
-            "justMyCode": false
-        },
-        {
-            "name": "Basic Sugarl Debug",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "src/atari_cr/agents/dqn_atari_cr/main.py",
-            "console": "integratedTerminal",
-            "args": [
-                "--env", "boxing",
-                "--seed", "1",
-                "--exp-name", "basic_sugarl_debug",
-                "--fov-size", "20",
-                "--clip-reward",
-                "--capture-video",
-                "--total-timesteps", "10000",
-                "--buffer-size", "100000",
-                "--learning-start", "1000",
-                "--pause-cost", "0.1",
             ],
             "justMyCode": false
         },

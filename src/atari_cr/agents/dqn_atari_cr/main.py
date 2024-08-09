@@ -1,7 +1,5 @@
-import argparse
 import os
 from typing import Literal
-from distutils.util import strtobool
 
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -34,29 +32,26 @@ from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
 # TODO: (wenn nichts mehr klappt) 
 
 # TODO: Check v1.28 results
-# TODO: Typed argument parser
 
 class ArgParser(Tap):
     exp_name: str = os.path.basename(__file__).rstrip(".py") # The name of this experiment
     seed: int = 0 # The seed of the experiment
-    # disable_cuda: bool # Whether to force using CPU 
-    # TODO: Merge that with no_video
-    capture_video: bool # Whether to capture videos of the agent performances (check out `videos` folder)
+    disable_cuda: bool = False # Whether to force the use of CPU 
+    capture_video: bool = False # Whether to capture videos of the agent performances (check out `videos` folder)
 
     # Env settings
     env: str = "boxing" # The ID of the environment
     env_num: int = 1 # The number of envs to train in parallel
-    fram_stack: int = 4 # The number of frames making up one observation
+    frame_stack: int = 4 # The number of frames making up one observation
     action_repeat: int = 4 # The number of times an action is repeated
-    clip_reward: bool # Whether to clip rewards
+    clip_reward: bool = False # Whether to clip rewards
 
     # Fovea settings
     fov_size: int = 20 # The size of the fovea
     fov_init_loc: int = 0 # Where to initialize the fovea
     sensory_action_mode: Literal["absolute", "relative"] = "absolute" # Whether to interprate sensory actions absolutely or relatively
     sensory_action_space: int = 10 # Maximum size of pixels to move the fovea in one relative sensory step. Ignored for absolute sensory action mode
-    # TODO: What is this?
-    resize_to_full: bool = False
+    resize_to_full: bool = False # No idea what that is
     sensory_action_x_size: int = 4 # How many smallest sensory steps fit in x direction
     sensory_action_y_size: int = 4 # How many smallest sensory steps fit in y direction
     pvm_stack: int = 3 # How many normal observation to aggregate in the PVM buffer
@@ -79,112 +74,23 @@ class ArgParser(Tap):
     eval_num: int = 10 # How envs are created for evaluation
 
     # Pause args
-    use_pause_env: bool # Whether to use an env that lets the agent pause for only making a sensory action
+    use_pause_env: bool = False # Whether to use an env that lets the agent pause for only making a sensory action
     pause_cost: float = 0.1 # The cost for the env to only take a sensory step
     successive_pause_limit: int = 20 # The maximum number of successive pauses before pauses are forbidden. This prevents the agent from halting
     no_action_pause_cost: float = 0.1 # The additional cost of pausing without performing a sensory action
 
     # Misc
-    ignore_sugarl: bool # Whether to ignore the sugarl term for Q network learning
-    grokfast: bool # Whether to use grokfast
-    disable_tensorboard: bool # Whether to disable tensorboard
-    no_model_output: bool # Whether to disable saving the finished model
-    no_video_output: bool # Whether to disble video output of the final agent acting in the env
-    no_pvm_visualization: bool # Whether to disable output of visualizations of the content of the PVM buffer
+    ignore_sugarl: bool = False # Whether to ignore the sugarl term for Q network learning
+    grokfast: bool = False # Whether to use grokfast
+    disable_tensorboard: bool = False # Whether to disable tensorboard
+    no_model_output: bool = False # Whether to disable saving the finished model
+    no_pvm_visualization: bool = False # Whether to disable output of visualizations of the content of the PVM buffer
 
-def parse_args():
-    # fmt: off
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
-        help="the name of this experiment")
-    parser.add_argument("--seed", type=int, default=0,
-        help="seed of the experiment")
-    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
-        help="if toggled, cuda will be enabled by default")
-    parser.add_argument("--capture-video", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
-        help="whether to capture videos of the agent performances (check out `videos` folder)")
-
-    # env setting
-    parser.add_argument("--env", type=str, default="boxing",
-        help="the id of the environment")
-    parser.add_argument("--env-num", type=int, default=1, 
-        help="# envs in parallel")
-    parser.add_argument("--frame-stack", type=int, default=4,
-        help="frame stack #")
-    parser.add_argument("--action-repeat", type=int, default=4,
-        help="action repeat #")
-    parser.add_argument("--clip-reward", action="store_true")
-
-    # fov setting
-    parser.add_argument("--fov-size", type=int, default=20)
-    parser.add_argument("--fov-init-loc", type=int, default=0)
-    parser.add_argument("--sensory-action-mode", type=str, default="absolute",
-        help="How the sensory action is interpreted by the env. Either 'absolute' or 'relative'")
-    parser.add_argument("--sensory-action-space", type=int, default=10,
-        help="Maximum size of pixels to move the fovea in one relative sensory step. Ignored for absolute sensory action mode") 
-    parser.add_argument("--resize-to-full", default=False, action="store_true")
-    # for discrete observ action
-    parser.add_argument("--sensory-action-x-size", type=int, default=4)
-    parser.add_argument("--sensory-action-y-size", type=int, default=4)
-    # pvm setting
-    parser.add_argument("--pvm-stack", type=int, default=3)
-
-    # Algorithm specific arguments
-    parser.add_argument("--total-timesteps", type=int, default=3000000,
-        help="total timesteps of the experiments")
-    parser.add_argument("--learning-rate", type=float, default=1e-4,
-        help="the learning rate of the self.optimizer")
-    parser.add_argument("--buffer-size", type=int, default=100000,
-        help="the replay memory buffer size")
-    parser.add_argument("--gamma", type=float, default=0.99,
-        help="the discount factor gamma")
-    parser.add_argument("--target-network-frequency", type=int, default=1000,
-        help="the timesteps it takes to update the target network")
-    parser.add_argument("--batch-size", type=int, default=32,
-        help="the batch size of sample from the reply memory")
-    parser.add_argument("--start-e", type=float, default=1,
-        help="the starting epsilon for exploration")
-    parser.add_argument("--end-e", type=float, default=0.01,
-        help="the ending epsilon for exploration")
-    parser.add_argument("--exploration-fraction", type=float, default=0.10,
-        help="the fraction of `total-timesteps` it takes from start-e to go end-e")
-    parser.add_argument("--learning-start", type=int, default=80000,
-        help="timestep to start learning")
-    parser.add_argument("--train-frequency", type=int, default=4,
-        help="the frequency of training")
-
-    # eval args
-    parser.add_argument("--eval-frequency", type=int, default=-1,
-        help="eval frequency. default -1 is eval at the end.")
-    parser.add_argument("--eval-num", type=int, default=10,
-        help="eval frequency. default -1 is eval at the end.")
-    
-    # Pause args
-    parser.add_argument("--pause-cost", type=float, default=0.1,
-        help="Cost for looking without taking an env action. Prevents the agent from abusing too many pauses")
-    parser.add_argument("--successive-pause-limit", type=int, default=20,
-        help="Limit to the amount of successive pauses the agent can make before a random action is selected instead. \
-            This prevents the agent from halting")
-    parser.add_argument("--ignore-sugarl", action="store_true",
-        help="Whether to ignore the sugarl term in the loss calculation")
-    parser.add_argument("--no-action-pause-cost", type=float, default=0.1,
-        help="Penalty for performing a useless pause without a sensory action. This is meant to speed up training")
-    parser.add_argument("--grokfast", action="store_true")
-    parser.add_argument("--use-pause-env", action="store_true",
-        help="Whether to use the normal sugarl setting without a pausable env.")
-    parser.add_argument("--disable-tensorboard", action="store_true")
-    parser.add_argument("--no-model-output", action="store_true")
-    parser.add_argument("--no-video-output", action="store_true")
-    parser.add_argument("--no-pvm-visualization", action="store_true")
-    
-    args = parser.parse_args()
-    return args
-
-def main(args: argparse.Namespace):
+def main(args: ArgParser):
     sensory_action_mode = SensoryActionMode.from_string(args.sensory_action_mode)
     seed_everything(args.seed)
 
-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() and not args.disable_cuda else "cpu")
     assert device.type == "cuda"
 
     def make_env(seed, **kwargs):
@@ -245,7 +151,7 @@ def main(args: argparse.Namespace):
         eval_env_generator=make_eval_env,
         fov_size=args.fov_size,
         seed=args.seed,
-        cuda=args.cuda,
+        cuda=(not args.disable_cuda),
         learning_rate=args.learning_rate,
         replay_buffer_size=args.buffer_size,
         pvm_stack=args.pvm_stack, 
@@ -266,7 +172,7 @@ def main(args: argparse.Namespace):
         disable_tensorboard=args.disable_tensorboard,
         no_model_output=args.no_model_output,
         no_pvm_visualization=args.no_pvm_visualization,
-        no_video_output=args.no_video_output
+        capture_video=args.capture_video
 
     )
     eval_returns = agent.learn(
@@ -278,5 +184,5 @@ def main(args: argparse.Namespace):
     return eval_returns
 
 if __name__ == "__main__":
-    args = parse_args()
+    args = ArgParser().parse_args()
     main(args)
