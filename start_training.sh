@@ -9,7 +9,7 @@ for i in ${!envlist[@]}
 do
     gpuid=$(( $i % $numgpus ))
     (
-        for seed in 0 1 2
+        for seed in 0 1
         do
             echo "${expname} GPU: ${gpuid} Env: ${envlist[$i]} Seed: ${seed} ${1}"
             basename=$(basename $1)
