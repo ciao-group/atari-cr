@@ -14,15 +14,15 @@ do
             echo "${expname} GPU: ${gpuid} Env: ${envlist[$i]} Seed: ${seed} ${1}"
             basename=$(basename $1)
             CUDA_VISIBLE_DEVICES=$gpuid python $1 \
+                --clip-reward \
+                --capture-video \
+                \
                 --env ${envlist[$i]} \
                 --seed $seed \
                 --exp-name ${expname} \
-                --fov-size 20 \
-                --clip-reward \
-                --capture-video \
                 --total-timesteps 1000000 \
-                --buffer-size 100000 \
                 --learning-start 80000
+                \
         done
     ) &
 done

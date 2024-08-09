@@ -9,6 +9,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 import gymnasium as gym
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 from active_gym.atari_env import AtariEnv, AtariEnvArgs, AtariFixedFovealEnv
 
@@ -38,7 +39,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
         help="the name of this experiment")
-    parser.add_argument("--seed", type=int, default=1,
+    parser.add_argument("--seed", type=int, default=0,
         help="seed of the experiment")
     parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, cuda will be enabled by default")
@@ -46,7 +47,7 @@ def parse_args():
         help="whether to capture videos of the agent performances (check out `videos` folder)")
 
     # env setting
-    parser.add_argument("--env", type=str, default="breakout",
+    parser.add_argument("--env", type=str, default="boxing",
         help="the id of the environment")
     parser.add_argument("--env-num", type=int, default=1, 
         help="# envs in parallel")
@@ -54,10 +55,10 @@ def parse_args():
         help="frame stack #")
     parser.add_argument("--action-repeat", type=int, default=4,
         help="action repeat #")
-    parser.add_argument("--clip-reward", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
+    parser.add_argument("--clip-reward", action="store_true")
 
     # fov setting
-    parser.add_argument("--fov-size", type=int, default=50)
+    parser.add_argument("--fov-size", type=int, default=20)
     parser.add_argument("--fov-init-loc", type=int, default=0)
     parser.add_argument("--sensory-action-mode", type=str, default="absolute",
         help="How the sensory action is interpreted by the env. Either 'absolute' or 'relative'")
@@ -75,7 +76,7 @@ def parse_args():
         help="total timesteps of the experiments")
     parser.add_argument("--learning-rate", type=float, default=1e-4,
         help="the learning rate of the self.optimizer")
-    parser.add_argument("--buffer-size", type=int, default=500000,
+    parser.add_argument("--buffer-size", type=int, default=100000,
         help="the replay memory buffer size")
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
@@ -167,6 +168,18 @@ if __name__ == "__main__":
     sugarl_r_scale = get_sugarl_reward_scale_atari(args.env)
 
     env = make_train_env()
+
+    # Create a tensorboard writer and log the env state
+    run_identifier = os.path.join(args.exp_name, args.env)
+    run_dir = os.path.join("output/runs", run_identifier)
+    tb_dir = os.path.join(run_dir, "tensorboard")
+    writer = SummaryWriter(os.path.join(tb_dir, args.exp_name))
+    hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in env.envs[0].__dict__.items()])
+    writer.add_text(
+        "Env Hyperparameters", 
+        f"|param|value|\n|-|-|\n{hyper_params_table}",
+    )
+
     agent = CRDQN(
         env=env,
         sugarl_r_scale=get_sugarl_reward_scale_atari(args.env),

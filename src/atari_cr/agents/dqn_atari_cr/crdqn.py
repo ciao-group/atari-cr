@@ -1,4 +1,4 @@
-from typing import Union, Callable, Tuple, List, Dict
+from typing import Optional, Union, Callable, Tuple, List, Dict
 from itertools import product
 import os
 import time
@@ -51,7 +51,8 @@ class CRDQN:
             n_evals = 10,
             ignore_sugarl = True,
             grokfast = False, 
-            sensory_action_mode = SensoryActionMode.ABSOLUTE
+            sensory_action_mode = SensoryActionMode.ABSOLUTE,
+            writer: Optional[SummaryWriter] = None
         ):
         """
         Parameters
@@ -97,6 +98,8 @@ class CRDQN:
             Whether to ignore the sugarl term in the loss calculation
         grokfast : bool
             Whether to use grokfast (https://doi.org/10.48550/arXiv.2405.20233)
+        writer : Optional[SummaryWriter]
+            Tensorboard writer. Creates a new one if None is passed
         """
         self.env = env
         self.sugarl_r_scale = sugarl_r_scale
@@ -117,6 +120,7 @@ class CRDQN:
         self.ignore_sugarl = ignore_sugarl
         self.sensory_action_mode = sensory_action_mode
         self.grokfast = grokfast
+        self.writer = writer
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.current_timestep = 0
@@ -189,11 +193,12 @@ class CRDQN:
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.tb_dir, exist_ok=True)
         self.log_file = os.path.join(self.log_dir, f"seed{self.seed}.txt")
-        self.writer = SummaryWriter(os.path.join(self.tb_dir, experiment_name))
+        if not self.writer:
+            self.writer = SummaryWriter(os.path.join(self.tb_dir, experiment_name))
         hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in self.__dict__.items()])
         self.writer.add_text(
-            "hyperparameters", 
-            f"{hyper_params_table}",
+            "Agent Hyperparameters", 
+            f"|param|value|\n|-|-|\n{hyper_params_table}",
         )
 
         # Log pause cost
