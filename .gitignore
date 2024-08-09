@@ -12,3 +12,9 @@ build
 *.png
 output
 Atari-HEAD
+
+# Old dir structure
+runs
+logs
+recordings
+trained_models
