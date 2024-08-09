@@ -1,8 +1,8 @@
 #!/bin/bash
 numgpus=${2:-$(nvidia-smi --list-gpus | wc -l)}
 
-envlist=(boxing freeway)
-expname="pauseable127_1m"
+envlist=(boxing)
+expname="pauseable128_1m"
 logdir=output/${expname}/logs
 
 for i in ${!envlist[@]}
