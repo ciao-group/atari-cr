@@ -189,7 +189,7 @@ class CRDQN:
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.tb_dir, exist_ok=True)
         self.log_file = os.path.join(self.log_dir, f"seed{self.seed}.txt")
-        self.writer = SummaryWriter(self.tb_dir)
+        self.writer = SummaryWriter(os.path.join(self.tb_dir, experiment_name))
         hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in self.__dict__.items()])
         self.writer.add_text(
             "hyperparameters", 
