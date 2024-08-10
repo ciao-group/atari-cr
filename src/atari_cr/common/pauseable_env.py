@@ -63,7 +63,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         else:
             raise ValueError("sensory_action_mode needs to be either 'absolute' or 'relative'")
 
-        self.resize: Resize = Resize(self.env.obs_size) if args.resize_to_full else None
+        self.resize: Resize = Resize(self.get_wrapper_attr("obs_size")) if args.resize_to_full else None
         self.mask_out: bool = args.mask_out
 
         self.action_space = Dict({

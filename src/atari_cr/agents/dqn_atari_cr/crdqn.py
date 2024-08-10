@@ -125,10 +125,10 @@ class CRDQN:
         self.sensory_action_mode = sensory_action_mode
         self.grokfast = grokfast
         self.writer = writer
-        self.disable_tensorboard = disable_tensorboard,
-        self.no_model_output = no_model_output,
-        self.no_pvm_visualization = no_pvm_visualization,
-        self.capture_video = capture_video,
+        self.disable_tensorboard = disable_tensorboard
+        self.no_model_output = no_model_output
+        self.no_pvm_visualization = no_pvm_visualization
+        self.capture_video = capture_video
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.current_timestep = 0
