@@ -28,8 +28,9 @@
                 "--exp_name", "dqn_cr_debug",
                 "--total_timesteps", "10000",
                 "--learning_start", "1000",
-                "--disable_tensorboard"
+                "--disable_tensorboard",
                 // Additional config
+                "--pause_cost", "0.05",
             ],
             "justMyCode": false
         },

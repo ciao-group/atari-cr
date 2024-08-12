@@ -322,7 +322,6 @@ class CRDQN:
                     = self.q_network.chose_eval_action(pvm_obs, self.device)
                 
                 # Translate the action to an absolute fovea position
-                # TODO: Check if relative sensory action mode produces viable fovea steps
                 sensory_actions = np.array([self.sensory_action_set[i] for i in sensory_action_indices])
 
                 # Perform the action in the environment
@@ -531,7 +530,6 @@ class CRDQN:
         """
         # TODO: Investigate how pausing interacts with sugarl reward
         # TODO: Understand what the change in q values over time means
-        # TODO: run 122_5: Investigate why the fovea is so far off when the sfn should actually be good       
         # Target network prediction
         with torch.no_grad():
             # Assign a value to every possible action in the next state for one batch 
