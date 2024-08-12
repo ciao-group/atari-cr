@@ -302,7 +302,7 @@ class CRDQN:
         for eval_ep in range(self.n_evals):
             # Create env
             eval_env = self.eval_env_generator(eval_ep)
-            single_eval_env = eval_env.envs[0] if isinstance(eval_env, VectorEnv) else eval_env
+            unwrapped_eval_env = eval_env.envs[0] if isinstance(eval_env, VectorEnv) else eval_env
             n_eval_envs = eval_env.num_envs if isinstance(eval_env, VectorEnv) else 1
 
             # Init env
@@ -343,8 +343,8 @@ class CRDQN:
 
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
-            if (self.capture_video) and single_eval_env.record and eval_ep % 4 == 0:
-                self._save_output(self.video_dir, "pt", single_eval_env.save_record_to_file, eval_ep)
+            if (self.capture_video) and unwrapped_eval_env.record and eval_ep % 4 == 0:
+                self._save_output(self.video_dir, "pt", unwrapped_eval_env.save_record_to_file, eval_ep)
                 
             # Safe the model file in the first eval run
             if (not self.no_model_output) and eval_ep == 0:

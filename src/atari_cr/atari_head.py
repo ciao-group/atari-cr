@@ -12,8 +12,8 @@ import pandas as pd
 from PIL import Image
 import numpy as np
 from collections import deque
+import cv2
 from sklearn.metrics import roc_auc_score
-from typing import List, Tuple
 
 from atari_cr.common.grokking import gradfilter_ema
 
@@ -110,7 +110,7 @@ class GazeDataset(Dataset):
                 # Create saliency maps
                 print("Creating saliency maps...")
                 df["gaze_positions"] = df["gaze_positions"].apply(self._parse_gaze_string)
-                df["saliency_map"] = df["gaze_positions"].apply(self._create_saliency_map)
+                df["saliency_map"] = df["gaze_positions"].apply(create_saliency_map)
             
                 # Function to create the image_ids list
                 image_ids = deque(maxlen=4)
@@ -143,31 +143,7 @@ class GazeDataset(Dataset):
                 for s in gaze_string.replace("(", "").replace("'", "").split(")")[:-1]
         ])
 
-    def _create_saliency_map(self, gaze_positions: torch.Tensor):
-        if gaze_positions.shape[0] == 0:
-            return torch.zeros((84, 84), dtype=torch.uint8)
 
-        # Generate x and y indices
-        x = torch.arange(0, 84, 1)
-        y = torch.arange(0, 84, 1)
-        x, y = torch.meshgrid(x, y, indexing="xy")
-
-        # Adjust sigma to correspond to one visual degree
-        # Screen Size: 44,6 x 28,5 visual degrees; Visual Degrees per Pixel: 0,5310 x 0,3393
-        sigma = 2
-        # Scale the coords from the original resolution down to 84 x 84
-        gaze_positions *= torch.Tensor([84/160, 84/210])
-
-        # Expand the original tensors for broadcasting
-        n_positions = gaze_positions.shape[0]
-        gaze_positions = gaze_positions.view(n_positions, 2, 1, 1).expand(-1, -1, 84, 84)
-        x = x.view(1, 84, 84).expand(n_positions, 84, 84)
-        y = y.view(1, 84, 84).expand(n_positions, 84, 84)
-        mesh = torch.stack([x, y], dim=1)
-        saliency_map, _ = torch.max(torch.exp(-torch.sum((mesh - gaze_positions)**2, dim=1) / (2 * sigma**2)), dim=0)
-
-        # self._show_tensor((saliency_map * 255).to(torch.uint8))
-        return  (saliency_map * 255).to(torch.uint8)
 
     @staticmethod
     def _show_tensor(t: torch.Tensor, save_path = "debug.png"):
@@ -317,30 +293,6 @@ class GazePredictor():
         predictor.epoch = int(save_path.split("/")[-1][:-4])
 
         return predictor
-
-def compute_auc(saliency_map: torch.Tensor, fixation_coords: torch.Tensor):
-    """
-    Computes the AUC score given a batch of saliency maps and a batch of fixation coordinates.
-
-    :param saliency_map Tensor[BxWxH]: The saliency heatmaps with values between 0 and 1.
-    :param fixation_coords Tensor[BxNx2]: Lists of (x, y) coordinates of fixations.
-
-    :returns float: The computed AUC score.
-    """
-    # TODO
-
-    # Flatten the saliency map
-    saliency_flat = saliency_map.flatten()
-
-    # Create labels: 1 for fixated locations, 0 for all other locations
-    labels = np.zeros(saliency_flat.shape)
-    fixation_indices = [y * saliency_map.shape[1] + x for x, y in fixation_coords]
-    labels[fixation_indices] = 1
-
-    # Compute the AUC score
-    auc_score = roc_auc_score(labels, saliency_flat)
-
-    return auc_score
     
 def transform_to_proper_csv(game_dir: str):
     """
@@ -385,8 +337,101 @@ def transform_to_proper_csv(game_dir: str):
         df.to_csv(".".join(file_path.split(".")[:-1]) + ".csv", index=False)
         os.remove(file_path)
 
+def create_saliency_map(gaze_positions: torch.Tensor):
+    """ 
+    Takes gaze positions on a 84 by 84 pixels screen to turn them into a saliency map 
+    
+    :param Tensor[Nx84x84]: A Tensor containing all gaze positions associated with one frame
+    """
+    if gaze_positions.shape[0] == 0:
+        return torch.zeros((84, 84), dtype=torch.uint8)
+
+    # Generate x and y indices
+    x = torch.arange(0, 84, 1)
+    y = torch.arange(0, 84, 1)
+    x, y = torch.meshgrid(x, y, indexing="xy")
+
+    # Adjust sigma to correspond to one visual degree
+    # Screen Size: 44,6 x 28,5 visual degrees; Visual Degrees per Pixel: 0,5310 x 0,3393
+    sigma = 2
+    # Scale the coords from the original resolution down to 84 x 84
+    gaze_positions *= torch.Tensor([84/160, 84/210])
+
+    # Expand the original tensors for broadcasting
+    n_positions = gaze_positions.shape[0]
+    gaze_positions = gaze_positions.view(n_positions, 2, 1, 1).expand(-1, -1, 84, 84)
+    x = x.view(1, 84, 84).expand(n_positions, 84, 84)
+    y = y.view(1, 84, 84).expand(n_positions, 84, 84)
+    mesh = torch.stack([x, y], dim=1)
+    saliency_map, _ = torch.max(torch.exp(-torch.sum((mesh - gaze_positions)**2, dim=1) / (2 * sigma**2)), dim=0)
+
+    # self._show_tensor((saliency_map * 255).to(torch.uint8))
+    return  (saliency_map * 255).to(torch.uint8)
+
+def open_mp4_as_frame_list(path: str):
+    video = cv2.VideoCapture(path)
+
+    frames = []
+    while True:
+        # Read the next frame
+        success, frame = video.read()
+        
+        # If the frame was not successfully read, break the loop
+        if not success:
+            break
+        else:
+            frames.append(frame)
+
+    # Release the video capture object
+    video.release()
+    
+    return frames
+
+def evaluate_agent(recordings_path: str):
+    """
+    :param str recordings_path: Path to the agent's eval data, containing images and associated gaze positions 
+    :returns Tuple[float, float]: KL-Divergence and AUC of the agent's saliency maps compared to Atari-HEAD 
+    """
+    transform = transforms.Compose([
+        transforms.Resize((84, 84)),
+        transforms.ToTensor()
+    ])
+
+    kl_divs, aucs = [], []
+    for file in filter(lambda x: x.endswith(".pt"), os.listdir(recordings_path)):
+        data = torch.load(os.path.join(recordings_path, file))
+
+        # Get saliency maps for all 4-stacks of frames
+        frames = open_mp4_as_frame_list(data["rgb"])
+        greyscale_frames = [Image.fromarray(frame).convert("L") for frame in frames]
+        scaled_tensors = [transform(frame) for frame in greyscale_frames]
+        ground_truth_saliency_maps = []
+        for i in range(len(scaled_tensors) - 3):
+            frame_stack = torch.vstack(scaled_tensors[i:i + 4])
+            # saliency_map = <model>(frame_stack)
+            # ground_truth_saliency_maps.append(saliency_map)
+        # ground_truth_saliency_maps = torch.stack(ground_truth_saliency_maps)
+
+        # Get saliency maps made from agents gazes
+        gazes = data["fov_loc"]
+        agent_saliency_maps = []
+        for gaze in gazes[3:]:
+            agent_saliency_maps.append(create_saliency_map(torch.Tensor(gaze).unsqueeze(0)))
+        agent_saliency_maps = torch.stack(agent_saliency_maps)
+
+        # Compare them using KL Divergence and AUC
+        assert len(ground_truth_saliency_maps) == len(agent_saliency_maps)
+        kl_divergence = nn.KLDivLoss()(agent_saliency_maps, ground_truth_saliency_maps)
+        auc = roc_auc_score(agent_saliency_maps.flatten(), ground_truth_saliency_maps.flatten()) 
+
+        kl_divs.append(kl_divergence)
+        aucs.append(auc)
+
+    return np.mean(kl_divs), np.mean(aucs)
 
 if __name__ == "__main__":
+    evaluate_agent("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")
+
     # Create dataset and data loader
     transform = transforms.Resize((84, 84))
     dataset = GazeDataset(root_dir='Atari-HEAD/freeway', transform=transform)

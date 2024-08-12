@@ -17,7 +17,8 @@ dependencies = [
     "opencv-python>=4.10",
     "gymnasium>=0.29",
     "pandas",
-    "typed-argument-parser"
+    "typed-argument-parser",
+    "scikit-learn"
 ]
 classifiers = [
     "Private :: Do Not Upload"
