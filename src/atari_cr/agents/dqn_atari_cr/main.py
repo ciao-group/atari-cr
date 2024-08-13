@@ -30,7 +30,6 @@ from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
 # TODO: (wenn nichts mehr klappt) Fovea zuerst über ganzen Bildschirm machen und dann immer kleiner werden lassen; gucken ab wann es schwierig wird
 # TODO: (wenn nichts mehr klappt) Die Anzahl der Pausen pro Bild zb auf 4 festlegen
 
-
 class ArgParser(Tap):
     exp_name: str = os.path.basename(__file__).rstrip(".py") # The name of this experiment
     seed: int = 0 # The seed of the experiment

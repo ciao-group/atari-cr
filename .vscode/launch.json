@@ -12,6 +12,13 @@
             "console": "integratedTerminal",
         },
         {
+            "name": "Ray Debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/atari_cr/common/hyperparams.py",
+            "console": "integratedTerminal",
+        },
+        {
             "name": "DQN CR Sugarl Debug",
             "type": "debugpy",
             "request": "launch",
