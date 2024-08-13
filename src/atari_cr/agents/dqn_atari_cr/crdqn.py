@@ -19,7 +19,7 @@ from atari_cr.common.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.common.models import SensoryActionMode
 from atari_cr.common.buffer import DoubleActionReplayBuffer
 from atari_cr.common.pvm_buffer import PVMBuffer
-from atari_cr.common.utils import linear_schedule
+from atari_cr.common.utils import linear_schedule, counter
 from atari_cr.agents.dqn_atari_cr.networks import QNetwork, SelfPredictionNetwork
 from atari_cr.common.grokking import gradfilter_ema
 
@@ -57,53 +57,35 @@ class CRDQN:
             no_model_output = False,
             no_pvm_visualization = False,
             capture_video = True,
+            agent_id = 0,
         ):
         """
-        Parameters
-        ----------
-        env : `gymnasium.Env`
-        eval_env_generator : Callable
-            Function, outputting an eval env given a seed
-        sugarl_r_scale : float
-        seed : int
-        fov_size : int
-        sensory_action_space_granularity : tuple of int
-            The number of smallest sensory steps it takes 
-            from left to right and from top to bottom
-        learning_rate : float
-            The learning rate used for the Q Network and Self Predicition Network
-        replay_buffer_size : int
-        frame_stack : int
-            # The number of frames being stacked as on observation by the atari environment
-        pvm_stack : int
-            The number of recent observations to be used for action selection
-        epsilon_interval : tuple of int
-            Interval in which the propability for a random action 
+        :param env `gymnasium.Env`:
+        :param Callable eval_env_generator: Function, outputting an eval env given a seed
+        :param float sugarl_r_scale:
+        :param int seed:
+        :param int fov_size:
+        :param Tuple[int] sensory_action_space_granularity: The number of smallest sensory steps 
+            it takes from left to right and from top to bottom
+        :param float learning_rate: The learning rate used for the Q Network and Self Predicition Network
+        "param int replay_buffer_size:
+        :param int frame_stack: The number of frames being stacked as on observation by the atari environment
+        :param int pvm_stack: The number of recent observations to be used for action selection
+        :param Tuple[int] epsilon_interval: Interval in which the propability for a random action 
             epsilon moves from one end to the other during training
-        exploration_fraction : float
-            The fraction of the total learning time steps it takes for epsilon
-            to reach its end value
-        batch_size
-        learning_start : int
-            The timestep at which to start training the Q Network
-        train_frequency : int
-            Number of timesteps between training sessions
-        target_network_frequency : int
-            Number of timesteps between target network updates
-        eval_frequency : int
-            Number of timesteps between evaluations; -1 for eval at the end
-        gamma : float
-            The discount factor gamma
-        cuda : bool
-            Whether to use cuda or not
-        n_evals : int
-            Number of eval episodes to be played
-        ignore_sugarl : bool
-            Whether to ignore the sugarl term in the loss calculation
-        grokfast : bool
-            Whether to use grokfast (https://doi.org/10.48550/arXiv.2405.20233)
-        writer : Optional[SummaryWriter]
-            Tensorboard writer. Creates a new one if None is passed
+        :param float exploration_fraction: The fraction of the total learning time steps 
+            it takes for epsilon to reach its end value
+        :param int batch_size:
+        :param int learning_start: The timestep at which to start training the Q Network
+        :param int train_frequency: The number of timesteps between training sessions
+        :param int target_network_frequency: The number of timesteps between target network updates
+        :param int eval_frequency: The number of timesteps between evaluations; -1 for eval at the end
+        :param float gamma: The discount factor gamma
+        :param bool cuda: Whether to use cuda or not
+        :param int n_evals: Number of eval episodes to be played
+        :param bool ignore_sugarl: Whether to ignore the sugarl term in the loss calculation
+        :param bool grokfast: Whether to use grokfast (https://doi.org/10.48550/arXiv.2405.20233)
+        :param Optional[SummaryWriter] writer: Tensorboard writer. Creates a new one if None is passed
         """
         self.env = env
         self.sugarl_r_scale = sugarl_r_scale
@@ -460,6 +442,7 @@ class CRDQN:
         # Unpack episode_infos
         episodic_returns, episode_lengths = [], []
         pause_counts, prevented_pauses = [], []
+        no_action_pauses = []
         for episode_info in episode_infos:
             
             # Prepare the episode infos for the different supported envs
@@ -471,6 +454,8 @@ class CRDQN:
             episode_lengths.append(episode_info["ep_len"])
             pause_counts.append(episode_info["n_pauses"])
             prevented_pauses.append(episode_info["prevented_pauses"])
+            no_action_pauses.append(episode_info["no_action_pauses"])
+
         pause_cost = episode_info["pause_cost"]
         raw_episodic_returns = [episodic_return + pause_cost * pauses for episodic_return, pauses in zip(episodic_returns, pause_counts)]
         
@@ -488,11 +473,32 @@ class CRDQN:
 
         # Tensorboard
         if not self.disable_tensorboard:
-            for env_num in range(len(episode_infos)):
-                self.writer.add_scalar("eval/episodic_return", np.mean(episodic_returns[env_num]), env_num)
-                self.writer.add_scalar("eval/raw_episodic_return", np.mean(raw_episodic_returns[env_num]), env_num)
-                self.writer.add_scalar("eval/episode_lengths", np.mean(episode_lengths[env_num]), env_num)
-                self.writer.add_scalar("eval/pause_counts", np.mean(pause_counts[env_num]), env_num)
+            self.writer.add_histogram("eval/episodic_return", np.array(episodic_returns))
+            self.writer.add_histogram("eval/raw_episodic_return", np.array(raw_episodic_returns))
+            self.writer.add_histogram("eval/episode_lengths", np.array(episode_lengths))
+            self.writer.add_histogram("eval/pause_counts", np.array(pause_counts))
+
+            hparams = {
+                "fov_size": self.fov_size,
+                "pvm_stack": self.pvm_stack,
+                "frame_stack": self.frame_stack,
+                "sensory_action_mode": self.sensory_action_mode,
+                "grokfast": self.grokfast,
+            }
+            if isinstance(self.envs[0], PauseableFixedFovealEnv):
+                hparams.update({
+                    "pause_cost": self.envs[0].pause_cost,
+                    "no_action_pause_cost": self.envs[0].no_action_pause_cost,
+                })
+            metrics = {
+                "hp/episodic_return": np.mean(episodic_returns), 
+                "hp/raw_episodic_returns": np.mean(raw_episodic_returns),
+                "hp/episode_lengths": np.mean(episode_lengths),
+                "hp/pause_counts": np.mean(pause_counts),
+                "hp/prevented_pauses": np.mean(prevented_pauses),
+                "hp/no_action_pauses": np.mean(no_action_pauses)
+            }
+            self.writer.add_hparams(hparams, metrics, run_name=f"pause_cost{self.envs[0].pause_cost}") 
 
     def _train_sfn(self, data):
         # Prediction

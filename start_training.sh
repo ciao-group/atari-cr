@@ -25,6 +25,7 @@ do
                 --use_pause_env \
                 --pause_cost 0.05 \
                 --fov_size 20 \
+                --no_action_pause_cost 0.2 \
                 &
         done
     ) &

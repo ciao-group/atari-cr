@@ -24,13 +24,14 @@
             "args": [
                 "--clip_reward",
                 "--capture_video",
+                "--env", "ms_pacman",
                 // Debuug config
                 "--exp_name", "dqn_cr_debug",
                 "--total_timesteps", "10000",
                 "--learning_start", "1000",
-                "--disable_tensorboard",
                 // Additional config
-                "--pause_cost", "0.05",
+                "--pause_cost", "0.05", "0.03",
+                "--use_pause_env"
             ],
             "justMyCode": false
         },
