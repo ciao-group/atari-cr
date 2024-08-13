@@ -19,7 +19,7 @@ from atari_cr.common.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.common.models import SensoryActionMode
 from atari_cr.common.buffer import DoubleActionReplayBuffer
 from atari_cr.common.pvm_buffer import PVMBuffer
-from atari_cr.common.utils import linear_schedule, counter
+from atari_cr.common.utils import linear_schedule
 from atari_cr.agents.dqn_atari_cr.networks import QNetwork, SelfPredictionNetwork
 from atari_cr.common.grokking import gradfilter_ema
 
@@ -86,6 +86,7 @@ class CRDQN:
         :param bool ignore_sugarl: Whether to ignore the sugarl term in the loss calculation
         :param bool grokfast: Whether to use grokfast (https://doi.org/10.48550/arXiv.2405.20233)
         :param Optional[SummaryWriter] writer: Tensorboard writer. Creates a new one if None is passed
+        :param int agent_id: Identifier for an agent when used together with other agents
         """
         self.env = env
         self.sugarl_r_scale = sugarl_r_scale
@@ -111,6 +112,7 @@ class CRDQN:
         self.no_model_output = no_model_output
         self.no_pvm_visualization = no_pvm_visualization
         self.capture_video = capture_video
+        self.agent_id = agent_id
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.current_timestep = 0
@@ -473,10 +475,11 @@ class CRDQN:
 
         # Tensorboard
         if not self.disable_tensorboard:
-            self.writer.add_histogram("eval/episodic_return", np.array(episodic_returns))
-            self.writer.add_histogram("eval/raw_episodic_return", np.array(raw_episodic_returns))
-            self.writer.add_histogram("eval/episode_lengths", np.array(episode_lengths))
-            self.writer.add_histogram("eval/pause_counts", np.array(pause_counts))
+            self.writer.add_scalar("eval/pause_cost", self.envs[0].pause_cost, self.agent_id)
+            self.writer.add_histogram("eval/episodic_return", np.array(episodic_returns), self.agent_id)
+            self.writer.add_histogram("eval/raw_episodic_return", np.array(raw_episodic_returns), self.agent_id)
+            self.writer.add_histogram("eval/episode_lengths", np.array(episode_lengths), self.agent_id)
+            self.writer.add_histogram("eval/pause_counts", np.array(pause_counts), self.agent_id)
 
             hparams = {
                 "fov_size": self.fov_size,

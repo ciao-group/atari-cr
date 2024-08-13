@@ -174,7 +174,6 @@ def main(args: ArgParser):
             no_pvm_visualization=args.no_pvm_visualization,
             capture_video=args.capture_video,
             agent_id=i
-
         )
         eval_returns = agent.learn(
             n=args.total_timesteps,

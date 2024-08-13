@@ -182,6 +182,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         return fov_state, info
 
     def save_record_to_file(self, file_path: str, draw_focus = True, draw_pauses = True):
+        # TODO: no new image for sensory steps
+        # TODO: no longer draw fovea onto frames 
         if self.record:
             video_path = file_path.replace(".pt", ".mp4")
             self.prev_record_buffer: RecordBuffer
