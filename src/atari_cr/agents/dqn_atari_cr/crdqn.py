@@ -501,7 +501,7 @@ class CRDQN:
                 "hp/prevented_pauses": np.mean(prevented_pauses),
                 "hp/no_action_pauses": np.mean(no_action_pauses)
             }
-            self.writer.add_hparams(hparams, metrics, run_name=f"pause_cost{self.envs[0].pause_cost}") 
+            self.writer.add_hparams(hparams, metrics) 
 
     def _train_sfn(self, data):
         # Prediction
