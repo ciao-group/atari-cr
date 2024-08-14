@@ -17,7 +17,7 @@ from gymnasium.spaces import Discrete
 from active_gym import FixedFovealEnv
 from atari_cr.common.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.common.models import SensoryActionMode
-from atari_cr.common.buffer import DoubleActionReplayBuffer
+from atari_cr.common.buffers import DoubleActionReplayBuffer
 from atari_cr.common.pvm_buffer import PVMBuffer
 from atari_cr.common.utils import linear_schedule
 from atari_cr.agents.dqn_atari_cr.networks import QNetwork, SelfPredictionNetwork

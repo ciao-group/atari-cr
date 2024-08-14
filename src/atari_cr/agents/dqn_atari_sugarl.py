@@ -21,7 +21,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision.transforms import Resize
 
-from atari_cr.common.buffer import DoubleActionReplayBuffer
+from atari_cr.common.buffers import DoubleActionReplayBuffer
 from atari_cr.common.pvm_buffer import PVMBuffer
 from atari_cr.common.utils import get_timestr, seed_everything, get_sugarl_reward_scale_atari
 from torch.utils.tensorboard import SummaryWriter
