@@ -20,7 +20,8 @@ dependencies = [
     "pandas",
     "typed-argument-parser",
     "scikit-learn",
-    "ray[tune]"
+    "ray[tune]",
+    "stable-baselines3"
 ]
 classifiers = [
     "Private :: Do Not Upload"
