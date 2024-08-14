@@ -420,9 +420,11 @@ def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
 
-def grid_image(array, line_color=[255, 0, 0], line_width=1):
+def grid_image(array: np.ndarray, line_color=[255, 0, 0], line_width=1):
     """
     Display a grid of rgb images seperated by colored lines
+
+    :param Array[n_rows, n_cols, width, height, 3] array: Structured array of images
     """
     assert len(array.shape) == 5, "Only works for array of shape (n_rows, n_cols, x, y, n_channels)"
     n_rows, n_cols, y, x, n_channels = array.shape 

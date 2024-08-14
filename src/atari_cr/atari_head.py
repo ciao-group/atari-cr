@@ -15,7 +15,8 @@ from collections import deque
 import cv2
 from sklearn.metrics import roc_auc_score
 
-from atari_cr.common.utils import gradfilter_ema
+from atari_cr.common.utils import gradfilter_ema, grid_image
+from atari_cr.common.pauseable_env import RecordBuffer
 
 class GazePredictionNetwork(nn.Module):
     """
@@ -251,6 +252,7 @@ class GazePredictor():
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
                 outputs = self.prediction_network(inputs)
                 val_loss += self.loss_function(outputs, targets).item()
+                # TODO: Fix
                 aucs += compute_auc(targets, gaze_positions_batch)
 
         self.writer.add_scalar("Validation Loss", val_loss / len(self.val_loader), self.epoch)
@@ -429,9 +431,43 @@ def evaluate_agent(recordings_path: str):
 
     return np.mean(kl_divs), np.mean(aucs)
 
-if __name__ == "__main__":
-    evaluate_agent("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")
+def debug_recording(recordings_path: str):
+    """
+    :param str recordings_path: Path to the agent's eval data, containing images and associated gaze positions 
+    """
+    # Get the recording data of the first recording as a dict
+    file = list(filter(lambda x: x.endswith(".pt"), os.listdir(recordings_path)))[0]
+    data: RecordBuffer = torch.load(os.path.join(recordings_path, file))
 
+    # Extract a list of frames and a list of gazes
+    frames = open_mp4_as_frame_list(data["rgb"])
+    actions = data["action"]
+    assert len(frames) == len(actions)
+
+    for frame, action in zip(frames, actions):
+
+        boxing_pause_action = 18
+        if action == boxing_pause_action:
+            # Write "pause" on the frame
+            text = "pause"
+            position = (10, 20)
+            font = cv2.FONT_HERSHEY_COMPLEX
+            font_scale = 0.3
+            color = (255, 0, 0)
+            thickness = 1
+            frame = cv2.putText(frame, text, position, font, font_scale, color, thickness)
+
+    # Display images in a grid
+    grid = np.array(frames[:16])
+    grid = grid.reshape([4, 4, *grid.shape[1:]])
+    grid = grid_image(grid)
+    Image.fromarray(grid).save("debug.png")
+
+
+if __name__ == "__main__":
+    # evaluate_agent("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")
+    debug_recording("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")
+    
     # Create dataset and data loader
     transform = transforms.Resize((84, 84))
     dataset = GazeDataset(root_dir='Atari-HEAD/freeway', transform=transform)

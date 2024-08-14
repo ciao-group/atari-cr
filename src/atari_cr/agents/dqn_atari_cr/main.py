@@ -72,9 +72,9 @@ class ArgParser(Tap):
 
     # Pause args
     use_pause_env: bool = False # Whether to use an env that lets the agent pause for only making a sensory action
-    pause_cost: List[float] = [0.1] # The cost for the env to only take a sensory step. May be a list for testing multiple pause costs
+    pause_cost: float = 0.1 # The cost for the env to only take a sensory step
     successive_pause_limit: int = 20 # The maximum number of successive pauses before pauses are forbidden. This prevents the agent from halting
-    no_action_pause_cost: float = 0.1 # The additional cost of pausing without performing a sensory action. May be a list for testing multiple pause costs
+    no_action_pause_cost: float = 0.1 # The additional cost of pausing without performing a sensory action
 
     # Misc
     ignore_sugarl: bool = False # Whether to ignore the sugarl term for Q network learning
@@ -87,10 +87,7 @@ def main(args: ArgParser):
     sensory_action_mode = SensoryActionMode.from_string(args.sensory_action_mode)
     seed_everything(args.seed)
 
-    device = torch.device("cuda" if torch.cuda.is_available() and not args.disable_cuda else "cpu")
-    assert device.type == "cuda"
-
-    def make_env(seed: int, pause_cost: float, **kwargs):
+    def make_env(seed: int, **kwargs):
         def thunk():
             env_args = AtariEnvArgs(
                 game=args.env, 
@@ -110,7 +107,7 @@ def main(args: ArgParser):
             if args.use_pause_env:
                 env = AtariEnv(env_args)    
                 env = PauseableFixedFovealEnv(env, env_args, 
-                    pause_cost, args.successive_pause_limit, args.no_action_pause_cost)
+                    args.pause_cost, args.successive_pause_limit, args.no_action_pause_cost)
             else:
                 env_args.sensory_action_mode = str(sensory_action_mode)
                 env = AtariFixedFovealEnv(env_args)
@@ -120,65 +117,63 @@ def main(args: ArgParser):
 
         return thunk
 
-    def make_train_env(pause_cost: float):
-        envs = [make_env(args.seed + i, pause_cost) for i in range(args.env_num)]
+    def make_train_env():
+        envs = [make_env(args.seed + i) for i in range(args.env_num)]
         return gym.vector.SyncVectorEnv(envs)
 
     def make_eval_env(seed):
-        envs = [make_env(args.seed + seed, pause_cost, training=False, record=args.capture_video)]
+        envs = [make_env(args.seed + seed, training=False, record=args.capture_video)]
         return gym.vector.SyncVectorEnv(envs)
 
     # Create one env for each pause cost
-    for i, pause_cost in enumerate(args.pause_cost):
-        env = make_train_env(pause_cost)
+    env = make_train_env()
 
-        # Create a tensorboard writer and log the env state
-        if not args.disable_tensorboard:
-            run_identifier = os.path.join(args.exp_name, args.env)
-            run_dir = os.path.join("output/runs", run_identifier)
-            tb_dir = os.path.join(run_dir, "tensorboard")
-            writer = SummaryWriter(os.path.join(tb_dir, f"seed{args.seed}"))
-            hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in get_env_attributes(env.envs[0])])
-            writer.add_text(
-                "Env Hyperparameters", 
-                f"|param|value|\n|-|-|\n{hyper_params_table}",
-            )
-
-        agent = CRDQN(
-            env=env,
-            sugarl_r_scale=get_sugarl_reward_scale_atari(args.env),
-            eval_env_generator=make_eval_env,
-            fov_size=args.fov_size,
-            seed=args.seed,
-            cuda=(not args.disable_cuda),
-            learning_rate=args.learning_rate,
-            replay_buffer_size=args.buffer_size,
-            pvm_stack=args.pvm_stack, 
-            frame_stack=args.frame_stack,
-            batch_size=args.batch_size,
-            train_frequency=args.train_frequency,
-            learning_start=args.learning_start,
-            gamma=args.gamma,
-            target_network_frequency=args.target_network_frequency,
-            eval_frequency=args.eval_frequency,
-            n_evals=args.eval_num,
-            sensory_action_space_granularity=(args.sensory_action_x_size, args.sensory_action_y_size),
-            epsilon_interval=(args.start_e, args.end_e),
-            exploration_fraction=args.exploration_fraction,
-            ignore_sugarl=args.ignore_sugarl,
-            grokfast=args.grokfast,
-            sensory_action_mode=args.sensory_action_mode,
-            disable_tensorboard=args.disable_tensorboard,
-            no_model_output=args.no_model_output,
-            no_pvm_visualization=args.no_pvm_visualization,
-            capture_video=args.capture_video,
-            agent_id=i
+    # Create a tensorboard writer and log the env state
+    if not args.disable_tensorboard:
+        run_identifier = os.path.join(args.exp_name, args.env)
+        run_dir = os.path.join("output/runs", run_identifier)
+        tb_dir = os.path.join(run_dir, "tensorboard")
+        writer = SummaryWriter(os.path.join(tb_dir, f"seed{args.seed}"))
+        hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in get_env_attributes(env.envs[0])])
+        writer.add_text(
+            "Env Hyperparameters", 
+            f"|param|value|\n|-|-|\n{hyper_params_table}",
         )
-        eval_returns = agent.learn(
-            n=args.total_timesteps,
-            env_name=args.env, 
-            experiment_name=args.exp_name
-        )  
+
+    agent = CRDQN(
+        env=env,
+        sugarl_r_scale=get_sugarl_reward_scale_atari(args.env),
+        eval_env_generator=make_eval_env,
+        fov_size=args.fov_size,
+        seed=args.seed,
+        cuda=(not args.disable_cuda),
+        learning_rate=args.learning_rate,
+        replay_buffer_size=args.buffer_size,
+        pvm_stack=args.pvm_stack, 
+        frame_stack=args.frame_stack,
+        batch_size=args.batch_size,
+        train_frequency=args.train_frequency,
+        learning_start=args.learning_start,
+        gamma=args.gamma,
+        target_network_frequency=args.target_network_frequency,
+        eval_frequency=args.eval_frequency,
+        n_evals=args.eval_num,
+        sensory_action_space_granularity=(args.sensory_action_x_size, args.sensory_action_y_size),
+        epsilon_interval=(args.start_e, args.end_e),
+        exploration_fraction=args.exploration_fraction,
+        ignore_sugarl=args.ignore_sugarl,
+        grokfast=args.grokfast,
+        sensory_action_mode=args.sensory_action_mode,
+        disable_tensorboard=args.disable_tensorboard,
+        no_model_output=args.no_model_output,
+        no_pvm_visualization=args.no_pvm_visualization,
+        capture_video=args.capture_video,
+    )
+    eval_returns = agent.learn(
+        n=args.total_timesteps,
+        env_name=args.env, 
+        experiment_name=args.exp_name
+    )  
 
     return eval_returns
 

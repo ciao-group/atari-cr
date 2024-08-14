@@ -135,7 +135,7 @@ class CRDQN:
         self.sensory_action_set = [np.array(a) for a in list(product(sensory_action_x_set, sensory_action_y_set))]
 
         self.device = torch.device("cuda" if torch.cuda.is_available() and cuda else "cpu")
-        assert self.device.type == "cuda"
+        assert self.device.type == "cuda", f"Set up cuda to run. Current device: {self.device.type}"
 
         # Q networks
         self.q_network = QNetwork(self.env, self.sensory_action_set).to(self.device)
@@ -538,7 +538,6 @@ class CRDQN:
         :param NDArray[Shape[self.batch_size], Float] observation_quality: A batch of probabilities of the SFN predicting the action that the agent selected  
         """
         # TODO: Investigate how pausing interacts with sugarl reward
-        # TODO: Understand what the change in q values over time means
         # Target network prediction
         with torch.no_grad():
             # Assign a value to every possible action in the next state for one batch 
