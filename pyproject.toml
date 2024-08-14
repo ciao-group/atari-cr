@@ -21,7 +21,8 @@ dependencies = [
     "typed-argument-parser",
     "scikit-learn",
     "ray[tune]",
-    "stable-baselines3"
+    "stable-baselines3",
+    "hyperopt"
 ]
 classifiers = [
     "Private :: Do Not Upload"

@@ -1,51 +1,79 @@
+import tempfile
 from typing import Dict
 from ray import train, tune
 from sys import argv
+from typing import TypedDict
+
+from ray.tune.search import ConcurrencyLimiter
+from ray.tune.search.hyperopt import HyperOptSearch
+from ray.tune.schedulers import ASHAScheduler
 
 from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
 
-def tuning(config: Dict):
+class ConfigParams(TypedDict):
+    pause_cost: float
+    no_action_pause_cost: float
+    pvm_stack: int
+    fov_size: int
+    sensory_action_space_granularity: int
+    grokfast: bool
+
+def tuning(config: ConfigParams):
     # Copy granularity value into the two corresponding values
     granularity = config.pop("sensory_action_space_granularity")
     config["sensory_action_x_space"] = granularity
     config["sensory_action_y_space"] = granularity
 
     # Add basic config
-    argv.extend([
-        "--clip_reward",
-        "--capture_video",
-        "--exp_name", "tuning",
-        "--total_timesteps", "1000000",
-        # 
-        "--no_pvm_visualization",
-        "--no_model_output",
-        "--disable_tensorboard",
-        # 
-    ])
-    # Add config config
-    for key, value in config.items():
-        argv.extend([f"--{key}", str(value)])
+    args_dict = {}
+    args_dict.update({
+        "clip_reward": True,
+        "capture_video": True,
+        "total_timesteps": 1000000,
+        "no_pvm_visualization": True,
+        "no_model_output": True
+    })
 
-    args = ArgParser().parse_args()
+    # Add hyperparameter config
+    args_dict.update(config)
+    args_dict["exp_name"] = f"tuning/{''.join([str(item) for pair in config.items() for item in pair])}"
+
+    args = ArgParser().from_dict(args_dict)
     eval_returns = main(args)
 
-    # TODO: Test against Atari-HEAD
-    kl_div = 0
+    # Send the current training result back to Tune
+    result = {"score": sum(eval_returns)}
 
-    return {"loss": kl_div}
+    # TODO: Test against Atari-HEAD
+    # kl_div = 0
+    # result =  {"loss": kl_div}    
+
+    return result
 
 if __name__ == "__main__":
     param_space = {
         "pause_cost": tune.quniform(0.01, 0.10, 0.01),
-        "no_action_pause_cost": tune.quniform(0.1, 3.0, 0.1),
+        "no_action_pause_cost": tune.quniform(0.1, 2.0, 0.1),
         "pvm_stack": tune.randint(1, 12),
         "fov_size": tune.qrandint(10, 100, 10),
         "sensory_action_space_granularity": tune.randint(1, 16),
         "grokfast": tune.choice([True, False])
     }
 
+    metric, mode = "score", "max"
     tuner = tune.Tuner(
         tuning,
-        param_space=param_space
+        param_space=param_space,
+        tune_config=tune.TuneConfig(
+            num_samples=30,
+            scheduler=ASHAScheduler(),
+            search_alg=ConcurrencyLimiter(
+                HyperOptSearch(metric=metric, mode=mode),
+                max_concurrent=2
+            ),
+            metric=metric,
+            mode=mode
+        ),
     )
-    tuner.fit()
+    results = tuner.fit()
+    print("Best result:\n", results.get_best_result().config)
