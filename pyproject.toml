@@ -20,7 +20,7 @@ dependencies = [
     "pandas",
     "typed-argument-parser",
     "scikit-learn",
-    "ray[tune]",
+    "ray[tune, default]",
     "stable-baselines3",
     "hyperopt"
 ]

@@ -173,7 +173,7 @@ def main(args: ArgParser):
         n=args.total_timesteps,
         env_name=args.env, 
         experiment_name=args.exp_name
-    )  
+    )
 
     return eval_returns
 

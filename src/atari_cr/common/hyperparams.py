@@ -4,6 +4,7 @@ from ray import train, tune
 from sys import argv
 from typing import TypedDict
 
+import ray
 from ray.tune.search import ConcurrencyLimiter
 from ray.tune.search.hyperopt import HyperOptSearch
 from ray.tune.schedulers import ASHAScheduler
@@ -51,6 +52,9 @@ def tuning(config: ConfigParams):
     return result
 
 if __name__ == "__main__":
+    concurrent_runs = 4
+    tuning = tune.with_resources(tuning, {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
+
     param_space = {
         "pause_cost": tune.quniform(0.01, 0.10, 0.01),
         "no_action_pause_cost": tune.quniform(0.1, 2.0, 0.1),
@@ -67,10 +71,7 @@ if __name__ == "__main__":
         tune_config=tune.TuneConfig(
             num_samples=30,
             scheduler=ASHAScheduler(),
-            search_alg=ConcurrencyLimiter(
-                HyperOptSearch(metric=metric, mode=mode),
-                max_concurrent=2
-            ),
+            search_alg=HyperOptSearch(metric=metric, mode=mode),
             metric=metric,
             mode=mode
         ),
