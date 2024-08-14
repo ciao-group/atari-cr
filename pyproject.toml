@@ -16,9 +16,11 @@ dependencies = [
     "tb-nightly",
     "opencv-python>=4.10",
     "gymnasium>=0.29",
+    # Additionally used pacakages
     "pandas",
     "typed-argument-parser",
-    "scikit-learn"
+    "scikit-learn",
+    "ray[tune]"
 ]
 classifiers = [
     "Private :: Do Not Upload"
