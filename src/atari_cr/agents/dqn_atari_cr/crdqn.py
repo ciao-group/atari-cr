@@ -21,7 +21,7 @@ from atari_cr.common.buffers import DoubleActionReplayBuffer
 from atari_cr.common.pvm_buffer import PVMBuffer
 from atari_cr.common.utils import linear_schedule
 from atari_cr.agents.dqn_atari_cr.networks import QNetwork, SelfPredictionNetwork
-from atari_cr.common.grokking import gradfilter_ema
+from atari_cr.common.utils import gradfilter_ema
 
 class CRDQN:
     """

@@ -15,7 +15,7 @@ from collections import deque
 import cv2
 from sklearn.metrics import roc_auc_score
 
-from atari_cr.common.grokking import gradfilter_ema
+from atari_cr.common.utils import gradfilter_ema
 
 class GazePredictionNetwork(nn.Module):
     """
