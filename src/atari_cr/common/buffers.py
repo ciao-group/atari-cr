@@ -249,6 +249,7 @@ class DoubleActionReplayBuffer(BaseBuffer):
             self._normalize_reward(self.rewards[batch_inds, env_indices].reshape(-1, 1), env),
         )
 
+        # TODO: Make faster
         return DoubleActionReplayBufferSamples(*tuple(map(self.to_torch, data)))
 
 

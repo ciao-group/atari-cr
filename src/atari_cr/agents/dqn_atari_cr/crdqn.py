@@ -475,11 +475,10 @@ class CRDQN:
 
         # Tensorboard
         if not self.disable_tensorboard:
-            self.writer.add_scalar("eval/pause_cost", self.envs[0].pause_cost, self.agent_id)
+            self.writer.add_histogram("eval/pause_counts", np.array(pause_counts), self.agent_id)
             self.writer.add_histogram("eval/episodic_return", np.array(episodic_returns), self.agent_id)
             self.writer.add_histogram("eval/raw_episodic_return", np.array(raw_episodic_returns), self.agent_id)
             self.writer.add_histogram("eval/episode_lengths", np.array(episode_lengths), self.agent_id)
-            self.writer.add_histogram("eval/pause_counts", np.array(pause_counts), self.agent_id)
 
             hparams = {
                 "fov_size": self.fov_size,

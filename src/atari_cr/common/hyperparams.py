@@ -32,7 +32,9 @@ def tuning(config: ConfigParams):
         "capture_video": True,
         "total_timesteps": 1000000,
         "no_pvm_visualization": True,
-        "no_model_output": True
+        "no_model_output": True,
+        "use_pause_env": True,
+        "env": "ms_pacman"
     })
 
     # Add hyperparameter config
@@ -59,7 +61,7 @@ if __name__ == "__main__":
         "pause_cost": tune.quniform(0.01, 0.10, 0.01),
         "no_action_pause_cost": tune.quniform(0.1, 2.0, 0.1),
         "pvm_stack": tune.randint(1, 12),
-        "fov_size": tune.qrandint(10, 100, 10),
+        "fov_size": tune.qrandint(10, 80, 10),
         "sensory_action_space_granularity": tune.randint(1, 16),
         "grokfast": tune.choice([True, False])
     }
@@ -69,7 +71,7 @@ if __name__ == "__main__":
         tuning,
         param_space=param_space,
         tune_config=tune.TuneConfig(
-            num_samples=30,
+            num_samples=20,
             scheduler=ASHAScheduler(),
             search_alg=HyperOptSearch(metric=metric, mode=mode),
             metric=metric,
