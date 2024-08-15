@@ -13,6 +13,7 @@ from torchvision.transforms import Resize
 import gymnasium as gym
 from gymnasium.vector import VectorEnv
 from gymnasium.spaces import Discrete
+from ray.train import report
 
 from active_gym import FixedFovealEnv
 from atari_cr.common.pauseable_env import PauseableFixedFovealEnv
@@ -439,6 +440,9 @@ class CRDQN:
             self.writer.add_scalar("charts/pauses", episode_info['n_pauses'], self.current_timestep)
             self.writer.add_scalar("charts/prevented_pauses", episode_info['prevented_pauses'], self.current_timestep)
             self.writer.add_scalar("charts/no_action_pauses", episode_info["no_action_pauses"], self.current_timestep)
+
+        # Ray
+        report({"episode_reward": episode_info["reward"]})
 
     def _log_eval_episodes(self, episode_infos: List[Dict]):
         # Unpack episode_infos

@@ -77,6 +77,9 @@ if __name__ == "__main__":
             metric=metric,
             mode=mode
         ),
+        run_config=train.RunConfig(
+            storage_path="./ray_results"
+        )
     )
     results = tuner.fit()
     print("Best result:\n", results.get_best_result().config)
