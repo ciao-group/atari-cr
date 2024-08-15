@@ -230,7 +230,10 @@ class DoubleActionReplayBuffer(BaseBuffer):
         return self._get_samples(batch_inds, env=env)
 
     def _get_samples(self, batch_inds: np.ndarray, env: Optional[VectorEnv] = None) -> ReplayBufferSamples:
-        # Sample randomly the env idx
+        """
+        :param Array[batch_size] batch_inds: A batch of indices into the buffer to sample a batch of data points
+        """
+        # Sample randomly the env indices, indicating from which env to sample in the vec env
         env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
 
         if self.optimize_memory_usage:
@@ -249,7 +252,6 @@ class DoubleActionReplayBuffer(BaseBuffer):
             self._normalize_reward(self.rewards[batch_inds, env_indices].reshape(-1, 1), env),
         )
 
-        # TODO: Make faster
         return DoubleActionReplayBufferSamples(*tuple(map(self.to_torch, data)))
 
 

@@ -39,7 +39,7 @@ def tuning(config: ConfigParams):
 
     # Add hyperparameter config
     args_dict.update(config)
-    args_dict["exp_name"] = f"tuning/{''.join([str(item) for pair in config.items() for item in pair])}"
+    args_dict["exp_name"] = "tuning"
 
     args = ArgParser().from_dict(args_dict)
     eval_returns = main(args)
@@ -71,7 +71,7 @@ if __name__ == "__main__":
         tuning,
         param_space=param_space,
         tune_config=tune.TuneConfig(
-            num_samples=20,
+            num_samples=3,
             scheduler=ASHAScheduler(),
             search_alg=HyperOptSearch(metric=metric, mode=mode),
             metric=metric,
