@@ -12,6 +12,7 @@ build
 *.png
 output
 Atari-HEAD
+ray_results
 
 # Old dir structure
 runs

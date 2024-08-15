@@ -78,7 +78,7 @@ if __name__ == "__main__":
             mode=mode
         ),
         run_config=train.RunConfig(
-            storage_path="./ray_results"
+            storage_path="/home/niko/Repos/atari-cr/ray_results"
         )
     )
     results = tuner.fit()
