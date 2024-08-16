@@ -20,6 +20,7 @@ class RecordBuffer(TypedDict):
     state: List[np.ndarray]
     action: List[np.ndarray]
     reward: List[np.ndarray]
+    raw_reward: List[np.ndarray]
     done: List[np.ndarray]
     truncated: List[np.ndarray]
     info: List[np.ndarray]

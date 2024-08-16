@@ -440,8 +440,11 @@ class CRDQN:
             self.writer.add_scalar("charts/prevented_pauses", episode_info['prevented_pauses'], self.current_timestep)
             self.writer.add_scalar("charts/no_action_pauses", episode_info["no_action_pauses"], self.current_timestep)
 
-        # TODO: Test this: Ray
-        train.report({"episode_reward": episode_info["raw_reward"]})
+        # Ray
+        train.report({
+            "episode_reward": episode_info["raw_reward"],
+            "k_timesteps": self.current_timestep / 1000
+        })
 
     def _log_eval_episodes(self, episode_infos: List[Dict]):
         # Unpack episode_infos

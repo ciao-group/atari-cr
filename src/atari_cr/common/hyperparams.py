@@ -1,12 +1,8 @@
-import tempfile
 from typing import Dict
 from ray import train, tune
-from sys import argv
 from typing import TypedDict
 
-import ray
-from ray.tune.search import ConcurrencyLimiter
-from ray.tune.search.hyperopt import HyperOptSearch
+from ray.tune.search.optuna import OptunaSearch
 from ray.tune.schedulers import ASHAScheduler
 
 from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
@@ -54,10 +50,12 @@ def tuning(config: ConfigParams, time_steps: int):
     return result
 
 if __name__ == "__main__":
-    DEBUG = True
-
+    DEBUG = False
     concurrent_runs = 3 if DEBUG else 4
-    trainable = lambda config: tuning(config, time_steps=10000 if DEBUG else 1000000)
+    num_samples = 1 * concurrent_runs if DEBUG else 100
+    time_steps = int(1e6) if DEBUG else int(1e6)
+
+    trainable = lambda config: tuning(config, time_steps=time_steps)
     trainable = tune.with_resources(trainable, {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
     param_space = {
@@ -66,7 +64,8 @@ if __name__ == "__main__":
         "pvm_stack": tune.randint(1, 12),
         "fov_size": tune.choice([20, 30, 50]),
         "sensory_action_space_granularity": tune.randint(1, 16),
-        "grokfast": tune.choice([True, False])
+        "grokfast": tune.choice([True, False]),
+        "action_repeat": tune.choice([4, 5])
     }
 
     metric, mode = "episode_reward", "max"
@@ -74,14 +73,17 @@ if __name__ == "__main__":
         trainable,
         param_space=param_space,
         tune_config=tune.TuneConfig(
-            num_samples=100 if DEBUG else 100,
-            scheduler=ASHAScheduler(),
-            search_alg=HyperOptSearch(metric=metric, mode=mode),
+            num_samples=num_samples,
+            scheduler=ASHAScheduler(
+                stop_last_trials=False
+            ),
+            search_alg=OptunaSearch(),
             metric=metric,
             mode=mode
         ),
         run_config=train.RunConfig(
-            storage_path="/home/niko/Repos/atari-cr/output/ray_results"
+            storage_path="/home/niko/Repos/atari-cr/output/ray_results",
+            # stop={"training_iteration": 5000}
         )
     )
     results = tuner.fit()

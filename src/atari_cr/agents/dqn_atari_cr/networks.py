@@ -16,6 +16,7 @@ class QNetwork(nn.Module):
         self.motor_action_space_size = env.single_action_space["motor_action"].n
         self.sensory_action_space_size = len(sensory_action_set)
 
+        # TODO: Join Heads? to make the agent a) disallow no-action pauses and b) each action more aware of the other
         self.backbone = nn.Sequential(
             nn.Conv2d(4, 32, 8, stride=4),
             nn.ReLU(),

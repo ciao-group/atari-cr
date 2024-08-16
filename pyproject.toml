@@ -22,7 +22,7 @@ dependencies = [
     "scikit-learn",
     "ray[tune, default]",
     "stable-baselines3",
-    "hyperopt"
+    "optuna"
 ]
 classifiers = [
     "Private :: Do Not Upload"
