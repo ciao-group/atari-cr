@@ -10,6 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torch.nn.functional as F
 from torchvision.transforms import Resize
 
+from ray import train
 import gymnasium as gym
 from gymnasium.vector import VectorEnv
 from gymnasium.spaces import Discrete
@@ -343,7 +344,7 @@ class CRDQN:
         self.q_network.train()
         self.sfn.train()
 
-        eval_returns: List[float] = [episode_info["reward"] for episode_info in episode_infos]
+        eval_returns: List[float] = [episode_info["raw_reward"] for episode_info in episode_infos]
         return eval_returns
 
     def save_checkpoint(self, file_path: str):
@@ -409,20 +410,19 @@ class CRDQN:
         if isinstance(self.envs[0], FixedFovealEnv):
             episode_info["n_pauses"], episode_info['pause_cost'] = 0, 0
             episode_info["no_action_pauses"], episode_info['prevented_pauses'] = 0, 0
+            episode_info["raw_reward"] = episode_info["reward"]
             prevented_pause_counts = [0] * len(self.envs)
         elif isinstance(self.envs[0], PauseableFixedFovealEnv):
             prevented_pause_counts = [env.prevented_pauses for env in self.envs]
         else:
             raise ValueError(f"Environment '{self.envs[0]}' not supported")
 
-        # Reward without pause costs
-        raw_reward = episode_info['reward'] + episode_info['n_pauses'] * episode_info['pause_cost']
         prevented_pauses_warning = f"\nWARNING: [Prevented Pauses: {episode_info['prevented_pauses']}]" if episode_info['prevented_pauses'] else "" 
 
         self._log((
             f"[T: {time.time()-self.start_time:.2f}] "
             f"[N: {self.current_timestep:07,d}] "
-            f"[R, Raw R: {episode_info['reward']:.2f}, {raw_reward:.2f}] "
+            f"[R, Raw R: {episode_info['reward']:.2f}, {episode_info['raw_reward']:.2f}] "
             f"[Pauses: {episode_info['n_pauses']}] "
             f"{prevented_pauses_warning}"
         ))    
@@ -435,31 +435,35 @@ class CRDQN:
             self.writer.add_scalar("charts/episodic_return", episode_info["reward"], self.current_timestep)
             self.writer.add_scalar("charts/episode_length", episode_info["ep_len"], self.current_timestep)
             self.writer.add_scalar("charts/epsilon", self.epsilon, self.current_timestep)
-            self.writer.add_scalar("charts/raw_episodic_return", raw_reward, self.current_timestep)
+            self.writer.add_scalar("charts/raw_episodic_return", episode_info["raw_reward"], self.current_timestep)
             self.writer.add_scalar("charts/pauses", episode_info['n_pauses'], self.current_timestep)
             self.writer.add_scalar("charts/prevented_pauses", episode_info['prevented_pauses'], self.current_timestep)
             self.writer.add_scalar("charts/no_action_pauses", episode_info["no_action_pauses"], self.current_timestep)
+
+        # TODO: Test this: Ray
+        train.report({"episode_reward": episode_info["raw_reward"]})
 
     def _log_eval_episodes(self, episode_infos: List[Dict]):
         # Unpack episode_infos
         episodic_returns, episode_lengths = [], []
         pause_counts, prevented_pauses = [], []
-        no_action_pauses = []
+        no_action_pauses, raw_episodic_returns = [], []
         for episode_info in episode_infos:
             
             # Prepare the episode infos for the different supported envs
             if isinstance(self.envs[0], FixedFovealEnv):
                 episode_info["n_pauses"], episode_info['pause_cost'] = 0, 0
                 episode_info["no_action_pauses"], episode_info['prevented_pauses'] = 0, 0
+                episode_info["raw_reward"] = episode_info["reward"]
 
             episodic_returns.append(episode_info["reward"])
+            raw_episodic_returns.append(episode_info["raw_reward"])
             episode_lengths.append(episode_info["ep_len"])
             pause_counts.append(episode_info["n_pauses"])
             prevented_pauses.append(episode_info["prevented_pauses"])
             no_action_pauses.append(episode_info["no_action_pauses"])
 
         pause_cost = episode_info["pause_cost"]
-        raw_episodic_returns = [episodic_return + pause_cost * pauses for episodic_return, pauses in zip(episodic_returns, pause_counts)]
         
         # Log everything
         prevented_pauses_warning = "" if all(n == 0 for n in prevented_pauses) else \

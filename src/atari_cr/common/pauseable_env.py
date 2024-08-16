@@ -93,6 +93,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # Attributes from RecordWrapper class
         self.args = args
         self.cumulative_reward = 0
+        self.cumulative_raw_reward = 0
         self.ep_len = 0
         self.record_buffer: RecordBuffer = None
         self.prev_record_buffer: RecordBuffer = None
@@ -125,13 +126,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 self.prevented_pauses += 1
                 return self.step(action)
 
-            # Log another pause
-            self.n_pauses += 1
-            if prev_pause_action:
-                self.successive_pauses += 1
-            else:
-                self.successive_pauses = 0
-
             if np.all(self.fov_loc == action["sensory_action"]):  
                 # Penalize a pause action without moving the fovea because it is useless
                 state, reward, done, truncated, info = self._skip_step(-self.no_action_pause_cost)
@@ -141,16 +135,26 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 _, reward, done, truncated, info = self._skip_step(-self.pause_cost)
                 state = self._fov_step(full_state=self.state, action=action["sensory_action"])
 
+            raw_reward = 0
+
+            # Log another pause
+            self.n_pauses += 1
+            if prev_pause_action:
+                self.successive_pauses += 1
+            else:
+                self.successive_pauses = 0
+
         else:
             self.successive_pauses = 0
             # Normal step
             state, reward, done, truncated, info = self.env.step(action=action["motor_action"])
+            raw_reward = reward
             # Safe the state for the next sensory step
             self.state = state
             # Sensory step
             state = self._fov_step(full_state=self.state, action=action["sensory_action"])  
 
-        self._log_step(reward, action, done, truncated, info)
+        self._log_step(reward, action, done, truncated, info, raw_reward)
 
         # Reset counters at the end of an episode
         if done:
@@ -164,11 +168,11 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         full_state, info = self.env.reset()
 
         self.cumulative_reward = 0
+        self.cumulative_raw_reward = 0
         self.ep_len = 0
         self.fov_loc = np.rint(np.array(self.fov_init_loc, copy=True)).astype(np.int32)
         fov_state = self._get_fov_state(full_state)
 
-        info["fov_loc"] = self.fov_loc.copy()
         info = self._update_info(info)
 
         if self.record:
@@ -222,15 +226,11 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             torch.save(self.prev_record_buffer, file_path)
             video_writer.release()
 
-    def _log_step(self, reward, action, done, truncated, info):
+    def _log_step(self, reward, action, done, truncated, info, raw_reward):
         self.ep_len += 1
         self.cumulative_reward += reward
+        self.cumulative_raw_reward += raw_reward
         info = self._update_info(info)
-        info["pause_cost"] = self.pause_cost
-        info["n_pauses"] = self.n_pauses
-        info["prevented_pauses"] = self.prevented_pauses
-        info["fov_loc"] = self.fov_loc.copy()
-        info["no_action_pauses"] = self.no_action_pauses
 
         if self.record:
             rgb = self.env.render()
@@ -239,7 +239,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 done, truncated, info, rgb=rgb, 
                 return_reward=reward, 
                 episode_pauses=self.n_pauses,
-                fov_loc=self.fov_loc
+                fov_loc=self.fov_loc,
+                raw_reward=raw_reward
             )
 
     def _skip_step(self, reward):
@@ -262,7 +263,13 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
     def _update_info(self, info):
         info["reward"] = self.cumulative_reward
+        info["raw_reward"] = self.cumulative_raw_reward
         info["ep_len"] = self.ep_len
+        info["pause_cost"] = self.pause_cost
+        info["n_pauses"] = self.n_pauses
+        info["prevented_pauses"] = self.prevented_pauses
+        info["fov_loc"] = self.fov_loc.copy()
+        info["no_action_pauses"] = self.no_action_pauses
         return info
 
     def _clip_to_valid_fov(self, loc):
@@ -308,7 +315,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
     def _save_transition(self, state, action=None, reward=None, done=None, 
             truncated=None, info=None, rgb=None, return_reward=None, 
-            episode_pauses=None, fov_loc=None):
+            episode_pauses=None, fov_loc=None, raw_reward=None):
         if (done is not None) and (not done):
             self.record_buffer["state"].append(state)
             self.record_buffer["rgb"].append(rgb)
@@ -322,6 +329,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.record_buffer["action"].append(action)
         if reward is not None:
             self.record_buffer["reward"].append(reward)
+        if raw_reward is not None:
+            self.record_buffer["raw_reward"].append(raw_reward)
         if truncated is not None:
             self.record_buffer["truncated"].append(truncated)
         if return_reward is not None:

@@ -38,7 +38,7 @@
                 "--learning_start", "1000",
                 // Additional config
                 "--pause_cost", "0.05",
-                // "--use_pause_env"
+                "--use_pause_env"
             ],
             "justMyCode": false
         },
