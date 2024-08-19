@@ -17,21 +17,21 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     Environemt making it possible to be paused to only take
     a sensory action without progressing the game.
     """
-    def __init__(self, env: gym.Env, args, pause_cost = 0.01, successive_pause_limit = 20, no_action_pause_cost = 0.1):
+    def __init__(self, env: gym.Env, args, pause_cost = 0.01, successive_pause_limit = 20, 
+                 no_action_pause_cost = 0.1, saccade_cost_scale = 0.001):
         """
-        Parameters
-        ----------
-        pause_cost : float
-            Negative reward for the agent whenever they chose to not take
+        :param float pause_cost: Negative reward for the agent whenever they chose to not take
             an action in the environment to only look; prevents abuse of pausing
-        successive_pause_limit : int
-            Limit to the amount of successive pauses the agent can make before
+        :param int successive_pause_limit: Limit to the amount of successive pauses the agent can make before
             a random action is selected instead. This prevents the agent from halting
+
+        :param float saccade_cost_scale: How much the agent is punished for bigger eye movements
         """
         super().__init__(env)
         self.fov_size: Tuple[int, int] = args.fov_size
         self.fov_init_loc: Tuple[int, int] = args.fov_init_loc
         assert (np.array(self.fov_size) < np.array(self.obs_size)).all()
+        self.saccade_cost_scale = saccade_cost_scale
 
         # Get sensory action space for the sensory action mode
         self.sensory_action_mode: SensoryActionMode = args.sensory_action_mode 
@@ -87,6 +87,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         prev_pause_action = self.pause_action
         self.pause_action = self._is_pause(action["motor_action"])
 
+        # Save the previous fov_loc to calculate the saccade cost
+        prev_fov_lov = self.fov_loc.copy()
+
         if self.pause_action:
             # Disallow a pause on the first episode step because there is no
             # observation to look at yet and do a random action instead
@@ -132,6 +135,10 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.state = state
             # Sensory step
             state = self._fov_step(full_state=self.state, action=action["sensory_action"])  
+            
+        # Add saccade costs for foveal distance traveled
+        saccade_cost = self.saccade_cost_scale * np.sqrt(np.sum( (np.array(self.fov_loc) - np.array(prev_fov_lov))^2 ))
+        reward -= saccade_cost
 
         self._log_step(reward, action, done, truncated, info, raw_reward)
 

@@ -18,17 +18,8 @@ from atari_cr.common.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.common.models import SensoryActionMode
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
 
-# TODO: Remove normal pause cost in favor of a bigger penalty for 30 pauses in a row
-# TODO: Do 20M steps (propably not veeery helpful)
-# TODO: Test realtive actions better
-# TODO: Go back to absolute actions because they are not really worse from a cr perspective
-# TODO: Test other games
-# TODO: Add saccade costs for foveal distance traveled
-
-# TODO: Weitermachen mit Road Runner, Ms. Pac-Man, und Breakout; Boxing ist nicht in Atari-HEAD 
-
-# TODO: (wenn nichts mehr klappt) Fovea zuerst über ganzen Bildschirm machen und dann immer kleiner werden lassen; gucken ab wann es schwierig wird
-# TODO: (wenn nichts mehr klappt) Die Anzahl der Pausen pro Bild zb auf 4 festlegen
+# OPTIONAL: Remove normal pause cost in favor of a bigger penalty for 30 pauses in a row
+# OPTIONAL: Test realtive actions better
 
 class ArgParser(Tap):
     exp_name: str = os.path.basename(__file__).rstrip(".py") # The name of this experiment
@@ -75,6 +66,7 @@ class ArgParser(Tap):
     pause_cost: float = 0.1 # The cost for the env to only take a sensory step
     successive_pause_limit: int = 20 # The maximum number of successive pauses before pauses are forbidden. This prevents the agent from halting
     no_action_pause_cost: float = 0.1 # The additional cost of pausing without performing a sensory action
+    saccade_cost_scale: float = 0.001 # How much the agent is punished for bigger eye movements
 
     # Misc
     ignore_sugarl: bool = False # Whether to ignore the sugarl term for Q network learning
@@ -106,8 +98,10 @@ def main(args: ArgParser):
             )
             if args.use_pause_env:
                 env = AtariEnv(env_args)    
-                env = PauseableFixedFovealEnv(env, env_args, 
-                    args.pause_cost, args.successive_pause_limit, args.no_action_pause_cost)
+                env = PauseableFixedFovealEnv(
+                    env, env_args, args.pause_cost, args.successive_pause_limit, 
+                    args.no_action_pause_cost, args.saccade_cost_scale
+                )
             else:
                 env_args.sensory_action_mode = str(sensory_action_mode)
                 env = AtariFixedFovealEnv(env_args)
