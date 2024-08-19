@@ -70,7 +70,7 @@ class RecordBuffer(TypedDict):
         :param str game: The atari game recorded in the buffer. Required to know which action is the pause action
         """
         from atari_cr.atari_head import GazeDataset
-        
+
         ACTION_COUNT = {
             "ms_pacman": 8,
             "boxing": 17,

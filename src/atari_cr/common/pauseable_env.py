@@ -73,6 +73,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.args = args
         self.cumulative_reward = 0
         self.cumulative_raw_reward = 0
+        self.cumulative_saccade_cost = 0
         self.ep_len = 0
         self.record_buffer: RecordBuffer = None
         self.prev_record_buffer: RecordBuffer = None
@@ -140,7 +141,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         saccade_cost = self.saccade_cost_scale * np.sqrt(np.sum( (np.array(self.fov_loc) - np.array(prev_fov_lov))^2 ))
         reward -= saccade_cost
 
-        self._log_step(reward, action, done, truncated, info, raw_reward)
+        self._log_step(reward, action, done, truncated, info, raw_reward, saccade_cost)
+        info = self._update_info(info)
 
         # Reset counters at the end of an episode
         if done:
@@ -155,6 +157,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         self.cumulative_reward = 0
         self.cumulative_raw_reward = 0
+        self.cumulative_saccade_cost = 0
         self.ep_len = 0
         self.fov_loc = np.rint(np.array(self.fov_init_loc, copy=True)).astype(np.int32)
         fov_state = self._get_fov_state(full_state)
@@ -171,9 +174,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         return fov_state, info
 
-    def save_record_to_file(self, file_path: str, draw_focus = True, draw_pauses = True):
-        # TODO: no new image for sensory steps
-        # TODO: no longer draw fovea onto frames 
+    def save_record_to_file(self, file_path: str, draw_focus = False, draw_pauses = True):
         if self.record:
             video_path = file_path.replace(".pt", ".mp4")
             self.prev_record_buffer: RecordBuffer
@@ -212,11 +213,11 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             torch.save(self.prev_record_buffer, file_path)
             video_writer.release()
 
-    def _log_step(self, reward, action, done, truncated, info, raw_reward):
+    def _log_step(self, reward, action, done, truncated, info, raw_reward, saccade_cost):
         self.ep_len += 1
         self.cumulative_reward += reward
         self.cumulative_raw_reward += raw_reward
-        info = self._update_info(info)
+        self.cumulative_saccade_cost += saccade_cost
 
         if self.record:
             rgb = self.env.render()
@@ -247,7 +248,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         """
         return motor_action == len(self.env.actions)
 
-    def _update_info(self, info):
+    def _update_info(self, info: dict):
         info["reward"] = self.cumulative_reward
         info["raw_reward"] = self.cumulative_raw_reward
         info["ep_len"] = self.ep_len
@@ -256,6 +257,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         info["prevented_pauses"] = self.prevented_pauses
         info["fov_loc"] = self.fov_loc.copy()
         info["no_action_pauses"] = self.no_action_pauses
+        info["saccade_cost"] = self.cumulative_saccade_cost
         return info
 
     def _clip_to_valid_fov(self, loc):
@@ -302,6 +304,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     def _save_transition(self, state, action=None, reward=None, done=None, 
             truncated=None, info=None, rgb=None, return_reward=None, 
             episode_pauses=None, fov_loc=None, raw_reward=None):
+        """
+        Logs the step in self.record_buffer
+        """
         if (done is not None) and (not done):
             self.record_buffer["state"].append(state)
             self.record_buffer["rgb"].append(rgb)
