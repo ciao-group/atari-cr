@@ -1,4 +1,5 @@
 import os
+from typing import List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,7 +17,7 @@ import cv2
 from sklearn.metrics import roc_auc_score
 
 from atari_cr.common.utils import gradfilter_ema, grid_image
-from atari_cr.common.pauseable_env import RecordBuffer
+from atari_cr.common.models import RecordBuffer
 
 class GazePredictionNetwork(nn.Module):
     """
@@ -78,19 +79,38 @@ class GazePredictionNetwork(nn.Module):
         return x
 
 class GazeDataset(Dataset):
-    def __init__(self, root_dir, transform=None):
-        self.root_dir = root_dir
-        self.transform = transform
-        self.data = self._load_data()
+    def __init__(self, frames: List[torch.Tensor], saliency_maps: List[torch.Tensor]):
+        self.data = pd.DataFrame({
+            "frame": frames, 
+            "saliency_map": saliency_maps
+        })
+    # def __init__(self, root_dir, transform=None):
+    #     self.transform = transform
+    #     # self.data, self.image_data = self._load_data(root_dir)
+    #     self.data = self._load_data(root_dir)
 
-    def _load_data(self):
+    @staticmethod
+    def from_gaze_data(frames: List[torch.Tensor], gaze_lists: List[List[torch.Tensor]]):
+        """
+        Create the dataset from gameplay images and associated gaze positions
+
+        :param List[Tensor[Nx84x84]] frames: List of gameplay frames 
+        :param List[List[Tensor[2]]] gaze_lists: List of List of gaze positions associated with one frame
+        """
+        return GazeDataset(
+            frames, 
+            [create_saliency_map(torch.stack(gazes)) for gazes in gaze_lists],
+        )
+
+    @staticmethod
+    def from_atari_head_files(root_dir: str, transform=None):
         """
         Loads the data in the Atari-HEAD format into a dataframe with metadata and image paths.
         """
-        dfs, image_dfs = [], []
+        dfs = []
 
         # Walk through the directory
-        for dirpath, dirnames, filenames in os.walk(self.root_dir):
+        for dirpath, dirnames, filenames in os.walk(root_dir):
             for filename in filter(lambda filename: filename.endswith('.csv'), filenames):
 
                 csv_path = os.path.join(dirpath, filename)
@@ -101,38 +121,44 @@ class GazeDataset(Dataset):
 
                 # Load the images
                 print("Loading images...")
-                image_df = pd.DataFrame(columns=["frame_id", "image_path", "image_tensor"])
-                image_df["frame_id"] = pd.Series(df.index)
-                image_df["image_path"] = image_df["frame_id"].apply(lambda id: os.path.join(dirpath, subdir_name, id + ".png"))
-                image_df["image_tensor"] = image_df["image_path"] \
-                    .apply(lambda path: self.transform(read_image(path, ImageReadMode.GRAY)))
-                image_df = image_df.set_index("frame_id")
+                df = pd.DataFrame(columns=["frame_id", "image_path", "image_tensor"])
+                df["frame_id"] = pd.Series(df.index)
+                df["image_path"] = df["frame_id"].apply(lambda id: os.path.join(dirpath, subdir_name, id + ".png"))
+                df["image_tensor"] = df["image_path"] \
+                    .apply(lambda path: transform(read_image(path, ImageReadMode.GRAY)))
+                df = df.set_index("frame_id")
                 
                 # Create saliency maps
                 print("Creating saliency maps...")
-                df["gaze_positions"] = df["gaze_positions"].apply(self._parse_gaze_string)
+                df["gaze_positions"] = df["gaze_positions"].apply(GazeDataset._parse_gaze_string)
                 df["saliency_map"] = df["gaze_positions"].apply(create_saliency_map)
-            
-                # Function to create the image_ids list
-                image_ids = deque(maxlen=4)
-                def get_image_ids(frame_id):
-                    image_ids.append(frame_id)
-                    return list(image_ids)
-                
-                # Apply the function to create the image_paths column
-                df['stack_images'] = list(pd.Series(df.index).apply(get_image_ids))
-                
-                # Remove rows where we don't have 4 images yet
-                df = df[df['stack_images'].apply(len) == 4]
 
-                dfs.append(df)
-                image_dfs.append(image_df)
+                data = pd.DataFrame({
+                    "frame": df["image_tensor"],
+                    "gazes": df["saliency_map"]
+                })
+            
+                # # Function to create the image_ids list
+                # image_ids = deque(maxlen=4)
+                # def get_image_ids(frame_id):
+                #     image_ids.append(frame_id)
+                #     return list(image_ids)
+                
+                # # Apply the function to create the image_paths column
+                # df['stack_images'] = list(pd.Series(df.index).apply(get_image_ids))
+                
+                # # Remove rows where we don't have 4 images yet
+                # df = df[df['stack_images'].apply(len) == 4]
+
+                dfs.append(data)
 
         # Combine all dataframes
         combined_df = pd.concat(dfs, ignore_index=True)
-        self.image_df = pd.concat(image_dfs)
             
-        return combined_df
+        return GazeDataset(
+            combined_df["frame"],
+            combined_df["saliency_map"],
+        )
 
     @staticmethod
     def _parse_gaze_string(gaze_string: str) -> torch.tensor:
@@ -143,8 +169,6 @@ class GazeDataset(Dataset):
             [float(number) for number in s.strip(", []\\n").split(",")] \
                 for s in gaze_string.replace("(", "").replace("'", "").split(")")[:-1]
         ])
-
-
 
     @staticmethod
     def _show_tensor(t: torch.Tensor, save_path = "debug.png"):
@@ -161,26 +185,32 @@ class GazeDataset(Dataset):
 
 
     def __len__(self):
-        return len(self.data)
+        # return len(self.data)
+        return len(self.data) - 3
 
     def __getitem__(self, idx):
         """
         Loads the images from paths specified in self.data and creates a saliency map from the gaze_positions.
         """
-        # Load images
-        images = []
-        for id in self.data.iloc[idx]["stack_images"]:
-            images.append(self.image_df.loc[id]["image_tensor"])
-        images = torch.vstack(images)
+        # # Load images
+        # images = []
+        # for id in self.data.iloc[idx]["stack_images"]:
+        #     images.append(self.image_data.loc[id]["image_tensor"])
+        # images = torch.vstack(images)
 
-        # Load saliency map
-        saliency_map = self.data.iloc[idx]["saliency_map"]
+        # # Load saliency map
+        # saliency_map = self.data.iloc[idx]["saliency_map"]
 
-        # Convert to float to work with neural network
-        images = (images * 255).to(torch.float32)
-        saliency_map = (saliency_map * 255).to(torch.float32)
+        # # Convert to float to work with neural network
+        # images = (images * 255).to(torch.float32)
+        # saliency_map = (saliency_map * 255).to(torch.float32)
 
-        return images, saliency_map, self.data.iloc[idx]["gaze_positions"]
+        # return images, saliency_map, self.data.iloc[idx]["gaze_positions"]
+
+        return (
+            self.data.loc[idx:idx + 4, "frame"],
+            self.data.loc[idx + 3, "saliency_map"]
+        )
     
 class GazePredictor():
     """
@@ -253,7 +283,7 @@ class GazePredictor():
                 outputs = self.prediction_network(inputs)
                 val_loss += self.loss_function(outputs, targets).item()
                 # TODO: Fix
-                aucs += compute_auc(targets, gaze_positions_batch)
+                # aucs += compute_auc(targets, gaze_positions_batch)
 
         self.writer.add_scalar("Validation Loss", val_loss / len(self.val_loader), self.epoch)
         print(f'Epoch {self.epoch + 1} completed. Validation Loss: {val_loss / len(self.val_loader):.3f}')
@@ -343,7 +373,7 @@ def create_saliency_map(gaze_positions: torch.Tensor):
     """ 
     Takes gaze positions on a 84 by 84 pixels screen to turn them into a saliency map 
     
-    :param Tensor[Nx84x84]: A Tensor containing all gaze positions associated with one frame
+    :param Tensor[Nx2]: A Tensor containing all gaze positions associated with one frame
     """
     if gaze_positions.shape[0] == 0:
         return torch.zeros((84, 84), dtype=torch.uint8)
@@ -375,22 +405,20 @@ def open_mp4_as_frame_list(path: str):
 
     frames = []
     while True:
-        # Read the next frame
         success, frame = video.read()
         
-        # If the frame was not successfully read, break the loop
-        if not success:
-            break
-        else:
+        if success:
             frames.append(frame)
+        else:
+            break
 
-    # Release the video capture object
     video.release()
-    
     return frames
 
 def evaluate_agent(recordings_path: str):
     """
+    Evaluate an agent given a path to their gameplay record buffer data.
+
     :param str recordings_path: Path to the agent's eval data, containing images and associated gaze positions 
     :returns Tuple[float, float]: KL-Divergence and AUC of the agent's saliency maps compared to Atari-HEAD 
     """
@@ -401,6 +429,8 @@ def evaluate_agent(recordings_path: str):
 
     kl_divs, aucs = [], []
     for file in filter(lambda x: x.endswith(".pt"), os.listdir(recordings_path)):
+        data = RecordBuffer.from_file(file)
+
         data = torch.load(os.path.join(recordings_path, file))
 
         # Get saliency maps for all 4-stacks of frames
@@ -466,19 +496,19 @@ def debug_recording(recordings_path: str):
 
 if __name__ == "__main__":
     # evaluate_agent("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")
-    debug_recording("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")
+    # debug_recording("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")
     
     # Create dataset and data loader
     transform = transforms.Resize((84, 84))
     dataset = GazeDataset(root_dir='Atari-HEAD/freeway', transform=transform)
 
-    # Initialize the model
     env_name = "freeway"
     output_dir = f"output/atari_head/{env_name}"
     model_dir = os.path.join(output_dir, "models")
     os.makedirs(model_dir, exist_ok=True)
     # save_path = os.path.join(output_dir, env_name + ".pth")
 
+    # Load the Atari HEAD model
     model_files = os.listdir(model_dir)
     if len(model_files) > 0:
         print("Loading existing gaze predictor")
