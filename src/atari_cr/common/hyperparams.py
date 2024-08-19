@@ -13,7 +13,6 @@ class ConfigParams(TypedDict):
     pvm_stack: int
     fov_size: int
     sensory_action_space_granularity: int
-    grokfast: bool
 
 def tuning(config: ConfigParams, time_steps: int):
     # Copy granularity value into the two corresponding values
@@ -31,6 +30,12 @@ def tuning(config: ConfigParams, time_steps: int):
         "no_model_output": True,
         "use_pause_env": True,
         "env": "ms_pacman"
+    })
+
+    # Add already found hyper params
+    args_dict.update({
+        "action_repeat": 5,
+        "fov_size": 50,
     })
 
     # Add hyperparameter config
@@ -58,14 +63,11 @@ if __name__ == "__main__":
     trainable = lambda config: tuning(config, time_steps=time_steps)
     trainable = tune.with_resources(trainable, {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
-    param_space = {
-        "pause_cost": tune.quniform(0.01, 0.10, 0.01),
-        "no_action_pause_cost": tune.quniform(0., 3.0, 0.2),
-        "pvm_stack": tune.randint(1, 12),
-        "fov_size": tune.choice([20, 30, 50]),
-        "sensory_action_space_granularity": tune.randint(1, 16),
-        "grokfast": tune.choice([True, False]),
-        "action_repeat": tune.choice([4, 5])
+    param_space: ConfigParams = {
+        "pause_cost": tune.quniform(0.05, 0.20, 0.01),
+        "no_action_pause_cost": tune.quniform(0., 2.0, 0.2),
+        "pvm_stack": tune.randint(5, 20),
+        "sensory_action_space_granularity": tune.randint(1, 10)
     }
 
     metric, mode = "episode_reward", "max"
