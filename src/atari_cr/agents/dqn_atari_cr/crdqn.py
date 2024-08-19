@@ -440,17 +440,21 @@ class CRDQN:
             self.writer.add_scalar("charts/prevented_pauses", episode_info['prevented_pauses'], self.current_timestep)
             self.writer.add_scalar("charts/no_action_pauses", episode_info["no_action_pauses"], self.current_timestep)
 
-        # Ray
-        train.report({
+        # Ray logging
+        ray_info = {
             "episode_reward": episode_info["raw_reward"],
-            "pauses": episode_info["n_pauses"],
-            "prevented_pauses": episode_info["prevented_pauses"],
-            "no_action_pauses": episode_info["no_action_pauses"],
-            "saccade_cost": episode_info["saccade_cost"],
-            "pause_reward": episode_info["reward"],
             "sfn_loss": self.sfn_loss.item(),
             "k_timesteps": self.current_timestep / 1000
-        })
+        }
+        if isinstance(self.envs[0], PauseableFixedFovealEnv):
+            ray_info.update({
+                "pauses": episode_info["n_pauses"],
+                "prevented_pauses": episode_info["prevented_pauses"],
+                "no_action_pauses": episode_info["no_action_pauses"],
+                "saccade_cost": episode_info["saccade_cost"],
+                "pause_reward": episode_info["reward"],
+            })
+        train.report(ray_info)
 
     def _log_eval_episodes(self, episode_infos: List[Dict]):
         # Unpack episode_infos
