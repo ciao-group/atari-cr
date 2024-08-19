@@ -12,7 +12,6 @@ from torchvision.io import read_image, ImageReadMode
 import pandas as pd
 from PIL import Image
 import numpy as np
-from collections import deque
 import cv2
 from sklearn.metrics import roc_auc_score
 
@@ -79,9 +78,11 @@ class GazePredictionNetwork(nn.Module):
         return x
 
 class GazeDataset(Dataset):
-    def __init__(self, frames: List[torch.Tensor], saliency_maps: List[torch.Tensor]):
+    def __init__(self, frames: List[torch.Tensor], gaze_lists: List[List[torch.Tensor]], 
+                 saliency_maps: List[torch.Tensor]):
         self.data = pd.DataFrame({
             "frame": frames, 
+            "gazes": gaze_lists,
             "saliency_map": saliency_maps
         })
     # def __init__(self, root_dir, transform=None):
@@ -99,6 +100,7 @@ class GazeDataset(Dataset):
         """
         return GazeDataset(
             frames, 
+            gaze_lists,
             [create_saliency_map(torch.stack(gazes)) for gazes in gaze_lists],
         )
 
@@ -131,11 +133,10 @@ class GazeDataset(Dataset):
                 # Create saliency maps
                 print("Creating saliency maps...")
                 df["gaze_positions"] = df["gaze_positions"].apply(GazeDataset._parse_gaze_string)
-                df["saliency_map"] = df["gaze_positions"].apply(create_saliency_map)
 
                 data = pd.DataFrame({
                     "frame": df["image_tensor"],
-                    "gazes": df["saliency_map"]
+                    "gazes": df["gaze_positions"]
                 })
             
                 # # Function to create the image_ids list
@@ -155,9 +156,9 @@ class GazeDataset(Dataset):
         # Combine all dataframes
         combined_df = pd.concat(dfs, ignore_index=True)
             
-        return GazeDataset(
+        return GazeDataset.from_gaze_data(
             combined_df["frame"],
-            combined_df["saliency_map"],
+            combined_df["gazes"]
         )
 
     @staticmethod
@@ -208,8 +209,9 @@ class GazeDataset(Dataset):
         # return images, saliency_map, self.data.iloc[idx]["gaze_positions"]
 
         return (
-            self.data.loc[idx:idx + 4, "frame"],
-            self.data.loc[idx + 3, "saliency_map"]
+            torch.Tensor(self.data.loc[idx:idx + 4, "frame"]),
+            self.data.loc[idx + 3, "saliency_map"],
+            self.data.loc[idx + 3, "gazes"],
         )
     
 class GazePredictor():
@@ -415,7 +417,7 @@ def open_mp4_as_frame_list(path: str):
     video.release()
     return frames
 
-def evaluate_agent(recordings_path: str):
+def evaluate_agent(atari_head_gaze_predictor: nn.Module, recordings_path: str, game: str):
     """
     Evaluate an agent given a path to their gameplay record buffer data.
 
@@ -430,34 +432,42 @@ def evaluate_agent(recordings_path: str):
     kl_divs, aucs = [], []
     for file in filter(lambda x: x.endswith(".pt"), os.listdir(recordings_path)):
         data = RecordBuffer.from_file(file)
+        dataset = data.to_atari_head(game)
 
-        data = torch.load(os.path.join(recordings_path, file))
+        # Load the data and compare the agents saliency to the gaze predictor's saliency
+        loader = DataLoader(dataset, batch_size=16, drop_last=True)
+        for frame_stacks, _, agent_saliency_maps in loader:
+            ground_truth_saliency_maps = atari_head_gaze_predictor(frame_stacks)
 
-        # Get saliency maps for all 4-stacks of frames
-        frames = open_mp4_as_frame_list(data["rgb"])
-        greyscale_frames = [Image.fromarray(frame).convert("L") for frame in frames]
-        scaled_tensors = [transform(frame) for frame in greyscale_frames]
-        ground_truth_saliency_maps = []
-        for i in range(len(scaled_tensors) - 3):
-            frame_stack = torch.vstack(scaled_tensors[i:i + 4])
-            # saliency_map = <model>(frame_stack)
-            # ground_truth_saliency_maps.append(saliency_map)
-        # ground_truth_saliency_maps = torch.stack(ground_truth_saliency_maps)
+            kl_divergence = nn.KLDivLoss()(agent_saliency_maps, ground_truth_saliency_maps)
+            auc = roc_auc_score(agent_saliency_maps.flatten(), ground_truth_saliency_maps.flatten()) 
 
-        # Get saliency maps made from agents gazes
-        gazes = data["fov_loc"]
-        agent_saliency_maps = []
-        for gaze in gazes[3:]:
-            agent_saliency_maps.append(create_saliency_map(torch.Tensor(gaze).unsqueeze(0)))
-        agent_saliency_maps = torch.stack(agent_saliency_maps)
+            aucs.append(auc)
+            kl_divs.append(kl_divergence)
 
-        # Compare them using KL Divergence and AUC
-        assert len(ground_truth_saliency_maps) == len(agent_saliency_maps)
-        kl_divergence = nn.KLDivLoss()(agent_saliency_maps, ground_truth_saliency_maps)
-        auc = roc_auc_score(agent_saliency_maps.flatten(), ground_truth_saliency_maps.flatten()) 
+        # # Get saliency maps for all 4-stacks of frames        
+        # data = torch.load(os.path.join(recordings_path, file))
+        # frames = open_mp4_as_frame_list(data["rgb"])
+        # greyscale_frames = [Image.fromarray(frame).convert("L") for frame in frames]
+        # scaled_tensors = [transform(frame) for frame in greyscale_frames]
+        # ground_truth_saliency_maps = []
+        # for i in range(len(scaled_tensors) - 3):
+        #     frame_stack = torch.vstack(scaled_tensors[i:i + 4])
+        #     # saliency_map = <model>(frame_stack)
+        #     # ground_truth_saliency_maps.append(saliency_map)
+        # # ground_truth_saliency_maps = torch.stack(ground_truth_saliency_maps)
 
-        kl_divs.append(kl_divergence)
-        aucs.append(auc)
+        # # Get saliency maps made from agents gazes
+        # gazes = data["fov_loc"]
+        # agent_saliency_maps = []
+        # for gaze in gazes[3:]:
+        #     agent_saliency_maps.append(create_saliency_map(torch.Tensor(gaze).unsqueeze(0)))
+        # agent_saliency_maps = torch.stack(agent_saliency_maps)
+
+        # # Compare them using KL Divergence and AUC
+        # assert len(ground_truth_saliency_maps) == len(agent_saliency_maps)
+        # kl_divergence = nn.KLDivLoss()(agent_saliency_maps, ground_truth_saliency_maps)
+        # auc = roc_auc_score(agent_saliency_maps.flatten(), ground_truth_saliency_maps.flatten()) 
 
     return np.mean(kl_divs), np.mean(aucs)
 
@@ -494,10 +504,7 @@ def debug_recording(recordings_path: str):
     Image.fromarray(grid).save("debug.png")
 
 
-if __name__ == "__main__":
-    # evaluate_agent("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")
-    # debug_recording("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")
-    
+if __name__ == "__main__":    
     # Create dataset and data loader
     transform = transforms.Resize((84, 84))
     dataset = GazeDataset(root_dir='Atari-HEAD/freeway', transform=transform)
@@ -520,3 +527,12 @@ if __name__ == "__main__":
     gaze_predictor.train(n_epochs=1)
 
     # Compare a run made by the agent with a run from atari head
+    # # TODO: Fill in the model
+    # raise NotImplementedError
+    # atari_head_gaze_predictor = None
+    # evaluate_agent(
+    #     atari_head_gaze_predictor, 
+    #     "/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings", 
+    #     "boxing"
+    # )
+    # debug_recording("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")

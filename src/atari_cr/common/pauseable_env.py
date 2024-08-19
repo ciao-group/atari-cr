@@ -9,30 +9,8 @@ from typing import TypedDict, List, Tuple
 import copy
 from torchvision.transforms import Resize
 
-from atari_cr.common.models import SensoryActionMode
-
-
-class RecordBuffer(TypedDict):
-    """
-    Buffer saving the env history for one episode
-    """
-    rgb: List[np.ndarray]
-    state: List[np.ndarray]
-    action: List[np.ndarray]
-    reward: List[np.ndarray]
-    raw_reward: List[np.ndarray]
-    done: List[np.ndarray]
-    truncated: List[np.ndarray]
-    info: List[np.ndarray]
-    return_reward: List[np.ndarray]
-    episode_pauses: List[int]
-    fov_loc: List[np.ndarray]
-    fov_size: Tuple[int, int]
-
-    def new():
-        buffer = dict((key, []) for key in RecordBuffer.__annotations__)
-        buffer["fov_size"] = (0, 0)
-        return buffer     
+from atari_cr.common.models import SensoryActionMode, RecordBuffer
+        
 
 class PauseableFixedFovealEnv(gym.Wrapper):
     """
