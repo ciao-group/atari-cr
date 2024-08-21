@@ -138,7 +138,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             state = self._fov_step(full_state=self.state, action=action["sensory_action"])  
             
         # Add saccade costs for foveal distance traveled
-        saccade_cost = self.saccade_cost_scale * np.sqrt(np.sum( (np.array(self.fov_loc) - np.array(prev_fov_lov))^2 ))
+        saccade_cost = self.saccade_cost_scale * np.sqrt(np.sum( np.square(self.fov_loc - prev_fov_lov) ))
         reward -= saccade_cost
 
         self._log_step(reward, action, done, truncated, info, raw_reward, saccade_cost)
@@ -182,6 +182,11 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             fps = 30
             video_writer = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
             for i, frame in enumerate(self.prev_record_buffer["rgb"]):
+                    
+                # Set text and rectangle style
+                color = (255, 0, 0)
+                thickness = 1
+
                 if draw_focus:
                     y_loc, x_loc = self.prev_record_buffer["fov_loc"][i]
                     fov_size = self.prev_record_buffer["fov_size"]
@@ -195,8 +200,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
                     top_left = (x_loc, y_loc)
                     bottom_right = (x_loc + fov_size[0], y_loc + fov_size[1])
-                    color = (255, 0, 0)
-                    thickness = 1
                     frame = cv2.rectangle(frame, top_left, bottom_right, color, thickness)
 
                 if draw_pauses:

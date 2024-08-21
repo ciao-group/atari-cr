@@ -35,7 +35,7 @@ class CRDQN:
             sugarl_r_scale: float,
             seed = 0,
             fov_size = 50,
-            sensory_action_space_granularity: Tuple[int] = (4, 4),
+            sensory_action_space_quantization: Tuple[int] = (4, 4),
             learning_rate = 0.0001,
             replay_buffer_size = 100000,
             frame_stack = 4,
@@ -66,7 +66,7 @@ class CRDQN:
         :param float sugarl_r_scale:
         :param int seed:
         :param int fov_size:
-        :param Tuple[int] sensory_action_space_granularity: The number of smallest sensory steps 
+        :param Tuple[int] sensory_action_space_quantization: The number of smallest sensory steps 
             it takes from left to right and from top to bottom
         :param float learning_rate: The learning rate used for the Q Network and Self Predicition Network
         "param int replay_buffer_size:
@@ -129,9 +129,9 @@ class CRDQN:
         # Get the sensory action set as a list of discrete actions
         # How far can the fovea move from left to right and from top to bottom 
         max_sensory_action_step = np.array(self.obs_size) - np.array([self.fov_size, self.fov_size])
-        sensory_action_step_size = max_sensory_action_step // sensory_action_space_granularity
-        sensory_action_x_set = list(range(0, max_sensory_action_step[0], sensory_action_step_size[0]))[:sensory_action_space_granularity[0]]
-        sensory_action_y_set = list(range(0, max_sensory_action_step[1], sensory_action_step_size[1]))[:sensory_action_space_granularity[1]]
+        sensory_action_step_size = max_sensory_action_step // sensory_action_space_quantization
+        sensory_action_x_set = list(range(0, max_sensory_action_step[0], sensory_action_step_size[0]))[:sensory_action_space_quantization[0]]
+        sensory_action_y_set = list(range(0, max_sensory_action_step[1], sensory_action_step_size[1]))[:sensory_action_space_quantization[1]]
         # Discrete action set as cross product of possible x and y steps
         self.sensory_action_set = [np.array(a) for a in list(product(sensory_action_x_set, sensory_action_y_set))]
 

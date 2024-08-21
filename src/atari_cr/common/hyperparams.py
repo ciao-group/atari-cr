@@ -11,14 +11,14 @@ class ConfigParams(TypedDict):
     pause_cost: float
     no_action_pause_cost: float
     pvm_stack: int
-    fov_size: int
-    sensory_action_space_granularity: int
+    sensory_action_space_quantization: int
+    saccade_cost_scale: float
 
 def tuning(config: ConfigParams, time_steps: int):
-    # Copy granularity value into the two corresponding values
-    granularity = config.pop("sensory_action_space_granularity")
-    config["sensory_action_x_space"] = granularity
-    config["sensory_action_y_space"] = granularity
+    # Copy quantization value into the two corresponding values
+    quantization = config.pop("sensory_action_space_quantization")
+    config["sensory_action_x_space"] = quantization
+    config["sensory_action_y_space"] = quantization
 
     # Add basic config
     args_dict = {}
@@ -34,7 +34,7 @@ def tuning(config: ConfigParams, time_steps: int):
 
     # Add already found hyper params
     args_dict.update({
-        "action_repeat": 5,
+        "action_repeat": 1,
         "fov_size": 50,
     })
 
@@ -64,10 +64,11 @@ if __name__ == "__main__":
     trainable = tune.with_resources(trainable, {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
     param_space: ConfigParams = {
-        "pause_cost": tune.quniform(0.05, 0.20, 0.01),
-        "no_action_pause_cost": tune.quniform(0., 2.0, 0.2),
-        "pvm_stack": tune.randint(5, 20),
-        "sensory_action_space_granularity": tune.randint(1, 10)
+        "pause_cost": tune.quniform(0.05, 0.50, 0.025),
+        "no_action_pause_cost": tune.quniform(0., 2.0, 0.1),
+        "pvm_stack": tune.randint(5, 30),
+        "sensory_action_space_quantization": tune.randint(1, 12),
+        "saccade_cost_scale": tune.quniform(0.0001, 0.0020, 0.0001)
     }
 
     metric, mode = "episode_reward", "max"

@@ -66,7 +66,7 @@ class ArgParser(Tap):
     pause_cost: float = 0.1 # The cost for the env to only take a sensory step
     successive_pause_limit: int = 20 # The maximum number of successive pauses before pauses are forbidden. This prevents the agent from halting
     no_action_pause_cost: float = 0.1 # The additional cost of pausing without performing a sensory action
-    saccade_cost_scale: float = 0.001 # How much the agent is punished for bigger eye movements
+    saccade_cost_scale: float = 0.000 # How much the agent is punished for bigger eye movements
 
     # Misc
     ignore_sugarl: bool = False # Whether to ignore the sugarl term for Q network learning
@@ -152,7 +152,7 @@ def main(args: ArgParser):
         target_network_frequency=args.target_network_frequency,
         eval_frequency=args.eval_frequency,
         n_evals=args.eval_num,
-        sensory_action_space_granularity=(args.sensory_action_x_size, args.sensory_action_y_size),
+        sensory_action_space_quantization=(args.sensory_action_x_size, args.sensory_action_y_size),
         epsilon_interval=(args.start_e, args.end_e),
         exploration_fraction=args.exploration_fraction,
         ignore_sugarl=args.ignore_sugarl,

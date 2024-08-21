@@ -274,21 +274,6 @@ class GazePredictor():
         
         # Save the trained model
         self.save()
-
-    def eval(self):
-        self.prediction_network.eval()
-        val_loss = 0.0
-        aucs = 0.0
-        with torch.no_grad():
-            for inputs, targets, gaze_positions_batch in self.val_loader:
-                inputs, targets = inputs.to(self.device), targets.to(self.device)
-                outputs = self.prediction_network(inputs)
-                val_loss += self.loss_function(outputs, targets).item()
-                # TODO: Fix
-                # aucs += compute_auc(targets, gaze_positions_batch)
-
-        self.writer.add_scalar("Validation Loss", val_loss / len(self.val_loader), self.epoch)
-        print(f'Epoch {self.epoch + 1} completed. Validation Loss: {val_loss / len(self.val_loader):.3f}')
     
     def save(self):
         torch.save(
@@ -527,7 +512,7 @@ if __name__ == "__main__":
     gaze_predictor.train(n_epochs=1)
 
     # Compare a run made by the agent with a run from atari head
-    # # TODO: Fill in the model
+    # TODO: Fill in the model
     # raise NotImplementedError
     # atari_head_gaze_predictor = None
     # evaluate_agent(
