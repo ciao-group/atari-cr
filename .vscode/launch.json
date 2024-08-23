@@ -39,7 +39,6 @@
                 // Additional config
                 "--pause_cost", "0.05",
                 "--use_pause_env",
-                // TODO: How to make action_repeat 0 work, is that even what I want?
                 "--action_repeat", "1"
             ],
             "justMyCode": false

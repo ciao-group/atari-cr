@@ -335,6 +335,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.record_buffer["fov_loc"].append(fov_loc)
 
 
+# OPTIONAL:
 class SlowableFixedFovealEnv(PauseableFixedFovealEnv):
     """
     Environemt making it possible to be paused to only take
@@ -343,8 +344,9 @@ class SlowableFixedFovealEnv(PauseableFixedFovealEnv):
     speed as it was done with the Atari-HEAD dataset
     (http://arxiv.org/abs/1903.06754)
     """
-    def __init__(self, env: gym.Env, args):
-        super().__init__(env, args)
+    def __init__(self, env: gym.Env, args, pause_cost = 0.01, successive_pause_limit = 20, 
+                 no_action_pause_cost = 0.1, saccade_cost_scale = 0.001):
+        super().__init__(env, args, pause_cost, successive_pause_limit, no_action_pause_cost, saccade_cost_scale)
         self.ms_since_motor_step = 0
 
     def step(self, action):
@@ -355,11 +357,14 @@ class SlowableFixedFovealEnv(PauseableFixedFovealEnv):
             SLOWED_FRAME_RATE = 20
             if self.ms_since_motor_step >= 1000/SLOWED_FRAME_RATE:
                 action["motor_action"] = np.int64(0)
+                self.ms_since_motor_step = 0
                 return self.step(action)
-            
+        else:
+            self.ms_since_motor_step = 0
+
         fov_state, reward, done, truncated, info = super().step(action)
 
-        # TODO: Progress the time because a vision step has happened
+        # Progress the time because a vision step has happened
         # depending on how big the sensory action was
         # Time for a saccade is fixed to 20 ms for now
         self.ms_since_motor_step += 20

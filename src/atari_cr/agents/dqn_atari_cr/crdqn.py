@@ -553,7 +553,6 @@ class CRDQN:
         :param NDArray data: A sample from the replay buffer
         :param NDArray[Shape[self.batch_size], Float] observation_quality: A batch of probabilities of the SFN predicting the action that the agent selected  
         """
-        # TODO: Investigate how pausing interacts with sugarl reward
         # Target network prediction
         with torch.no_grad():
             # Assign a value to every possible action in the next state for one batch 

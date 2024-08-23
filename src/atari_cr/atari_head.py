@@ -492,7 +492,7 @@ def debug_recording(recordings_path: str):
 if __name__ == "__main__":    
     # Create dataset and data loader
     transform = transforms.Resize((84, 84))
-    dataset = GazeDataset(root_dir='Atari-HEAD/freeway', transform=transform)
+    dataset = GazeDataset.from_atari_head_files(root_dir='Atari-HEAD/freeway', transform=transform)
 
     env_name = "freeway"
     output_dir = f"output/atari_head/{env_name}"

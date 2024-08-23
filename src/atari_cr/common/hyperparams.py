@@ -34,7 +34,7 @@ def tuning(config: ConfigParams, time_steps: int):
 
     # Add already found hyper params
     args_dict.update({
-        "action_repeat": 1,
+        "action_repeat": 5,
         "fov_size": 50,
     })
 
@@ -47,6 +47,7 @@ def tuning(config: ConfigParams, time_steps: int):
 
     # Send the current training result back to Tune
     result = {"episode_reward": sum(eval_returns) / len(eval_returns)}
+    print("eee", eval_returns)
 
     # TODO: Test against Atari-HEAD
     # kl_div = 0
