@@ -481,3 +481,50 @@ def gradfilter_ema(
             p.grad.data = p.grad.data + grads[n] * lamb
 
     return grads
+
+def EMMA_fixation_time(
+        dist: float, 
+        freq = 0.1,
+        execution_time = 0.07,
+        K = 0.006,
+        k = 0.4,
+        saccade_scaling = 0.002,
+        t_prep = 0.135,
+    ):
+    """
+    Mathematical model for saccade duration from EMMA (Salvucci, 2001).
+    Borrowed from https://github.com/aditya02acharya/TypingAgent/blob/master/src/utilities/utils.py.
+
+    :param float dist: Eccentricity in visual angle.
+    :param float freq: Frequency of object being encoded. How often does the object appear. Value in (0,1).
+    :param float execution_time: The base time it takes to execute an eye movement, independent of distance. 
+    :param float K: Scaling parameter for the encoding time.
+    :param float k: Scaling parameter for the influence of the saccade distance on the encoding time.
+    :param float saccade_scaling: Scaling parameter for the influence of the saccade distance on the execution time.
+    :param float t_prep: Movement preparation time. If this is greater than the encoding time, no movement occurs.
+
+    :return EMMA_breakdown: tuple containing (preparation_time, execution_time, remaining_encoding_time).
+    :return total_time: Total eye movement time.
+    :return moved: true if encoding time > preparation time. false otherwise.
+    """    
+    # visual encoding time
+    t_enc = K * -np.log(freq) * np.exp(k * dist)
+
+    # if encoding time < movement preparation time then no movement
+    if t_enc < t_prep:
+        return (t_enc, 0, 0), t_enc, False
+
+    # movement execution time
+    t_exec = execution_time + saccade_scaling * dist
+    # eye movement time (preparation time + execition time)
+    t_sacc = t_prep + t_exec
+
+    # if encoding time less then movement time
+    if t_enc <= t_sacc:
+        return (t_prep, t_exec, 0), t_sacc, True
+
+    # if encoding left after movement time
+    e_new = (k * -np.log(freq))
+    t_enc_new = (1 - (t_sacc / t_enc)) * e_new
+
+    return (t_prep, t_exec, t_enc_new), t_sacc + t_enc_new, True

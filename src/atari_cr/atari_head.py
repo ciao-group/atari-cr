@@ -18,6 +18,10 @@ from sklearn.metrics import roc_auc_score
 from atari_cr.common.utils import gradfilter_ema, grid_image
 from atari_cr.common.models import RecordBuffer
 
+# Screen Size in visual degrees: 44,6 x 28,5
+# Visual Degrees per Pixel with 84 x 84 pixels: 0,5310 x 0,3393
+VISUAL_DEGREE_SCREEN_SIZE = (44.6, 28.5)
+
 class GazePredictionNetwork(nn.Module):
     """
     Neural network predicting a saliency map for a given stack of 4 greyscale atari game images.
@@ -101,7 +105,7 @@ class GazeDataset(Dataset):
         return GazeDataset(
             frames, 
             gaze_lists,
-            [create_saliency_map(torch.stack(gazes)) for gazes in gaze_lists],
+            [create_saliency_map(gazes) for gazes in gaze_lists],
         )
 
     @staticmethod
@@ -111,27 +115,32 @@ class GazeDataset(Dataset):
         """
         dfs = []
 
+        # Count the files that still need to be loaded
+        i, total_files = 0, 0
+        for _, _, filenames in os.walk(root_dir):
+            total_files += len(list(filter(lambda filename: filename.endswith('.csv'), filenames)))
+
         # Walk through the directory
-        for dirpath, dirnames, filenames in os.walk(root_dir):
+        for (dirpath, dirnames, filenames) in os.walk(root_dir):
             for filename in filter(lambda filename: filename.endswith('.csv'), filenames):
+                i += 1
 
                 csv_path = os.path.join(dirpath, filename)
                 subdir_name = os.path.splitext(filename)[0]
 
                 df = pd.read_csv(csv_path)
-                df = df.set_index("frame_id")
+                # df = df.set_index("frame_id")
 
                 # Load the images
-                print("Loading images...")
-                df = pd.DataFrame(columns=["frame_id", "image_path", "image_tensor"])
-                df["frame_id"] = pd.Series(df.index)
+                print(f"Loading images ({i}/{total_files})")
+                # df["frame_id"] = pd.Series(df.index)
                 df["image_path"] = df["frame_id"].apply(lambda id: os.path.join(dirpath, subdir_name, id + ".png"))
                 df["image_tensor"] = df["image_path"] \
                     .apply(lambda path: transform(read_image(path, ImageReadMode.GRAY)))
                 df = df.set_index("frame_id")
                 
                 # Create saliency maps
-                print("Creating saliency maps...")
+                print(f"Creating saliency maps ({i}/{total_files})")
                 df["gaze_positions"] = df["gaze_positions"].apply(GazeDataset._parse_gaze_string)
 
                 data = pd.DataFrame({
@@ -372,6 +381,7 @@ def create_saliency_map(gaze_positions: torch.Tensor):
 
     # Adjust sigma to correspond to one visual degree
     # Screen Size: 44,6 x 28,5 visual degrees; Visual Degrees per Pixel: 0,5310 x 0,3393
+    sigmas = 1 / (torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE) / 84)
     sigma = 2
     # Scale the coords from the original resolution down to 84 x 84
     gaze_positions *= torch.Tensor([84/160, 84/210])
@@ -382,9 +392,13 @@ def create_saliency_map(gaze_positions: torch.Tensor):
     x = x.view(1, 84, 84).expand(n_positions, 84, 84)
     y = y.view(1, 84, 84).expand(n_positions, 84, 84)
     mesh = torch.stack([x, y], dim=1)
-    saliency_map, _ = torch.max(torch.exp(-torch.sum((mesh - gaze_positions)**2, dim=1) / (2 * sigma**2)), dim=0)
+    sigmas = sigmas.view(1, 2, 1, 1).expand(n_positions, -1, 84, 84)
+    # gaze_positions is now Nx2x84x84 with 84x84 identical copies
+    # x and y are now both Nx84x84 with N identical copies
+    # mesh is Nx2x84x84 with N copies of every possible combination of x and y coordinates
+    saliency_map, _ = torch.max(torch.exp(-torch.sum(((mesh - gaze_positions)**2) / (2 * sigmas**2), dim=1)), dim=0)
 
-    # self._show_tensor((saliency_map * 255).to(torch.uint8))
+    # GazeDataset._show_tensor((saliency_map * 255).to(torch.uint8))
     return  (saliency_map * 255).to(torch.uint8)
 
 def open_mp4_as_frame_list(path: str):

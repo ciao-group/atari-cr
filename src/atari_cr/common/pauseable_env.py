@@ -10,6 +10,7 @@ import copy
 from torchvision.transforms import Resize
 
 from atari_cr.common.models import SensoryActionMode, RecordBuffer
+from atari_cr.common.utils import EMMA_fixation_time
         
 
 class PauseableFixedFovealEnv(gym.Wrapper):
@@ -137,8 +138,10 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             # Sensory step
             state = self._fov_step(full_state=self.state, action=action["sensory_action"])  
             
-        # Add saccade costs for foveal distance traveled
-        saccade_cost = self.saccade_cost_scale * np.sqrt(np.sum( np.square(self.fov_loc - prev_fov_lov) ))
+        # Add costs for the time it took the agent to move its fovea
+        pixel_distance = np.sqrt(np.sum( np.square(self.fov_loc - prev_fov_lov) ))
+        saccade_cost = EMMA_fixation_time()
+        saccade_cost = self.saccade_cost_scale * pixel_distance
         reward -= saccade_cost
 
         self._log_step(reward, action, done, truncated, info, raw_reward, saccade_cost)
