@@ -8,17 +8,15 @@ from ray.tune.schedulers import ASHAScheduler
 from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
 
 class ConfigParams(TypedDict):
-    pause_cost: float
-    no_action_pause_cost: float
-    pvm_stack: int
-    sensory_action_space_quantization: int
-    saccade_cost_scale: float
+    action_repeat: int
+    sticky_action_probability: float
 
 def tuning(config: ConfigParams, time_steps: int):
     # Copy quantization value into the two corresponding values
-    quantization = config.pop("sensory_action_space_quantization")
-    config["sensory_action_x_space"] = quantization
-    config["sensory_action_y_space"] = quantization
+    if "sensory_action_space_quantization" in config:
+        quantization = config.pop("sensory_action_space_quantization")
+        config["sensory_action_x_space"] = quantization
+        config["sensory_action_y_space"] = quantization
 
     # Add basic config
     args_dict = {}
@@ -34,9 +32,17 @@ def tuning(config: ConfigParams, time_steps: int):
 
     # Add already found hyper params
     args_dict.update({
-        "action_repeat": 5,
+        # "action_repeat": 5,
         "fov_size": 50,
         "sensory_action_space_quantization": 4,
+    })
+
+    # Add vaguely found hyperparameters
+    args_dict.update({
+        "no_action_pause_cost": 1.4,
+        "pause_cost": 0.3,
+        "pvm_stack": 13, 
+        "saccade_cost_scale": 0.0015,
     })
 
     # Add hyperparameter config
@@ -65,11 +71,15 @@ if __name__ == "__main__":
     trainable = lambda config: tuning(config, time_steps=time_steps)
     trainable = tune.with_resources(trainable, {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
+    # param_space: ConfigParams = {
+    #     "pause_cost": tune.quniform(0.10, 0.40, 0.05),
+    #     "no_action_pause_cost": tune.quniform(1.0, 2.0, 0.2),
+    #     "pvm_stack": tune.randint(2, 16),
+    #     "saccade_cost_scale": tune.quniform(0.0001, 0.0020, 0.0001)
+    # }
     param_space: ConfigParams = {
-        "pause_cost": tune.quniform(0.10, 0.40, 0.05),
-        "no_action_pause_cost": tune.quniform(1.0, 2.0, 0.2),
-        "pvm_stack": tune.randint(2, 16),
-        "saccade_cost_scale": tune.quniform(0.0001, 0.0020, 0.0001)
+        "action_repeat": tune.choice([1, 2]),
+        "sticky_action_probability": tune.quniform(0, 1, 0.1),
     }
 
     metric, mode = "episode_reward", "max"

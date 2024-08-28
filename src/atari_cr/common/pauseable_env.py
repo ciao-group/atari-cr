@@ -11,6 +11,7 @@ from torchvision.transforms import Resize
 
 from atari_cr.common.models import SensoryActionMode, RecordBuffer
 from atari_cr.common.utils import EMMA_fixation_time
+from atari_cr.atari_head import VISUAL_DEGREE_SCREEN_SIZE
         
 
 class PauseableFixedFovealEnv(gym.Wrapper):
@@ -19,7 +20,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     a sensory action without progressing the game.
     """
     def __init__(self, env: gym.Env, args, pause_cost = 0.01, successive_pause_limit = 20, 
-                 no_action_pause_cost = 0.1, saccade_cost_scale = 0.001):
+                 no_action_pause_cost = 0.1, saccade_cost_scale = 0.001, use_emma = False):
         """
         :param float pause_cost: Negative reward for the agent whenever they chose to not take
             an action in the environment to only look; prevents abuse of pausing
@@ -27,6 +28,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             a random action is selected instead. This prevents the agent from halting
 
         :param float saccade_cost_scale: How much the agent is punished for bigger eye movements
+        :param bool use_emma: Whether to use the EMMA model (doi.org/10.1016/S1389-0417(00)00015-2) for saccade cost calculation. If not, the pixel length of the saccade is used.
         """
         super().__init__(env)
         self.fov_size: Tuple[int, int] = args.fov_size
@@ -82,6 +84,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         if self.record:
             self._reset_record_buffer()
 
+        # EMMA
+        self.use_emma = use_emma
+
         self.env: AtariEnv
 
     def step(self, action):
@@ -90,7 +95,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.pause_action = self._is_pause(action["motor_action"])
 
         # Save the previous fov_loc to calculate the saccade cost
-        prev_fov_lov = self.fov_loc.copy()
+        prev_fov_loc = self.fov_loc.copy()
 
         if self.pause_action:
             # Disallow a pause on the first episode step because there is no
@@ -139,10 +144,16 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             state = self._fov_step(full_state=self.state, action=action["sensory_action"])  
             
         # Add costs for the time it took the agent to move its fovea
-        pixel_distance = np.sqrt(np.sum( np.square(self.fov_loc - prev_fov_lov) ))
-        saccade_cost = EMMA_fixation_time()
-        saccade_cost = self.saccade_cost_scale * pixel_distance
-        reward -= saccade_cost
+        if self.use_emma:
+            visual_degrees_per_pixel = np.array(VISUAL_DEGREE_SCREEN_SIZE) / np.array(self.env.obs_size)
+            visual_degree_distance = np.sqrt(np.sum( np.square((self.fov_loc - prev_fov_loc) * visual_degrees_per_pixel) ))
+            _, total_emma_time, fovea_did_move = EMMA_fixation_time(visual_degree_distance)
+            saccade_cost = self.saccade_cost_scale * total_emma_time
+        # Add cost for the distance traveled by the fovea
+        else: 
+            pixel_distance = np.sqrt(np.sum( np.square(self.fov_loc - prev_fov_loc) ))
+            saccade_cost = self.saccade_cost_scale * pixel_distance
+        reward -= saccade_cost 
 
         self._log_step(reward, action, done, truncated, info, raw_reward, saccade_cost)
         info = self._update_info(info)

@@ -33,6 +33,7 @@ class ArgParser(Tap):
     frame_stack: int = 4 # The number of frames making up one observation
     action_repeat: int = 4 # The number of times an action is repeated
     clip_reward: bool = False # Whether to clip rewards
+    sticky_action_probability: float = 0.0 # The probability that an action by the agent is repeated on the next timestep.
 
     # Fovea settings
     fov_size: int = 20 # The size of the fovea
@@ -67,6 +68,7 @@ class ArgParser(Tap):
     successive_pause_limit: int = 20 # The maximum number of successive pauses before pauses are forbidden. This prevents the agent from halting
     no_action_pause_cost: float = 0.1 # The additional cost of pausing without performing a sensory action
     saccade_cost_scale: float = 0.000 # How much the agent is punished for bigger eye movements
+    use_emma: bool = False # Whether to use the EMMA model (doi.org/10.1016/S1389-0417(00)00015-2) for saccade cost calculation. If not, the pixel length of the saccade is used.
 
     # Misc
     ignore_sugarl: bool = False # Whether to ignore the sugarl term for Q network learning
@@ -100,11 +102,12 @@ def main(args: ArgParser):
                 env = AtariEnv(env_args)    
                 env = PauseableFixedFovealEnv(
                     env, env_args, args.pause_cost, args.successive_pause_limit, 
-                    args.no_action_pause_cost, args.saccade_cost_scale
+                    args.no_action_pause_cost, args.saccade_cost_scale, args.use_emma
                 )
             else:
                 env_args.sensory_action_mode = str(sensory_action_mode)
                 env = AtariFixedFovealEnv(env_args)
+            env.get_wrapper_attr("ale").setFloat('repeat_action_probability', args.sticky_action_probability)
             env.action_space.seed(seed)
             env.observation_space.seed(seed)
             return env

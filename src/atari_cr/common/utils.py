@@ -492,7 +492,7 @@ def EMMA_fixation_time(
         t_prep = 0.135,
     ):
     """
-    Mathematical model for saccade duration from EMMA (Salvucci, 2001).
+    Mathematical model for saccade duration in seconds from EMMA (Salvucci, 2001).
     Borrowed from https://github.com/aditya02acharya/TypingAgent/blob/master/src/utilities/utils.py.
 
     :param float dist: Eccentricity in visual angle.
@@ -504,7 +504,7 @@ def EMMA_fixation_time(
     :param float t_prep: Movement preparation time. If this is greater than the encoding time, no movement occurs.
 
     :return EMMA_breakdown: tuple containing (preparation_time, execution_time, remaining_encoding_time).
-    :return total_time: Total eye movement time.
+    :return total_time: Total eye movement time in seconds.
     :return moved: true if encoding time > preparation time. false otherwise.
     """    
     # visual encoding time

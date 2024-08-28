@@ -32,14 +32,14 @@
                 "--clip_reward",
                 "--capture_video",
                 "--env", "ms_pacman",
-                // Debuug config
+                // Debug config
                 "--exp_name", "dqn_cr_debug",
                 "--total_timesteps", "10000",
                 "--learning_start", "1000",
                 // Additional config
                 "--pause_cost", "0.05",
                 "--use_pause_env",
-                "--action_repeat", "1"
+                "--action_repeat", "5"
             ],
             "justMyCode": false
         },
