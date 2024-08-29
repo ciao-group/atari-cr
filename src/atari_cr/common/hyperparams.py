@@ -65,7 +65,7 @@ def tuning(config: ConfigParams, time_steps: int):
 if __name__ == "__main__":
     DEBUG = False
     concurrent_runs = 3 if DEBUG else 4
-    num_samples = 1 * concurrent_runs if DEBUG else 100
+    num_samples = 1 * concurrent_runs if DEBUG else 50
     time_steps = int(1e6) if DEBUG else int(1e6)
 
     trainable = lambda config: tuning(config, time_steps=time_steps)
@@ -78,7 +78,7 @@ if __name__ == "__main__":
     #     "saccade_cost_scale": tune.quniform(0.0001, 0.0020, 0.0001)
     # }
     param_space: ConfigParams = {
-        "action_repeat": tune.choice([1, 2]),
+        "action_repeat": tune.choice([1, 2, 3, 4]),
         "sticky_action_probability": tune.quniform(0, 1, 0.1),
     }
 
@@ -88,9 +88,9 @@ if __name__ == "__main__":
         param_space=param_space,
         tune_config=tune.TuneConfig(
             num_samples=num_samples,
-            scheduler=ASHAScheduler(
-                stop_last_trials=False
-            ),
+            # scheduler=ASHAScheduler(
+            #     stop_last_trials=False
+            # ),
             search_alg=OptunaSearch(),
             metric=metric,
             mode=mode

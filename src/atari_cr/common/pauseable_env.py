@@ -51,7 +51,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.action_space = Dict({
             # One additional action lets the agent stop the game to perform a 
             # sensory action without the game progressing  
-            "motor_action": Discrete(self.env.action_space.n + 1),
+            "motor_action": Discrete(self.get_wrapper_attr("action_space").n + 1),
             "sensory_action": Box(low=self.sensory_action_space[0], 
                                  high=self.sensory_action_space[1], dtype=int),
         })
@@ -101,7 +101,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             # Disallow a pause on the first episode step because there is no
             # observation to look at yet and do a random action instead
             if not hasattr(self, "state"):
-                action["motor_action"] = np.random.randint(1, len(self.env.actions))
+                action["motor_action"] = np.random.randint(1, len(self.get_wrapper_attr("actions")))
                 return self.step(action)
 
             # Prevent the agent from being stuck on only using pauses
@@ -145,7 +145,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             
         # Add costs for the time it took the agent to move its fovea
         if self.use_emma:
-            visual_degrees_per_pixel = np.array(VISUAL_DEGREE_SCREEN_SIZE) / np.array(self.env.obs_size)
+            visual_degrees_per_pixel = np.array(VISUAL_DEGREE_SCREEN_SIZE) / np.array(self.get_wrapper_attr("obs_size"))
             visual_degree_distance = np.sqrt(np.sum( np.square((self.fov_loc - prev_fov_loc) * visual_degrees_per_pixel) ))
             _, total_emma_time, fovea_did_move = EMMA_fixation_time(visual_degree_distance)
             saccade_cost = self.saccade_cost_scale * total_emma_time
@@ -263,7 +263,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         """
         Checks if a given motor action is the pause action
         """
-        return motor_action == len(self.env.actions)
+        return motor_action == len(self.get_wrapper_attr("actions"))
 
     def _update_info(self, info: dict):
         info["reward"] = self.cumulative_reward
@@ -278,7 +278,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         return info
 
     def _clip_to_valid_fov(self, loc):
-        return np.rint(np.clip(loc, 0, np.array(self.env.obs_size) - np.array(self.fov_size))).astype(int)
+        return np.rint(np.clip(loc, 0, np.array(self.get_wrapper_attr("obs_size")) - np.array(self.fov_size))).astype(int)
 
     def _clip_to_valid_sensory_action_space(self, action):
         return np.rint(np.clip(action, *self.sensory_action_space)).astype(int)
@@ -364,7 +364,7 @@ class SlowableFixedFovealEnv(PauseableFixedFovealEnv):
         self.ms_since_motor_step = 0
 
     def step(self, action):
-        pause_action = action["motor_action"] == len(self.env.actions)
+        pause_action = action["motor_action"] == len(self.get_wrapper_attribute("actions"))
         if pause_action and (self.state is not None):
             # If it has been more than 50ms (results in 20 Hz) since the last motor action 
             # NOOP will be chosen as a motor action instead of continuing the pause
