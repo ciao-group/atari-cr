@@ -14,6 +14,7 @@ from PIL import Image
 import numpy as np
 import cv2
 from sklearn.metrics import roc_auc_score
+import h5py
 
 from atari_cr.common.utils import gradfilter_ema, grid_image
 from atari_cr.common.models import RecordBuffer
@@ -30,19 +31,19 @@ class GazePredictionNetwork(nn.Module):
         super(GazePredictionNetwork, self).__init__()
         
         # Convolutional layers
-        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
-        self.conv1_norm = nn.BatchNorm2d(32)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        self.conv2_norm = nn.BatchNorm2d(64)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        self.conv3_norm = nn.BatchNorm2d(64)
+        self.conv2d_1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
+        self.batch_normalization_1 = nn.BatchNorm2d(32)
+        self.conv2d_2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
+        self.batch_normalization_2 = nn.BatchNorm2d(64)
+        self.conv2d_3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+        self.batch_normalization_3 = nn.BatchNorm2d(64)
         
         # Deconvolutional (transpose convolution) layers
-        self.deconv1 = nn.ConvTranspose2d(64, 64, kernel_size=3, stride=1)
-        self.deconv1_norm = nn.BatchNorm2d(64)
-        self.deconv2 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2)
-        self.deconv2_norm = nn.BatchNorm2d(32)
-        self.deconv3 = nn.ConvTranspose2d(32, 1, kernel_size=8, stride=4)
+        self.conv2d_transpose_1 = nn.ConvTranspose2d(64, 64, kernel_size=3, stride=1)
+        self.batch_normalization_4 = nn.BatchNorm2d(64)
+        self.conv2d_transpose_2 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2)
+        self.batch_normalization_5 = nn.BatchNorm2d(32)
+        self.conv2d_transpose_3 = nn.ConvTranspose2d(32, 1, kernel_size=8, stride=4)
         
         # Softmax layer; Uses log softmax to conform to the KLDiv expected input
         self.softmax = nn.LogSoftmax(dim=1)
@@ -50,29 +51,29 @@ class GazePredictionNetwork(nn.Module):
 
     def forward(self, x):
         # Convolutional layers
-        x = self.conv1(x)
+        x = self.conv2d_1(x)
         x = F.relu(x)
-        x = self.conv1_norm(x)
+        x = self.batch_normalization_1(x)
         x = self.dropout(x)
-        x = self.conv2(x)
+        x = self.conv2d_2(x)
         x = F.relu(x)
-        x = self.conv2_norm(x)
+        x = self.batch_normalization_2(x)
         x = self.dropout(x)
-        x = self.conv3(x)
+        x = self.conv2d_3(x)
         x = F.relu(x)
-        x = self.conv3_norm(x)
+        x = self.batch_normalization_3(x)
         x = self.dropout(x)
         
         # Deconvolutional layers
-        x = self.deconv1(x)
+        x = self.conv2d_transpose_1(x)
         x = F.relu(x)
-        x = self.deconv1_norm(x)
+        x = self.batch_normalization_4(x)
         x = self.dropout(x)
-        x = self.deconv2(x)
+        x = self.conv2d_transpose_2(x)
         x = F.relu(x)
-        x = self.deconv2_norm(x)
+        x = self.batch_normalization_5(x)
         x = self.dropout(x)
-        x = self.deconv3(x)
+        x = self.conv2d_transpose_3(x)
         
         # Reshape and apply softmax
         x = x.view(x.size(0), -1)
@@ -80,6 +81,40 @@ class GazePredictionNetwork(nn.Module):
         x = x.view(x.size(0), 84, 84)
         
         return x
+    
+    @staticmethod
+    def from_h5(save_path: str):
+        f = h5py.File(save_path, 'r')
+
+        model = GazePredictionNetwork()
+        state_dict = model.state_dict()
+
+        h5_weights = {}
+        for key in f["model_weights"]:
+            if len(f["model_weights"][key]) > 0:
+                h5_weights[key] = f["model_weights"][key][key]
+
+        for layer in h5_weights:
+            for key in h5_weights[layer]:
+                value = h5_weights[layer][key]
+                key: str = key[:-2]
+                key = key.replace("gamma", "weight") \
+                    .replace("beta", "bias") \
+                    .replace("moving", "running") \
+                    .replace("variance", "var") \
+                    .replace("kernel", "weight")
+
+                value = torch.Tensor(value)
+                value = value.permute(list(reversed(range(len(value.shape)))))
+                key = key.replace("kernel", "weight")
+
+                state_dict[f"{layer}.{key}"] = torch.Tensor(value)
+
+        # TODO: Optimizer weights
+
+        model.load_state_dict(state_dict)
+
+        return model
 
 class GazeDataset(Dataset):
     def __init__(self, frames: List[torch.Tensor], gaze_lists: List[List[torch.Tensor]], 
@@ -89,10 +124,6 @@ class GazeDataset(Dataset):
             "gazes": gaze_lists,
             "saliency_map": saliency_maps
         })
-    # def __init__(self, root_dir, transform=None):
-    #     self.transform = transform
-    #     # self.data, self.image_data = self._load_data(root_dir)
-    #     self.data = self._load_data(root_dir)
 
     @staticmethod
     def from_gaze_data(frames: List[torch.Tensor], gaze_lists: List[List[torch.Tensor]]):
@@ -102,10 +133,16 @@ class GazeDataset(Dataset):
         :param List[Tensor[Nx84x84]] frames: List of gameplay frames 
         :param List[List[Tensor[2]]] gaze_lists: List of List of gaze positions associated with one frame
         """
+        saliency_maps = [None] * len(gaze_lists)
+        for i, gazes in enumerate(gaze_lists):
+            if i % 1000 == 0:
+                print(f"Creating saliency maps ({i+1}/{len(gaze_lists)+1})")
+            saliency_maps.append(create_saliency_map(gazes))
+
         return GazeDataset(
             frames, 
             gaze_lists,
-            [create_saliency_map(gazes) for gazes in gaze_lists],
+            saliency_maps,
         )
 
     @staticmethod
@@ -121,46 +158,30 @@ class GazeDataset(Dataset):
             total_files += len(list(filter(lambda filename: filename.endswith('.csv'), filenames)))
 
         # Walk through the directory
-        for (dirpath, dirnames, filenames) in os.walk(root_dir):
-            for filename in filter(lambda filename: filename.endswith('.csv'), filenames):
-                i += 1
+        for filename in filter(lambda filename: filename.endswith('.csv'), os.listdir(root_dir)):
+            i += 1
 
-                csv_path = os.path.join(dirpath, filename)
-                subdir_name = os.path.splitext(filename)[0]
+            csv_path = os.path.join(root_dir, filename)
+            subdir_name = os.path.splitext(filename)[0]
 
-                df = pd.read_csv(csv_path)
-                # df = df.set_index("frame_id")
+            df = pd.read_csv(csv_path)
 
-                # Load the images
-                print(f"Loading images ({i}/{total_files})")
-                # df["frame_id"] = pd.Series(df.index)
-                df["image_path"] = df["frame_id"].apply(lambda id: os.path.join(dirpath, subdir_name, id + ".png"))
-                df["image_tensor"] = df["image_path"] \
-                    .apply(lambda path: transform(read_image(path, ImageReadMode.GRAY)))
-                df = df.set_index("frame_id")
-                
-                # Create saliency maps
-                print(f"Creating saliency maps ({i}/{total_files})")
-                df["gaze_positions"] = df["gaze_positions"].apply(GazeDataset._parse_gaze_string)
-
-                data = pd.DataFrame({
-                    "frame": df["image_tensor"],
-                    "gazes": df["gaze_positions"]
-                })
+            # Load the images
+            print(f"Loading images ({i}/{total_files})")
+            df["image_path"] = df["frame_id"].apply(lambda id: os.path.join(root_dir, subdir_name, id + ".png"))
+            df["image_tensor"] = df["image_path"] \
+                .apply(lambda path: transform(read_image(path, ImageReadMode.GRAY)))
+            df = df.set_index("frame_id")
             
-                # # Function to create the image_ids list
-                # image_ids = deque(maxlen=4)
-                # def get_image_ids(frame_id):
-                #     image_ids.append(frame_id)
-                #     return list(image_ids)
-                
-                # # Apply the function to create the image_paths column
-                # df['stack_images'] = list(pd.Series(df.index).apply(get_image_ids))
-                
-                # # Remove rows where we don't have 4 images yet
-                # df = df[df['stack_images'].apply(len) == 4]
+            # Create saliency maps
+            df["gaze_positions"] = df["gaze_positions"].apply(GazeDataset._parse_gaze_string)
 
-                dfs.append(data)
+            data = pd.DataFrame({
+                "frame": df["image_tensor"],
+                "gazes": df["gaze_positions"]
+            })
+
+            dfs.append(data)
 
         # Combine all dataframes
         combined_df = pd.concat(dfs, ignore_index=True)
@@ -321,7 +342,7 @@ class GazePredictor():
         predictor.epoch = int(save_path.split("/")[-1][:-4])
 
         return predictor
-    
+
 def transform_to_proper_csv(game_dir: str):
     """
     Transforms the pseudo csv format used by Atari-HEAD to proper csv
@@ -505,33 +526,35 @@ def debug_recording(recordings_path: str):
 
 if __name__ == "__main__":    
     # Create dataset and data loader
+    env_name = "ms_pacman"
     transform = transforms.Resize((84, 84))
-    dataset = GazeDataset.from_atari_head_files(root_dir='Atari-HEAD/freeway', transform=transform)
+    dataset = GazeDataset.from_atari_head_files(root_dir=f'data/Atari-HEAD/{env_name}', transform=transform)
+    loader = DataLoader(dataset, 1)
 
-    env_name = "freeway"
     output_dir = f"output/atari_head/{env_name}"
     model_dir = os.path.join(output_dir, "models")
     os.makedirs(model_dir, exist_ok=True)
-    # save_path = os.path.join(output_dir, env_name + ".pth")
 
-    # Load the Atari HEAD model
-    model_files = os.listdir(model_dir)
-    if len(model_files) > 0:
-        print("Loading existing gaze predictor")
-        latest_epoch = sorted([int(file[:-4]) for file in model_files])[-1]
-        save_path = os.path.join(model_dir, f"{latest_epoch}.pth")
-        gaze_predictor = GazePredictor.from_save_file(save_path, dataset)
-    else:
-        gaze_predictor = GazePredictor(GazePredictionNetwork(), dataset, output_dir)
-    gaze_predictor.train(n_epochs=1)
+    # # Load the Atari HEAD model
+    # model_files = os.listdir(model_dir)
+    # if len(model_files) > 0:
+    #     print("Loading existing gaze predictor")
+    #     latest_epoch = sorted([int(file[:-4]) for file in model_files])[-1]
+    #     save_path = os.path.join(model_dir, f"{latest_epoch}.pth")
+    #     gaze_predictor = GazePredictor.from_save_file(save_path, dataset)
+    # else:
+    #     gaze_predictor = GazePredictor(GazePredictionNetwork(), dataset, output_dir)
+    # gaze_predictor.train(n_epochs=1)
 
     # Compare a run made by the agent with a run from atari head
-    # TODO: Fill in the model
-    # raise NotImplementedError
-    # atari_head_gaze_predictor = None
-    # evaluate_agent(
-    #     atari_head_gaze_predictor, 
-    #     "/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings", 
-    #     "boxing"
-    # )
-    # debug_recording("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")
+    atari_head_gaze_predictor = GazePredictionNetwork.from_h5(f"data/h5_gaze_predictors/{env_name}.hdf5")
+
+    # TODO: Test model on Atari Head Data KL Div
+    atari_head_gaze_predictor(next(iter(loader)))
+
+    evaluate_agent(
+        atari_head_gaze_predictor, 
+        "/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings", 
+        "boxing"
+    )
+    debug_recording("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")

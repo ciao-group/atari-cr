@@ -11,7 +11,7 @@ build
 *cache*
 *.png
 output
-Atari-HEAD
+data
 ray_results
 
 # Old dir structure
