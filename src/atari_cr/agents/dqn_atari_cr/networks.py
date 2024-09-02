@@ -7,6 +7,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
+# @torch.compile()
 class QNetwork(nn.Module):
     def __init__(self, env, sensory_action_set):
         super().__init__()
@@ -72,7 +73,7 @@ class QNetwork(nn.Module):
 
         return motor_actions, sensory_actions
 
-
+# @torch.compile()
 class SelfPredictionNetwork(nn.Module):
     def __init__(self, env):
         super().__init__()

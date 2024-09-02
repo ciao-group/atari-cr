@@ -175,5 +175,8 @@ def main(args: ArgParser):
     return eval_returns
 
 if __name__ == "__main__":
+    # Use bfloat16 to speed up matrix computation
+    torch.set_float32_matmul_precision("medium")
+
     args = ArgParser().parse_args()
     main(args)

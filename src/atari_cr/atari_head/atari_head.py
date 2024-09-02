@@ -9,6 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torch.optim as optim
 from torchvision import transforms
 from torchvision.io import read_image, ImageReadMode
+from torchmetrics.classification import BinaryAccuracy
 import pandas as pd
 from PIL import Image
 import numpy as np
@@ -23,107 +24,15 @@ from atari_cr.common.models import RecordBuffer
 # Visual Degrees per Pixel with 84 x 84 pixels: 0,5310 x 0,3393
 VISUAL_DEGREE_SCREEN_SIZE = (44.6, 28.5)
 
-class GazePredictionNetwork(nn.Module):
-    """
-    Neural network predicting a saliency map for a given stack of 4 greyscale atari game images.
-    """
-    def __init__(self):
-        super(GazePredictionNetwork, self).__init__()
-        
-        # Convolutional layers
-        self.conv2d_1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
-        self.batch_normalization_1 = nn.BatchNorm2d(32)
-        self.conv2d_2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        self.batch_normalization_2 = nn.BatchNorm2d(64)
-        self.conv2d_3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        self.batch_normalization_3 = nn.BatchNorm2d(64)
-        
-        # Deconvolutional (transpose convolution) layers
-        self.conv2d_transpose_1 = nn.ConvTranspose2d(64, 64, kernel_size=3, stride=1)
-        self.batch_normalization_4 = nn.BatchNorm2d(64)
-        self.conv2d_transpose_2 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2)
-        self.batch_normalization_5 = nn.BatchNorm2d(32)
-        self.conv2d_transpose_3 = nn.ConvTranspose2d(32, 1, kernel_size=8, stride=4)
-        
-        # Softmax layer; Uses log softmax to conform to the KLDiv expected input
-        self.softmax = nn.LogSoftmax(dim=1)
-        self.dropout = nn.Dropout(0.3)
-
-    def forward(self, x):
-        # Convolutional layers
-        x = self.conv2d_1(x)
-        x = F.relu(x)
-        x = self.batch_normalization_1(x)
-        x = self.dropout(x)
-        x = self.conv2d_2(x)
-        x = F.relu(x)
-        x = self.batch_normalization_2(x)
-        x = self.dropout(x)
-        x = self.conv2d_3(x)
-        x = F.relu(x)
-        x = self.batch_normalization_3(x)
-        x = self.dropout(x)
-        
-        # Deconvolutional layers
-        x = self.conv2d_transpose_1(x)
-        x = F.relu(x)
-        x = self.batch_normalization_4(x)
-        x = self.dropout(x)
-        x = self.conv2d_transpose_2(x)
-        x = F.relu(x)
-        x = self.batch_normalization_5(x)
-        x = self.dropout(x)
-        x = self.conv2d_transpose_3(x)
-        
-        # Reshape and apply softmax
-        x = x.view(x.size(0), -1)
-        x = self.softmax(x)
-        x = x.view(x.size(0), 84, 84)
-        
-        return x
-    
-    @staticmethod
-    def from_h5(save_path: str):
-        f = h5py.File(save_path, 'r')
-
-        model = GazePredictionNetwork()
-        state_dict = model.state_dict()
-
-        h5_weights = {}
-        for key in f["model_weights"]:
-            if len(f["model_weights"][key]) > 0:
-                h5_weights[key] = f["model_weights"][key][key]
-
-        for layer in h5_weights:
-            for key in h5_weights[layer]:
-                value = h5_weights[layer][key]
-                key: str = key[:-2]
-                key = key.replace("gamma", "weight") \
-                    .replace("beta", "bias") \
-                    .replace("moving", "running") \
-                    .replace("variance", "var") \
-                    .replace("kernel", "weight")
-
-                value = torch.Tensor(value)
-                value = value.permute(list(reversed(range(len(value.shape)))))
-                key = key.replace("kernel", "weight")
-
-                state_dict[f"{layer}.{key}"] = torch.Tensor(value)
-
-        # TODO: Optimizer weights
-
-        model.load_state_dict(state_dict)
-
-        return model
-
 class GazeDataset(Dataset):
     def __init__(self, frames: List[torch.Tensor], gaze_lists: List[List[torch.Tensor]], 
-                 saliency_maps: List[torch.Tensor]):
+                 saliency_maps: List[torch.Tensor], output_gazes: bool = False):
         self.data = pd.DataFrame({
             "frame": frames, 
             "gazes": gaze_lists,
             "saliency_map": saliency_maps
         })
+        self.output_gazes = output_gazes
 
     @staticmethod
     def from_gaze_data(frames: List[torch.Tensor], gaze_lists: List[List[torch.Tensor]]):
@@ -137,7 +46,7 @@ class GazeDataset(Dataset):
         for i, gazes in enumerate(gaze_lists):
             if i % 1000 == 0:
                 print(f"Creating saliency maps ({i+1}/{len(gaze_lists)+1})")
-            saliency_maps.append(create_saliency_map(gazes))
+            saliency_maps[i] = create_saliency_map(gazes)
 
         return GazeDataset(
             frames, 
@@ -146,7 +55,7 @@ class GazeDataset(Dataset):
         )
 
     @staticmethod
-    def from_atari_head_files(root_dir: str, transform=None):
+    def from_atari_head_files(root_dir: str, load_single_run=False):
         """
         Loads the data in the Atari-HEAD format into a dataframe with metadata and image paths.
         """
@@ -167,10 +76,12 @@ class GazeDataset(Dataset):
             df = pd.read_csv(csv_path)
 
             # Load the images
-            print(f"Loading images ({i}/{total_files})")
+            print(f"Loading images ({i}/{1 if load_single_run else total_files})")
             df["image_path"] = df["frame_id"].apply(lambda id: os.path.join(root_dir, subdir_name, id + ".png"))
             df["image_tensor"] = df["image_path"] \
-                .apply(lambda path: transform(read_image(path, ImageReadMode.GRAY)))
+                .apply(lambda path: cv2.imread(path)) \
+                .apply(preprocess)
+                # .apply(lambda path: transforms.Resize((84, 84))(read_image(path, ImageReadMode.GRAY)).view([84, 84]))
             df = df.set_index("frame_id")
             
             # Create saliency maps
@@ -182,6 +93,9 @@ class GazeDataset(Dataset):
             })
 
             dfs.append(data)
+
+            if load_single_run:
+                break
 
         # Combine all dataframes
         combined_df = pd.concat(dfs, ignore_index=True)
@@ -223,26 +137,108 @@ class GazeDataset(Dataset):
         """
         Loads the images from paths specified in self.data and creates a saliency map from the gaze_positions.
         """
-        # # Load images
-        # images = []
-        # for id in self.data.iloc[idx]["stack_images"]:
-        #     images.append(self.image_data.loc[id]["image_tensor"])
-        # images = torch.vstack(images)
-
-        # # Load saliency map
-        # saliency_map = self.data.iloc[idx]["saliency_map"]
-
-        # # Convert to float to work with neural network
-        # images = (images * 255).to(torch.float32)
-        # saliency_map = (saliency_map * 255).to(torch.float32)
-
-        # return images, saliency_map, self.data.iloc[idx]["gaze_positions"]
-
-        return (
-            torch.Tensor(self.data.loc[idx:idx + 4, "frame"]),
+        item = (
+            torch.stack(list(self.data.loc[idx:idx + 3, "frame"])),
             self.data.loc[idx + 3, "saliency_map"],
-            self.data.loc[idx + 3, "gazes"],
         )
+        if self.output_gazes:
+            item = (*item, self.data.loc[idx + 3, "gazes"])
+
+        assert item[0].shape == torch.Size([4, 84, 84])
+        return item
+
+class GazePredictionNetwork(nn.Module):
+    """
+    Neural network predicting a saliency map for a given stack of 4 greyscale atari game images.
+    """
+    def __init__(self):
+        super(GazePredictionNetwork, self).__init__()
+        
+        # Convolutional layers
+        self.conv2d_1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
+        self.batch_normalization_1 = nn.BatchNorm2d(32)
+        self.conv2d_2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
+        self.batch_normalization_2 = nn.BatchNorm2d(64)
+        self.conv2d_3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+        self.batch_normalization_3 = nn.BatchNorm2d(64)
+        
+        # Deconvolutional (transpose convolution) layers
+        self.conv2d_transpose_1 = nn.ConvTranspose2d(64, 64, kernel_size=3, stride=1)
+        self.batch_normalization_4 = nn.BatchNorm2d(64)
+        self.conv2d_transpose_2 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2)
+        self.batch_normalization_5 = nn.BatchNorm2d(32)
+        self.conv2d_transpose_3 = nn.ConvTranspose2d(32, 1, kernel_size=8, stride=4)
+        
+        # Softmax layer; Uses log softmax to conform to the KLDiv expected input
+        self.log_softmax = nn.LogSoftmax(dim=1)
+        self.dropout = nn.Dropout(0.0)
+
+    def forward(self, x):
+        # Convolutional layers
+        x = self.conv2d_1(x)
+        x = F.relu(x)
+        x = self.batch_normalization_1(x)
+        x = self.dropout(x)
+        x = self.conv2d_2(x)
+        x = F.relu(x)
+        x = self.batch_normalization_2(x)
+        x = self.dropout(x)
+        x = self.conv2d_3(x)
+        x = F.relu(x)
+        x = self.batch_normalization_3(x)
+        x = self.dropout(x)
+        
+        # Deconvolutional layers
+        x = self.conv2d_transpose_1(x)
+        x = F.relu(x)
+        x = self.batch_normalization_4(x)
+        x = self.dropout(x)
+        x = self.conv2d_transpose_2(x)
+        x = F.relu(x)
+        x = self.batch_normalization_5(x)
+        x = self.dropout(x)
+        x = self.conv2d_transpose_3(x)
+        
+        # Reshape and apply softmax
+        x = x.view(x.size(0), -1)
+        x = self.log_softmax(x)
+        x = x.view(x.size(0), 84, 84)
+        
+        return x
+    
+    @staticmethod
+    def from_h5(save_path: str):
+        f = h5py.File(save_path, 'r')
+
+        model = GazePredictionNetwork()
+        state_dict = model.state_dict()
+
+        h5_weights = {}
+        for key in f["model_weights"]:
+            if len(f["model_weights"][key]) > 0:
+                h5_weights[key] = f["model_weights"][key][key]
+
+        for layer in h5_weights:
+            for key in h5_weights[layer]:
+                value = h5_weights[layer][key]
+                key: str = key[:-2]
+                key = key.replace("gamma", "weight") \
+                    .replace("beta", "bias") \
+                    .replace("moving", "running") \
+                    .replace("variance", "var") \
+                    .replace("kernel", "weight")
+
+                value = torch.Tensor(value)
+                value = value.permute(list(reversed(range(len(value.shape)))))
+                key = key.replace("kernel", "weight")
+
+                state_dict[f"{layer}.{key}"] = torch.Tensor(value)
+
+        # OPTIONAL: Optimizer weights
+
+        model.load_state_dict(state_dict)
+
+        return model
     
 class GazePredictor():
     """
@@ -392,35 +388,39 @@ def create_saliency_map(gaze_positions: torch.Tensor):
     
     :param Tensor[Nx2]: A Tensor containing all gaze positions associated with one frame
     """
+    screen_size = [84, 84]
+
+    # OPTIONAL: Implement this for a batch of saliency maps
     if gaze_positions.shape[0] == 0:
-        return torch.zeros((84, 84), dtype=torch.uint8)
+        return torch.zeros(screen_size, dtype=torch.uint8)
 
     # Generate x and y indices
-    x = torch.arange(0, 84, 1)
-    y = torch.arange(0, 84, 1)
+    x = torch.arange(0, screen_size[0], 1)
+    y = torch.arange(0, screen_size[1], 1)
     x, y = torch.meshgrid(x, y, indexing="xy")
 
     # Adjust sigma to correspond to one visual degree
     # Screen Size: 44,6 x 28,5 visual degrees; Visual Degrees per Pixel: 0,5310 x 0,3393
-    sigmas = 1 / (torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE) / 84)
+    sigmas = 1 / (torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE) / torch.Tensor(screen_size))
     sigma = 2
-    # Scale the coords from the original resolution down to 84 x 84
-    gaze_positions *= torch.Tensor([84/160, 84/210])
+    # Scale the coords from the original resolution down to the screen size
+    gaze_positions *= (torch.Tensor(screen_size) / torch.Tensor([160, 210]))
 
     # Expand the original tensors for broadcasting
     n_positions = gaze_positions.shape[0]
-    gaze_positions = gaze_positions.view(n_positions, 2, 1, 1).expand(-1, -1, 84, 84)
-    x = x.view(1, 84, 84).expand(n_positions, 84, 84)
-    y = y.view(1, 84, 84).expand(n_positions, 84, 84)
+    gaze_positions = gaze_positions.view(n_positions, 2, 1, 1).expand(-1, -1, *screen_size)
+    x = x.view(1, *screen_size).expand(n_positions, *screen_size)
+    y = y.view(1, *screen_size).expand(n_positions, *screen_size)
     mesh = torch.stack([x, y], dim=1)
-    sigmas = sigmas.view(1, 2, 1, 1).expand(n_positions, -1, 84, 84)
+    sigmas = sigmas.view(1, 2, 1, 1).expand(n_positions, -1, *screen_size)
     # gaze_positions is now Nx2x84x84 with 84x84 identical copies
     # x and y are now both Nx84x84 with N identical copies
     # mesh is Nx2x84x84 with N copies of every possible combination of x and y coordinates
     saliency_map, _ = torch.max(torch.exp(-torch.sum(((mesh - gaze_positions)**2) / (2 * sigmas**2), dim=1)), dim=0)
 
-    # GazeDataset._show_tensor((saliency_map * 255).to(torch.uint8))
-    return  (saliency_map * 255).to(torch.uint8)
+    # Make the tensor sum to 1 for KL Divergence
+    saliency_map = torch.nn.Softmax()(saliency_map.flatten()).view(screen_size)
+    return saliency_map
 
 def open_mp4_as_frame_list(path: str):
     video = cv2.VideoCapture(path)
@@ -444,11 +444,6 @@ def evaluate_agent(atari_head_gaze_predictor: nn.Module, recordings_path: str, g
     :param str recordings_path: Path to the agent's eval data, containing images and associated gaze positions 
     :returns Tuple[float, float]: KL-Divergence and AUC of the agent's saliency maps compared to Atari-HEAD 
     """
-    transform = transforms.Compose([
-        transforms.Resize((84, 84)),
-        transforms.ToTensor()
-    ])
-
     kl_divs, aucs = [], []
     for file in filter(lambda x: x.endswith(".pt"), os.listdir(recordings_path)):
         data = RecordBuffer.from_file(file)
@@ -523,13 +518,51 @@ def debug_recording(recordings_path: str):
     grid = grid_image(grid)
     Image.fromarray(grid).save("debug.png")
 
+def preprocess(image: np.ndarray):
+    """
+    Image preprocessing function from IL-CGL.
+    Warp frames to 84x84 as done in the Nature paper and later work.
+
+    :param np.ndarray image: uint8 greyscale image loaded using `cv2.imread`
+    """
+    width = 84
+    height = 84
+    frame = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+    return torch.Tensor(frame / 255.0)
+
+def saliency_auc(saliency_map1: torch.Tensor, saliency_map2: torch.Tensor):
+    """
+    Predicts the AUC between two greyscale saliency maps by comparing their most salient pixels each
+
+    :param Tensor[WxH] saliency_map1: First saliency map
+    :param Tensor[WxH] saliency_map2: Second saliency map
+    """
+    # Flatten both maps
+    saliency_map1 = saliency_map1.flatten()
+    saliency_map2 = saliency_map2.flatten()
+    assert saliency_map1.shape == saliency_map2.shape, "Saliency maps need to have the same size"
+
+    # Get saliency maps containing only the most salient pixels for every 5% percentile
+    percentiles = torch.arange(0.05, 1., 0.05)
+    saliency_map1_thresholds = torch.quantile(saliency_map1, percentiles).view(-1, 1).expand(-1, len(saliency_map1))
+    saliency_map2_thresholds = torch.quantile(saliency_map2, percentiles).view(-1, 1).expand(-1, len(saliency_map2))
+    thresholded_saliency_maps1 = saliency_map1.expand([len(percentiles), -1]) >= saliency_map1_thresholds
+    thresholded_saliency_maps2 = saliency_map2.expand([len(percentiles), -1]) >= saliency_map2_thresholds
+
+    return BinaryAccuracy()(thresholded_saliency_maps1, thresholded_saliency_maps2)
+
 
 if __name__ == "__main__":    
+    # Use bfloat16 to speed up matrix computation
+    torch.set_float32_matmul_precision("medium")
+
     # Create dataset and data loader
     env_name = "ms_pacman"
     transform = transforms.Resize((84, 84))
-    dataset = GazeDataset.from_atari_head_files(root_dir=f'data/Atari-HEAD/{env_name}', transform=transform)
-    loader = DataLoader(dataset, 1)
+    dataset = GazeDataset.from_atari_head_files(root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=True)
+    loader = DataLoader(dataset, 64)
 
     output_dir = f"output/atari_head/{env_name}"
     model_dir = os.path.join(output_dir, "models")
@@ -549,8 +582,14 @@ if __name__ == "__main__":
     # Compare a run made by the agent with a run from atari head
     atari_head_gaze_predictor = GazePredictionNetwork.from_h5(f"data/h5_gaze_predictors/{env_name}.hdf5")
 
-    # TODO: Test model on Atari Head Data KL Div
-    atari_head_gaze_predictor(next(iter(loader)))
+    # # TODO: Test if the model produces reasonable output on the dataset
+    # frame_stacks, saliency_maps = next(iter(loader))
+    # assert frame_stacks.max() < 1.0 and frame_stacks.min() >= 0, "Greyscale values should be between 0 and 1"
+    # preds = atari_head_gaze_predictor(frame_stacks)
+    # kl_div = nn.functional.kl_div(preds, saliency_maps)
+    # auc = saliency_auc(preds.exp(), saliency_maps)
+
+    # TODO: Read ms_pacman_52_RZ_2394668_Aug-10-14-52-42_preds.np and compare it to ground truth
 
     evaluate_agent(
         atari_head_gaze_predictor, 

@@ -9,6 +9,14 @@ license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">3.8,<3.12"
 dependencies = [
+    
+]
+classifiers = [
+    "Private :: Do Not Upload"
+]
+
+[project.optional-dependencies]
+torch = [
     "active-gym @ git+https://github.com/elicassion/active-gym.git#main",
     # curl -L https://www.atarimania.com/roms/Atari-2600-VCS-ROM-Collection.zip -o x.zip && unzip x.zip
     # python -m atari_py.import_roms ROMS && rm -r ROMS 'HC ROMS' x.zip
@@ -22,10 +30,13 @@ dependencies = [
     "scikit-learn",
     "ray[tune, default]",
     "stable-baselines3",
-    "optuna"
+    "optuna",
+    "torchmetrics",
+    "h5py"
 ]
-classifiers = [
-    "Private :: Do Not Upload"
+tf = [
+    "tensorflow[and-cuda]",
+    "opencv-python"
 ]
 
 [project.urls] 

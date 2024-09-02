@@ -6,13 +6,14 @@
 
 .ROMS
 *.mp4
-.venv
+**venv
 build
 *cache*
 *.png
 output
 data
 ray_results
+*.np
 
 # Old dir structure
 runs
