@@ -45,8 +45,7 @@ class GazeDataset(Dataset):
         :param List[Tensor[Nx2]] gaze_lists: List of List of gaze positions associated with one frame
         """
         print("Creating saliency maps")
-        # saliency_maps = [create_saliency_map(gazes) for gazes in tqdm(gaze_lists)]
-        saliency_maps = create_saliency_maps(gaze_lists)
+        saliency_maps = [create_saliency_map(gazes) for gazes in tqdm(gaze_lists)]
 
         return GazeDataset(
             frames, 
@@ -408,57 +407,6 @@ def create_saliency_map(gaze_positions: torch.Tensor):
     # Make the tensor sum to 1 for KL Divergence
     saliency_map = torch.nn.Softmax(dim=0)(saliency_map.flatten()).view(SCREEN_SIZE)
     return saliency_map
-
-def create_saliency_maps(gaze_positions_lists: List[torch.Tensor]):
-    """ 
-    Takes gaze positions on a 84 by 84 pixels screen to turn them into saliency maps
-    
-    :param List[Tensor[Nx2]]: A list of tensors containing all gaze positions associated with a batch of frames
-    """
-    SCREEN_SIZE = [84, 84]
-
-    batch_size = len(gaze_positions_lists)
-
-    # Generate x and y indices
-    x0 = torch.arange(0, SCREEN_SIZE[0], 1)
-    y0 = torch.arange(0, SCREEN_SIZE[1], 1)
-
-    # Adjust sigma to correspond to one visual degree
-    # Screen Size: 44,6 x 28,5 visual degrees; Visual Degrees per Pixel: 0,5310 x 0,3393
-    sigmas = 1 / (torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE) / torch.Tensor(SCREEN_SIZE))
-
-    print("Creating saliency maps")
-    saliency_maps = None
-    mini_batch_size = 4
-    for i in trange(batch_size // mini_batch_size):
-        # Create a tensor from the list
-        last_index = len(gaze_positions_lists) if i == (batch_size // mini_batch_size) - 1 else (i+1) * mini_batch_size
-        n_gazes = max([t.shape[0] for t in gaze_positions_lists[i * mini_batch_size:last_index]])
-        partitioned_gaze_positions = -1000 * torch.ones([last_index - i * mini_batch_size, n_gazes, 2])
-        for idx, j in enumerate(range(i * mini_batch_size, last_index)):
-            if gaze_positions_lists[j].shape == torch.Size([0]): continue
-            partitioned_gaze_positions[idx, :gaze_positions_lists[j].shape[0], :] = gaze_positions_lists[j]
-
-        # Scale the coords from the original resolution down to the screen size
-        partitioned_gaze_positions *= (torch.Tensor(SCREEN_SIZE) / torch.Tensor([160, 210]))
-
-        # Expand the original tensors for broadcasting
-        partitioned_gaze_positions = partitioned_gaze_positions.view(mini_batch_size, n_gazes, 2, 1, 1).expand(mini_batch_size, n_gazes, 2, *SCREEN_SIZE)
-        x, y = torch.meshgrid(x0, y0, indexing="xy")
-        x = x.view(1, *SCREEN_SIZE).expand(mini_batch_size, n_gazes, *SCREEN_SIZE)
-        y = y.view(1, *SCREEN_SIZE).expand(mini_batch_size, n_gazes, *SCREEN_SIZE)
-        mesh = torch.stack([x, y], dim=2)
-        broadcasted_sigmas = sigmas.view(1, 1, 2, 1, 1).expand(mini_batch_size, n_gazes, 2, *SCREEN_SIZE)
-        # partitioned_gaze_positions is now BxNx2x84x84 with 84x84 identical copies
-        # x and y are now both BxNx84x84 with N identical copies
-        # mesh is BxNx2x84x84 with N copies of every possible combination of x and y coordinates
-        partitioned_saliency_maps, _ = torch.max(torch.exp(-torch.sum( ((mesh - partitioned_gaze_positions)**2) / (2 * broadcasted_sigmas**2), dim=2) ), dim=1)
-
-        # Make the tensor sum to 1 for KL Divergence
-        partitioned_saliency_maps = torch.nn.Softmax(dim=1)(partitioned_saliency_maps.view([mini_batch_size, -1])).view([mini_batch_size, *SCREEN_SIZE])
-        partitioned_saliency_maps = partitioned_saliency_maps.view([1, *partitioned_saliency_maps.shape])
-        saliency_maps = partitioned_saliency_maps if saliency_maps is None else torch.vstack([saliency_maps, partitioned_saliency_maps])
-    return saliency_maps
 
 def open_mp4_as_frame_list(path: str):
     video = cv2.VideoCapture(path)
