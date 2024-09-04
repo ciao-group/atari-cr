@@ -1,4 +1,5 @@
 import os
+import time
 from typing import List
 import torch
 import torch.nn as nn
@@ -16,8 +17,9 @@ import numpy as np
 import cv2
 from sklearn.metrics import roc_auc_score
 import h5py
+from tqdm import tqdm, trange
 
-from atari_cr.common.utils import gradfilter_ema, grid_image
+from atari_cr.common.utils import gradfilter_ema, grid_image, show_tensor, grid_image2
 from atari_cr.common.models import RecordBuffer
 
 # Screen Size in visual degrees: 44,6 x 28,5
@@ -35,18 +37,16 @@ class GazeDataset(Dataset):
         self.output_gazes = output_gazes
 
     @staticmethod
-    def from_gaze_data(frames: List[torch.Tensor], gaze_lists: List[List[torch.Tensor]]):
+    def from_gaze_data(frames: List[torch.Tensor], gaze_lists: List[torch.Tensor]):
         """
         Create the dataset from gameplay images and associated gaze positions
 
         :param List[Tensor[Nx84x84]] frames: List of gameplay frames 
-        :param List[List[Tensor[2]]] gaze_lists: List of List of gaze positions associated with one frame
+        :param List[Tensor[Nx2]] gaze_lists: List of List of gaze positions associated with one frame
         """
-        saliency_maps = [None] * len(gaze_lists)
-        for i, gazes in enumerate(gaze_lists):
-            if i % 1000 == 0:
-                print(f"Creating saliency maps ({i+1}/{len(gaze_lists)+1})")
-            saliency_maps[i] = create_saliency_map(gazes)
+        print("Creating saliency maps")
+        # saliency_maps = [create_saliency_map(gazes) for gazes in tqdm(gaze_lists)]
+        saliency_maps = create_saliency_maps(gaze_lists)
 
         return GazeDataset(
             frames, 
@@ -55,19 +55,20 @@ class GazeDataset(Dataset):
         )
 
     @staticmethod
-    def from_atari_head_files(root_dir: str, load_single_run=False):
+    def from_atari_head_files(root_dir: str, load_single_run=""):
         """
         Loads the data in the Atari-HEAD format into a dataframe with metadata and image paths.
         """
         dfs = []
 
         # Count the files that still need to be loaded
-        i, total_files = 0, 0
-        for _, _, filenames in os.walk(root_dir):
-            total_files += len(list(filter(lambda filename: filename.endswith('.csv'), filenames)))
+        i = 0
+        csv_files = list(filter(lambda filename: filename.endswith('.csv'), os.listdir(root_dir)))
+        total_files = len(csv_files)
 
-        # Walk through the directory
-        for filename in filter(lambda filename: filename.endswith('.csv'), os.listdir(root_dir)):
+        print("Loading images into memory")
+        for filename in tqdm(csv_files, total=total_files):
+            if not load_single_run in filename: continue
             i += 1
 
             csv_path = os.path.join(root_dir, filename)
@@ -76,7 +77,7 @@ class GazeDataset(Dataset):
             df = pd.read_csv(csv_path)
 
             # Load the images
-            print(f"Loading images ({i}/{1 if load_single_run else total_files})")
+            # print(f"Loading images ({i}/{1 if load_single_run else total_files})")
             df["image_path"] = df["frame_id"].apply(lambda id: os.path.join(root_dir, subdir_name, id + ".png"))
             df["image_tensor"] = df["image_path"] \
                 .apply(lambda path: cv2.imread(path)) \
@@ -114,20 +115,6 @@ class GazeDataset(Dataset):
             [float(number) for number in s.strip(", []\\n").split(",")] \
                 for s in gaze_string.replace("(", "").replace("'", "").split(")")[:-1]
         ])
-
-    @staticmethod
-    def _show_tensor(t: torch.Tensor, save_path = "debug.png"):
-        """
-        Saves a grayscale tensor as a .png image for debugging.
-        """
-        if t.dtype == torch.float32:
-            t = t - t.min()  # Shift to positive range
-            t = t / t.max()  # Normalize to [0, 1]
-            t = (t * 255).byte()  # Scale to [0, 255] and convert to uint8
-
-        image = Image.fromarray(t.numpy(), "L")
-        image.save(save_path)
-
 
     def __len__(self):
         # return len(self.data)
@@ -388,39 +375,90 @@ def create_saliency_map(gaze_positions: torch.Tensor):
     
     :param Tensor[Nx2]: A Tensor containing all gaze positions associated with one frame
     """
-    screen_size = [84, 84]
+    SCREEN_SIZE = [84, 84]
 
     # OPTIONAL: Implement this for a batch of saliency maps
     if gaze_positions.shape[0] == 0:
-        return torch.zeros(screen_size, dtype=torch.uint8)
+        return torch.zeros(SCREEN_SIZE, dtype=torch.uint8)
 
     # Generate x and y indices
-    x = torch.arange(0, screen_size[0], 1)
-    y = torch.arange(0, screen_size[1], 1)
+    x = torch.arange(0, SCREEN_SIZE[0], 1)
+    y = torch.arange(0, SCREEN_SIZE[1], 1)
     x, y = torch.meshgrid(x, y, indexing="xy")
 
     # Adjust sigma to correspond to one visual degree
     # Screen Size: 44,6 x 28,5 visual degrees; Visual Degrees per Pixel: 0,5310 x 0,3393
-    sigmas = 1 / (torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE) / torch.Tensor(screen_size))
+    sigmas = 1 / (torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE) / torch.Tensor(SCREEN_SIZE))
     sigma = 2
     # Scale the coords from the original resolution down to the screen size
-    gaze_positions *= (torch.Tensor(screen_size) / torch.Tensor([160, 210]))
+    gaze_positions *= (torch.Tensor(SCREEN_SIZE) / torch.Tensor([160, 210]))
 
     # Expand the original tensors for broadcasting
     n_positions = gaze_positions.shape[0]
-    gaze_positions = gaze_positions.view(n_positions, 2, 1, 1).expand(-1, -1, *screen_size)
-    x = x.view(1, *screen_size).expand(n_positions, *screen_size)
-    y = y.view(1, *screen_size).expand(n_positions, *screen_size)
+    gaze_positions = gaze_positions.view(n_positions, 2, 1, 1).expand(-1, -1, *SCREEN_SIZE)
+    x = x.view(1, *SCREEN_SIZE).expand(n_positions, *SCREEN_SIZE)
+    y = y.view(1, *SCREEN_SIZE).expand(n_positions, *SCREEN_SIZE)
     mesh = torch.stack([x, y], dim=1)
-    sigmas = sigmas.view(1, 2, 1, 1).expand(n_positions, -1, *screen_size)
+    sigmas = sigmas.view(1, 2, 1, 1).expand(n_positions, -1, *SCREEN_SIZE)
     # gaze_positions is now Nx2x84x84 with 84x84 identical copies
     # x and y are now both Nx84x84 with N identical copies
     # mesh is Nx2x84x84 with N copies of every possible combination of x and y coordinates
     saliency_map, _ = torch.max(torch.exp(-torch.sum(((mesh - gaze_positions)**2) / (2 * sigmas**2), dim=1)), dim=0)
 
     # Make the tensor sum to 1 for KL Divergence
-    saliency_map = torch.nn.Softmax()(saliency_map.flatten()).view(screen_size)
+    saliency_map = torch.nn.Softmax(dim=0)(saliency_map.flatten()).view(SCREEN_SIZE)
     return saliency_map
+
+def create_saliency_maps(gaze_positions_lists: List[torch.Tensor]):
+    """ 
+    Takes gaze positions on a 84 by 84 pixels screen to turn them into saliency maps
+    
+    :param List[Tensor[Nx2]]: A list of tensors containing all gaze positions associated with a batch of frames
+    """
+    SCREEN_SIZE = [84, 84]
+
+    batch_size = len(gaze_positions_lists)
+
+    # Generate x and y indices
+    x0 = torch.arange(0, SCREEN_SIZE[0], 1)
+    y0 = torch.arange(0, SCREEN_SIZE[1], 1)
+
+    # Adjust sigma to correspond to one visual degree
+    # Screen Size: 44,6 x 28,5 visual degrees; Visual Degrees per Pixel: 0,5310 x 0,3393
+    sigmas = 1 / (torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE) / torch.Tensor(SCREEN_SIZE))
+
+    print("Creating saliency maps")
+    saliency_maps = None
+    mini_batch_size = 4
+    for i in trange(batch_size // mini_batch_size):
+        # Create a tensor from the list
+        last_index = len(gaze_positions_lists) if i == (batch_size // mini_batch_size) - 1 else (i+1) * mini_batch_size
+        n_gazes = max([t.shape[0] for t in gaze_positions_lists[i * mini_batch_size:last_index]])
+        partitioned_gaze_positions = -1000 * torch.ones([last_index - i * mini_batch_size, n_gazes, 2])
+        for idx, j in enumerate(range(i * mini_batch_size, last_index)):
+            if gaze_positions_lists[j].shape == torch.Size([0]): continue
+            partitioned_gaze_positions[idx, :gaze_positions_lists[j].shape[0], :] = gaze_positions_lists[j]
+
+        # Scale the coords from the original resolution down to the screen size
+        partitioned_gaze_positions *= (torch.Tensor(SCREEN_SIZE) / torch.Tensor([160, 210]))
+
+        # Expand the original tensors for broadcasting
+        partitioned_gaze_positions = partitioned_gaze_positions.view(mini_batch_size, n_gazes, 2, 1, 1).expand(mini_batch_size, n_gazes, 2, *SCREEN_SIZE)
+        x, y = torch.meshgrid(x0, y0, indexing="xy")
+        x = x.view(1, *SCREEN_SIZE).expand(mini_batch_size, n_gazes, *SCREEN_SIZE)
+        y = y.view(1, *SCREEN_SIZE).expand(mini_batch_size, n_gazes, *SCREEN_SIZE)
+        mesh = torch.stack([x, y], dim=2)
+        broadcasted_sigmas = sigmas.view(1, 1, 2, 1, 1).expand(mini_batch_size, n_gazes, 2, *SCREEN_SIZE)
+        # partitioned_gaze_positions is now BxNx2x84x84 with 84x84 identical copies
+        # x and y are now both BxNx84x84 with N identical copies
+        # mesh is BxNx2x84x84 with N copies of every possible combination of x and y coordinates
+        partitioned_saliency_maps, _ = torch.max(torch.exp(-torch.sum( ((mesh - partitioned_gaze_positions)**2) / (2 * broadcasted_sigmas**2), dim=2) ), dim=1)
+
+        # Make the tensor sum to 1 for KL Divergence
+        partitioned_saliency_maps = torch.nn.Softmax(dim=1)(partitioned_saliency_maps.view([mini_batch_size, -1])).view([mini_batch_size, *SCREEN_SIZE])
+        partitioned_saliency_maps = partitioned_saliency_maps.view([1, *partitioned_saliency_maps.shape])
+        saliency_maps = partitioned_saliency_maps if saliency_maps is None else torch.vstack([saliency_maps, partitioned_saliency_maps])
+    return saliency_maps
 
 def open_mp4_as_frame_list(path: str):
     video = cv2.VideoCapture(path)
@@ -560,40 +598,55 @@ if __name__ == "__main__":
 
     # Create dataset and data loader
     env_name = "ms_pacman"
-    transform = transforms.Resize((84, 84))
-    dataset = GazeDataset.from_atari_head_files(root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=True)
-    loader = DataLoader(dataset, 64)
+    single_run = "" if True else "52_RZ_2394668_Aug-10-14-52-42"
+    dataset = GazeDataset.from_atari_head_files(root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=single_run)
+    loader = DataLoader(dataset, 128)
 
+    # Create the dir for saving the trained model
     output_dir = f"output/atari_head/{env_name}"
     model_dir = os.path.join(output_dir, "models")
     os.makedirs(model_dir, exist_ok=True)
 
-    # # Load the Atari HEAD model
-    # model_files = os.listdir(model_dir)
-    # if len(model_files) > 0:
-    #     print("Loading existing gaze predictor")
-    #     latest_epoch = sorted([int(file[:-4]) for file in model_files])[-1]
-    #     save_path = os.path.join(model_dir, f"{latest_epoch}.pth")
-    #     gaze_predictor = GazePredictor.from_save_file(save_path, dataset)
-    # else:
-    #     gaze_predictor = GazePredictor(GazePredictionNetwork(), dataset, output_dir)
-    # gaze_predictor.train(n_epochs=1)
+    # Load an existing Atari HEAD model
+    model_files = os.listdir(model_dir)
+    if len(model_files) > 0:
+        print("Loading existing gaze predictor")
+        latest_epoch = sorted([int(file[:-4]) for file in model_files])[-1]
+        save_path = os.path.join(model_dir, f"{latest_epoch}.pth")
+        gaze_predictor = GazePredictor.from_save_file(save_path, dataset)
+    else:
+        print("Creating new gaze model from hdfs5 weights")
+        model = GazePredictionNetwork.from_h5(f"data/h5_gaze_predictors/{env_name}.hdf5")
+        gaze_predictor = GazePredictor(model, dataset, output_dir)
 
-    # Compare a run made by the agent with a run from atari head
-    atari_head_gaze_predictor = GazePredictionNetwork.from_h5(f"data/h5_gaze_predictors/{env_name}.hdf5")
+    # Train the model
+    gaze_predictor.train(n_epochs=1000000)
 
-    # # TODO: Test if the model produces reasonable output on the dataset
+    # # Test if the model produces reasonable output on the dataset
     # frame_stacks, saliency_maps = next(iter(loader))
     # assert frame_stacks.max() < 1.0 and frame_stacks.min() >= 0, "Greyscale values should be between 0 and 1"
-    # preds = atari_head_gaze_predictor(frame_stacks)
+    # preds = model(frame_stacks)
     # kl_div = nn.functional.kl_div(preds, saliency_maps)
     # auc = saliency_auc(preds.exp(), saliency_maps)
+    # preds = preds.exp().detach()
 
-    # TODO: Read ms_pacman_52_RZ_2394668_Aug-10-14-52-42_preds.np and compare it to ground truth
+    # # Read ms_pacman_52_RZ_2394668_Aug-10-14-52-42_preds.np and compare it to ground truth
+    # with open("ms_pacman_52_RZ_2394668_Aug-10-14-52-42_preds.np", "rb") as f: 
+    #     predicted_saliency_maps = np.load(f)
+    # saliency_maps = dataset.data["saliency_map"]
+    # saliency_maps = torch.stack(list(saliency_maps)).numpy()
 
-    evaluate_agent(
-        atari_head_gaze_predictor, 
-        "/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings", 
-        "boxing"
-    )
-    debug_recording("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")
+    # n_samples = 25
+    # for i in range(len(preds // n_samples)):
+    #     grid_image2(np.reshape(preds[n_samples*i:n_samples + n_samples*i], [5, 5, *preds.shape[1:]]))
+    #     time.sleep(0.2)
+
+    # TODO: This shit is still shit; should be retrained in pytorch
+    # The pytorch model outputs something very different from the torch model. Both outputs are shit tho
+
+    # evaluate_agent(
+    #     model, 
+    #     "/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings", 
+    #     "boxing"
+    # )
+    # debug_recording("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")

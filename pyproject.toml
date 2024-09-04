@@ -32,7 +32,8 @@ torch = [
     "stable-baselines3",
     "optuna",
     "torchmetrics",
-    "h5py"
+    "h5py",
+    "tqdm"
 ]
 tf = [
     "tensorflow[and-cuda]",

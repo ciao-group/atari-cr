@@ -7,12 +7,14 @@ from datetime import datetime
 import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from matplotlib import pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
+from PIL import Image
 
 from gymnasium import spaces
 
@@ -420,17 +422,58 @@ def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
 
-def grid_image(array: np.ndarray, line_color=[255, 0, 0], line_width=1):
+def grid_image2(images: Union[np.ndarray, torch.Tensor]):
+    """
+    Save a grid of rgb images seperated by colored lines under 'debug.png'
+
+    :param Array[n_rows, n_cols, width, height, 3] array: Structured array of images
+    """
+    assert len(images.shape) in [4, 5], "Only works for images of shape [n_rows, n_cols, x, y, n_channels] or [n_rows, n_cols, x, y]"
+
+    # Convert torch tensor to numpy array
+    if isinstance(images, torch.Tensor): images = images.numpy()
+    
+    # Convert to float32
+    if isinstance(images, np.uint8): images = images.astype(np.float32) / 256
+
+    # Set grid size (e.g., 3x3 grid)
+    grid_size = images.shape[:2]
+
+    fig, axes = plt.subplots(*grid_size, figsize=(16, 16))
+    axes = axes.flatten()
+    images = images.reshape([-1, *images.shape[2:]])
+
+    for img, ax in zip(images, axes):
+        ax.imshow(img, cmap='gray')
+        ax.axis('off')
+
+    plt.tight_layout()
+    plt.savefig("debug.png")
+
+
+def grid_image(array: Union[np.ndarray, torch.Tensor], line_color=[255, 0, 0], line_width=1):
     """
     Display a grid of rgb images seperated by colored lines
 
     :param Array[n_rows, n_cols, width, height, 3] array: Structured array of images
     """
-    assert len(array.shape) == 5, "Only works for array of shape (n_rows, n_cols, x, y, n_channels)"
+    assert len(array.shape) in [4, 5], "Only works for array of shape [n_rows, n_cols, x, y, n_channels] or [n_rows, n_cols, x, y]"
+
+    # Convert torch tensor to numpy array
+    if isinstance(array, torch.Tensor): array = array.numpy()
+    
+    # Convert greyscale to RGB
+    if len(array.shape) == 4:
+        array = np.broadcast_to(array[:,:,:,:,np.newaxis], [*array.shape, 3])
+    if array.shape[-1] == 1:
+        array = np.broadcast_to(array, [*array.shape[:-1], 3])
     n_rows, n_cols, y, x, n_channels = array.shape 
 
+    # Convert to uint8
+    if array.dtype == np.float32: array = to_uint8_image(array)
+
     # Create a new RGB array to hold the grid with separating lines
-    grid_size = (y * n_rows + line_width * (n_rows - 1), x * n_cols + line_width * (n_cols - 1), 3)
+    grid_size = (y * n_rows + line_width * (n_rows - 1), x * n_cols + line_width * (n_cols - 1), n_channels)
     grid = np.zeros(grid_size, dtype=np.uint8)
 
     # Plot each image in the grid
@@ -438,7 +481,6 @@ def grid_image(array: np.ndarray, line_color=[255, 0, 0], line_width=1):
         for j in range(n_cols):
             y_start = i * (y + line_width)
             x_start = j * (x + line_width)
-            # Scale the image to 0-255 range and repeat across RGB channels
             grid[y_start:y_start+y, x_start:x_start+x] = array[i, j]
 
     # Create colored lines
@@ -528,3 +570,30 @@ def EMMA_fixation_time(
     t_enc_new = (1 - (t_sacc / t_enc)) * e_new
 
     return (t_prep, t_exec, t_enc_new), t_sacc + t_enc_new, True
+
+def to_uint8_image(img: Union[np.ndarray, torch.Tensor]):
+    """
+    Converts a float32 image with values between 0 and 1 to a uint8 image with values between 0 and 255
+    """
+    if isinstance(img, np.ndarray): img = torch.Tensor(img)
+
+    img = img - img.min()  # Shift to positive range
+    img = img / img.max()  # Normalize to [0, 1]
+    img = (img * 255).byte()  # Scale to [0, 255] and convert to uint8
+    return img
+
+
+def show_tensor(t: Union[torch.Tensor, np.ndarray], save_path = "debug.png"):
+    """
+    Saves a grayscale tensor as a .png image for debugging.
+    """
+    # Convert numpy array to torch tensor
+    if isinstance(t, np.ndarray): t = torch.Tensor(t)
+    
+    # Convert float32 to uint8
+    if t.dtype == torch.float32: t = to_uint8_image(t)
+
+    # Make a pillow image and save it
+    image = Image.fromarray(t.numpy(), "L")
+    image.save(save_path)
+    print(f"Tensor saved under '{save_path}'")
