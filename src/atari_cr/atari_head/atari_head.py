@@ -37,27 +37,11 @@ class GazeDataset(Dataset):
         self.output_gazes = output_gazes
 
     @staticmethod
-    def from_gaze_data(frames: List[torch.Tensor], gaze_lists: List[torch.Tensor]):
-        """
-        Create the dataset from gameplay images and associated gaze positions
-
-        :param List[Tensor[Nx84x84]] frames: List of gameplay frames 
-        :param List[Tensor[Nx2]] gaze_lists: List of List of gaze positions associated with one frame
-        """
-        print("Creating saliency maps")
-        saliency_maps = [create_saliency_map(gazes) for gazes in tqdm(gaze_lists)]
-
-        return GazeDataset(
-            frames, 
-            gaze_lists,
-            saliency_maps,
-        )
-
-    @staticmethod
     def from_atari_head_files(root_dir: str, load_single_run=""):
         """
         Loads the data in the Atari-HEAD format into a dataframe with metadata and image paths.
         """
+        tqdm.pandas()
         dfs = []
 
         # Count the files that still need to be loaded
@@ -92,6 +76,21 @@ class GazeDataset(Dataset):
                 "gazes": df["gaze_positions"]
             })
 
+            # Load or create saliency maps
+            saliency_path = os.path.join(root_dir, "saliency")
+            save_path = os.path.join(saliency_path, filename)[:-4] + ".np"
+            if os.path.exists(save_path):
+                print(f"Loading saliency maps for {filename}")
+                with open(save_path, "rb") as f: saliency_maps = np.load(f, allow_pickle=True)
+                print(saliency_maps.shape)
+                data["saliency"] = pd.Series([array for array in saliency_maps])
+            else:
+                print(f"Creating saliency maps for {filename}")
+                os.makedirs(saliency_path, exist_ok=True)
+                data["saliency"] = data["gazes"].progress_apply(lambda gazes: create_saliency_map(gazes).numpy())
+                with open(save_path, "wb") as f: np.save(f, data["saliency"].to_numpy())
+                print(f"Saliency maps saved under {save_path}")
+
             dfs.append(data)
 
             if load_single_run:
@@ -100,9 +99,10 @@ class GazeDataset(Dataset):
         # Combine all dataframes
         combined_df = pd.concat(dfs, ignore_index=True)
             
-        return GazeDataset.from_gaze_data(
+        return GazeDataset(
             combined_df["frame"],
-            combined_df["gazes"]
+            combined_df["gazes"],
+            combined_df["saliency"]
         )
 
     @staticmethod
