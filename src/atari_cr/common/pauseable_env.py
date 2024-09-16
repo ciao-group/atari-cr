@@ -92,7 +92,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     def step(self, action):
         # The pause action is the last action in the action set
         prev_pause_action = self.pause_action
-        self.pause_action = self._is_pause(action["motor_action"])
+        self.pause_action = self.is_pause(action["motor_action"])
 
         # Save the previous fov_loc to calculate the saccade cost
         prev_fov_loc = self.fov_loc.copy()
@@ -110,7 +110,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             if self.prevented_pauses > 50 or self.successive_pauses > self.successive_pause_limit:
                 while self.pause_action:
                     action["motor_action"] = self.action_space["motor_action"].sample()
-                    self.pause_action = self._is_pause(action["motor_action"])
+                    self.pause_action = self.is_pause(action["motor_action"])
                 self.pause_action = False
                 self.prevented_pauses += 1
                 return self.step(action)
@@ -259,7 +259,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         info = { "raw_reward": reward }
         return self.state, reward, done, truncated, info
 
-    def _is_pause(self, motor_action: int):
+    def is_pause(self, motor_action: int):
         """
         Checks if a given motor action is the pause action
         """

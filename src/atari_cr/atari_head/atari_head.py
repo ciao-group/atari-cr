@@ -18,6 +18,7 @@ import cv2
 from sklearn.metrics import roc_auc_score
 import h5py
 from tqdm import tqdm, trange
+from tap import Tap
 
 from atari_cr.common.utils import gradfilter_ema, grid_image, show_tensor, grid_image2
 from atari_cr.common.models import RecordBuffer
@@ -25,6 +26,9 @@ from atari_cr.common.models import RecordBuffer
 # Screen Size in visual degrees: 44,6 x 28,5
 # Visual Degrees per Pixel with 84 x 84 pixels: 0,5310 x 0,3393
 VISUAL_DEGREE_SCREEN_SIZE = (44.6, 28.5)
+
+class ArgParser(Tap):
+    debug: bool = False # Debug mode for less data loading
 
 class GazeDataset(Dataset):
     def __init__(self, frames: List[torch.Tensor], gaze_lists: List[List[torch.Tensor]], 
@@ -66,7 +70,7 @@ class GazeDataset(Dataset):
                 .apply(lambda path: cv2.imread(path)) \
                 .apply(preprocess)
                 # .apply(lambda path: transforms.Resize((84, 84))(read_image(path, ImageReadMode.GRAY)).view([84, 84]))
-            df = df.set_index("frame_id")
+            # df = df.set_index("frame_id")
             
             # Create saliency maps
             df["gaze_positions"] = df["gaze_positions"].apply(GazeDataset._parse_gaze_string)
@@ -80,9 +84,8 @@ class GazeDataset(Dataset):
             saliency_path = os.path.join(root_dir, "saliency")
             save_path = os.path.join(saliency_path, filename)[:-4] + ".np"
             if os.path.exists(save_path):
-                print(f"Loading saliency maps for {filename}")
+                print(f"Loading existing saliency maps for {filename}")
                 with open(save_path, "rb") as f: saliency_maps = np.load(f, allow_pickle=True)
-                print(saliency_maps.shape)
                 data["saliency"] = pd.Series([array for array in saliency_maps])
             else:
                 print(f"Creating saliency maps for {filename}")
@@ -127,8 +130,7 @@ class GazeDataset(Dataset):
             torch.stack(list(self.data.loc[idx:idx + 3, "frame"])),
             self.data.loc[idx + 3, "saliency_map"],
         )
-        if self.output_gazes:
-            item = (*item, self.data.loc[idx + 3, "gazes"])
+        item = (*item, self.data.loc[idx + 3, "gazes"] if self.output_gazes else np.nan)
 
         assert item[0].shape == torch.Size([4, 84, 84])
         return item
@@ -214,7 +216,8 @@ class GazePredictionNetwork(nn.Module):
                     .replace("variance", "var") \
                     .replace("kernel", "weight")
 
-                value = torch.Tensor(value)
+                if not isinstance(value[:], np.ndarray): breakpoint()
+                value = torch.Tensor(value[:])
                 value = value.permute(list(reversed(range(len(value.shape)))))
                 key = key.replace("kernel", "weight")
 
@@ -254,7 +257,7 @@ class GazePredictor():
         self.epoch = 0
 
     def train(self, n_epochs: int):
-        for self.epoch in range(self.epoch + n_epochs):
+        for self.epoch in range(self.epoch, self.epoch + n_epochs):
             self.prediction_network.train()
             running_loss = 0.0
 
@@ -274,10 +277,10 @@ class GazePredictor():
                 if batch_idx % 100 == 99:  
                     global_batch_count = self.epoch * len(self.train_loader) / self.train_loader.batch_size + batch_idx
                     self.writer.add_scalar("Train Loss", running_loss / 100, global_batch_count)
-                    print(f'[Epoch {self.epoch + 1}, Batch {batch_idx + 1}] Loss: {running_loss / 100:.3f}')
+                    print(f'[Epoch {self.epoch + 1}, Batch {batch_idx + 1}] Loss: {running_loss / 100:.4f}')
                     running_loss = 0.0
 
-            self.eval()
+            self.prediction_network.eval()
 
             if self.epoch % 10 == 9:
                 self.save()
@@ -288,10 +291,12 @@ class GazePredictor():
         self.save()
     
     def save(self):
+        save_path = f"{self.epoch + 1}.pth"
         torch.save(
             self.prediction_network.state_dict(), 
-            os.path.join(self.output_dir, "models", f"{self.epoch + 1}.pth")
+            os.path.join(self.output_dir, "models", save_path)
         )
+        print(f"Saved model to {save_path}")
 
     def _init_data_loaders(self, dataset: GazeDataset):
         """
@@ -317,10 +322,11 @@ class GazePredictor():
         return train_loader, val_loader
     
     @staticmethod
-    def from_save_file(save_path: str, dataset: GazeDataset):
-        model = GazePredictionNetwork().load_state_dict(torch.load(save_path))
+    def from_save_file(save_path: str, dataset: GazeDataset, output_dir: str):
+        model = GazePredictionNetwork()
+        model.load_state_dict(torch.load(save_path))
 
-        predictor = GazePredictor(model, dataset, save_path)
+        predictor = GazePredictor(model, dataset, output_dir)
         predictor.epoch = int(save_path.split("/")[-1][:-4])
 
         return predictor
@@ -378,7 +384,7 @@ def create_saliency_map(gaze_positions: torch.Tensor):
 
     # OPTIONAL: Implement this for a batch of saliency maps
     if gaze_positions.shape[0] == 0:
-        return torch.zeros(SCREEN_SIZE, dtype=torch.uint8)
+        return torch.zeros(SCREEN_SIZE)
 
     # Generate x and y indices
     x = torch.arange(0, SCREEN_SIZE[0], 1)
@@ -478,7 +484,7 @@ def debug_recording(recordings_path: str):
     """
     # Get the recording data of the first recording as a dict
     file = list(filter(lambda x: x.endswith(".pt"), os.listdir(recordings_path)))[0]
-    data: RecordBuffer = torch.load(os.path.join(recordings_path, file))
+    data: RecordBuffer = torch.load(os.path.join(recordings_path, file), weights_only=False)
 
     # Extract a list of frames and a list of gazes
     frames = open_mp4_as_frame_list(data["rgb"])
@@ -540,13 +546,15 @@ def saliency_auc(saliency_map1: torch.Tensor, saliency_map2: torch.Tensor):
     return BinaryAccuracy()(thresholded_saliency_maps1, thresholded_saliency_maps2)
 
 
-if __name__ == "__main__":    
+if __name__ == "__main__": 
+    args = ArgParser().parse_args()
+
     # Use bfloat16 to speed up matrix computation
     torch.set_float32_matmul_precision("medium")
 
     # Create dataset and data loader
     env_name = "ms_pacman"
-    single_run = "" if True else "52_RZ_2394668_Aug-10-14-52-42"
+    single_run = "52_RZ_2394668_Aug-10-14-52-42" if args.debug else ""
     dataset = GazeDataset.from_atari_head_files(root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=single_run)
     loader = DataLoader(dataset, 128)
 
@@ -561,14 +569,14 @@ if __name__ == "__main__":
         print("Loading existing gaze predictor")
         latest_epoch = sorted([int(file[:-4]) for file in model_files])[-1]
         save_path = os.path.join(model_dir, f"{latest_epoch}.pth")
-        gaze_predictor = GazePredictor.from_save_file(save_path, dataset)
+        gaze_predictor = GazePredictor.from_save_file(save_path, dataset, output_dir)
     else:
         print("Creating new gaze model from hdfs5 weights")
         model = GazePredictionNetwork.from_h5(f"data/h5_gaze_predictors/{env_name}.hdf5")
         gaze_predictor = GazePredictor(model, dataset, output_dir)
 
     # Train the model
-    gaze_predictor.train(n_epochs=1000000)
+    gaze_predictor.train(n_epochs=10)
 
     # # Test if the model produces reasonable output on the dataset
     # frame_stacks, saliency_maps = next(iter(loader))
@@ -583,18 +591,3 @@ if __name__ == "__main__":
     #     predicted_saliency_maps = np.load(f)
     # saliency_maps = dataset.data["saliency_map"]
     # saliency_maps = torch.stack(list(saliency_maps)).numpy()
-
-    # n_samples = 25
-    # for i in range(len(preds // n_samples)):
-    #     grid_image2(np.reshape(preds[n_samples*i:n_samples + n_samples*i], [5, 5, *preds.shape[1:]]))
-    #     time.sleep(0.2)
-
-    # TODO: Retrain in pytorch
-    # The pytorch model outputs something very different from the torch model. Both outputs are shit tho
-
-    # evaluate_agent(
-    #     model, 
-    #     "/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings", 
-    #     "boxing"
-    # )
-    # debug_recording("/home/niko/Repos/atari-cr/output/runs/pauseable128_1m_fov50/boxing/recordings")

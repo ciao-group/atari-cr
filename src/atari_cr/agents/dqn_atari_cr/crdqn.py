@@ -341,8 +341,7 @@ class CRDQN:
 
         # Log results
         self._log_eval_episodes(episode_infos)
-        if self.debug:
-            self.pvm_buffer.to_png()
+        if self.debug: self.pvm_buffer.to_png()
 
         # Set the networks back to training mode
         self.q_network.train()
@@ -385,10 +384,12 @@ class CRDQN:
             file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}_no_pause.{file_prefix}"
         save_fn(os.path.join(output_dir, file_name))
 
-    def _step(self, env: gym.Env, pvm_buffer: PVMBuffer, motor_actions, sensory_actions, eval = False):
+    def _step(self, env: VectorEnv, pvm_buffer: PVMBuffer, motor_actions: np.ndarray, sensory_actions: np.ndarray, eval = False):
         """
         Given an action, the agent does one step in the environment, 
         returning the next observation
+
+        :param Array[n_envs] motor_actions: Numpy array containing motor action for all parallel training envs.
         """
         # Take an action in the environment
         next_obs, rewards, dones, _, infos = env.step({
@@ -402,8 +403,14 @@ class CRDQN:
             self._log_episode(finished_env_index, infos)
             next_obs[finished_env_index] = infos["final_observation"][finished_env_index]
 
+        # Update the latest observation in the pvm buffer
+        assert len(env.envs) == 1, "Vector env with more than one env not supported for the following code block"
+        if isinstance(env.envs[0], PauseableFixedFovealEnv) and env.envs[0].is_pause(motor_actions[0]):
+            pvm_buffer.buffer[-1] = np.expand_dims(np.max(np.vstack([pvm_buffer.buffer[-1], next_obs]), axis=0), axis=0)
+        else: 
+            pvm_buffer.append(next_obs)
+
         # Get the next pvm observation
-        pvm_buffer.append(next_obs)
         next_pvm_obs = pvm_buffer.get_obs(mode="stack_max")
 
         return next_pvm_obs, rewards, dones, infos

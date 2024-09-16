@@ -10,6 +10,9 @@
             "request": "launch",
             "program": "src/atari_cr/atari_head/atari_head.py",
             "console": "integratedTerminal",
+            "args": [
+                "--debug"
+            ]
         },
         {
             "name": "Ray Debug",
@@ -44,18 +47,5 @@
             ],
             "justMyCode": false
         },
-        {
-            "name": "OG Gaze Debug",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "src/atari_cr/atari_head/og_gaze_predictor.py",
-            "console": "integratedTerminal",
-            "args": [
-                "data/Atari-HEAD/tarred_ms_pacman/52_RZ_2394668_Aug-10-14-52-42.tar.bz2", 
-                "data/Atari-HEAD/tarred_ms_pacman/52_RZ_2394668_Aug-10-14-52-42.txt",
-                "ms_pacman",
-                "data/h5_gaze_predictors/ms_pacman.hdf5"
-            ]
-        }
     ]
 }
