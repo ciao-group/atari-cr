@@ -8,8 +8,11 @@ from ray.tune.schedulers import ASHAScheduler
 from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
 
 class ConfigParams(TypedDict):
-    action_repeat: int
-    sticky_action_probability: float
+    no_action_pause_cost: float
+    pause_cost: float
+    pvm_stack: int
+    sensory_action_space_quantization: int
+    saccade_cost_scale: float
 
 def tuning(config: ConfigParams, time_steps: int):
     # Copy quantization value into the two corresponding values
@@ -71,15 +74,12 @@ if __name__ == "__main__":
     trainable = lambda config: tuning(config, time_steps=time_steps)
     trainable = tune.with_resources(trainable, {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
-    # param_space: ConfigParams = {
-    #     "pause_cost": tune.quniform(0.10, 0.40, 0.05),
-    #     "no_action_pause_cost": tune.quniform(1.0, 2.0, 0.2),
-    #     "pvm_stack": tune.randint(2, 16),
-    #     "saccade_cost_scale": tune.quniform(0.0001, 0.0020, 0.0001)
-    # }
     param_space: ConfigParams = {
-        "action_repeat": tune.choice([1, 2, 3, 4]),
-        "sticky_action_probability": tune.quniform(0, 1, 0.1),
+        "pause_cost": tune.quniform(0.05, 0.50, 0.025),
+        "no_action_pause_cost": tune.quniform(0., 2.0, 0.1),
+        "pvm_stack": tune.randint(5, 30),
+        "sensory_action_space_quantization": tune.randint(1, 12),
+        "saccade_cost_scale": tune.quniform(0.0001, 0.0020, 0.0001)
     }
 
     metric, mode = "episode_reward", "max"
@@ -88,9 +88,9 @@ if __name__ == "__main__":
         param_space=param_space,
         tune_config=tune.TuneConfig(
             num_samples=num_samples,
-            # scheduler=ASHAScheduler(
-            #     stop_last_trials=False
-            # ),
+            scheduler=ASHAScheduler(
+                stop_last_trials=False
+            ),
             search_alg=OptunaSearch(),
             metric=metric,
             mode=mode
