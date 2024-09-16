@@ -59,6 +59,7 @@ class CRDQN:
             no_pvm_visualization = False,
             capture_video = True,
             agent_id = 0,
+            debug = False
         ):
         """
         :param env `gymnasium.Env`:
@@ -114,6 +115,7 @@ class CRDQN:
         self.no_pvm_visualization = no_pvm_visualization
         self.capture_video = capture_video
         self.agent_id = agent_id
+        self.debug = debug
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.current_timestep = 0
@@ -339,6 +341,8 @@ class CRDQN:
 
         # Log results
         self._log_eval_episodes(episode_infos)
+        if self.debug:
+            self.pvm_buffer.to_png()
 
         # Set the networks back to training mode
         self.q_network.train()

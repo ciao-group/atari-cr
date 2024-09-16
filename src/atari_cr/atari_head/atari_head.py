@@ -589,7 +589,7 @@ if __name__ == "__main__":
     #     grid_image2(np.reshape(preds[n_samples*i:n_samples + n_samples*i], [5, 5, *preds.shape[1:]]))
     #     time.sleep(0.2)
 
-    # TODO: This shit is still shit; should be retrained in pytorch
+    # TODO: Retrain in pytorch
     # The pytorch model outputs something very different from the torch model. Both outputs are shit tho
 
     # evaluate_agent(

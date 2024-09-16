@@ -76,6 +76,7 @@ class ArgParser(Tap):
     disable_tensorboard: bool = False # Whether to disable tensorboard
     no_model_output: bool = False # Whether to disable saving the finished model
     no_pvm_visualization: bool = False # Whether to disable output of visualizations of the content of the PVM buffer
+    debug: bool = False # Debug mode for more output
 
 def main(args: ArgParser):
     sensory_action_mode = SensoryActionMode.from_string(args.sensory_action_mode)
@@ -165,6 +166,7 @@ def main(args: ArgParser):
         no_model_output=args.no_model_output,
         no_pvm_visualization=args.no_pvm_visualization,
         capture_video=args.capture_video,
+        debug=args.debug,
     )
     eval_returns = agent.learn(
         n=args.total_timesteps,
