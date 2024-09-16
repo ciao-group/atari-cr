@@ -1,4 +1,3 @@
-from active_gym import FixedFovealEnv, AtariEnvArgs, AtariBaseEnv, RecordWrapper
 from active_gym.atari_env import AtariEnv
 import gymnasium as gym
 from gymnasium.spaces import Dict, Discrete, Box
@@ -11,7 +10,7 @@ from torchvision.transforms import Resize
 
 from atari_cr.common.models import SensoryActionMode, RecordBuffer
 from atari_cr.common.utils import EMMA_fixation_time
-from atari_cr.atari_head import VISUAL_DEGREE_SCREEN_SIZE
+from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE
         
 
 class PauseableFixedFovealEnv(gym.Wrapper):

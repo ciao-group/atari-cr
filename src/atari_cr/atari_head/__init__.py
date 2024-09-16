@@ -1,1 +1,1 @@
-from atari_cr.atari_head.atari_head import *
+from atari_cr.atari_head.gaze_predictor import *
