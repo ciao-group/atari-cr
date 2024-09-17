@@ -8,10 +8,11 @@
             "name": "GazePrediction Debug",
             "type": "debugpy",
             "request": "launch",
-            "program": "src/atari_cr/atari_head/atari_head.py",
+            "program": "src/atari_cr/atari_head/gaze_predictor.py",
             "console": "integratedTerminal",
             "args": [
-                "--debug"
+                // "--debug",
+                "--load_model"
             ]
         },
         {

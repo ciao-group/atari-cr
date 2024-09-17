@@ -1,10 +1,11 @@
 import os
 import time
 from typing import List
+from sklearn.metrics import roc_auc_score
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, SubsetRandomSampler
 from torch.utils.tensorboard import SummaryWriter
 import torch.optim as optim
 import numpy as np
@@ -12,10 +13,12 @@ import h5py
 from tap import Tap
 
 from atari_cr.atari_head.dataset import GazeDataset
+from atari_cr.atari_head.utils import saliency_auc
 from atari_cr.common.utils import gradfilter_ema, grid_image, show_tensor, grid_image2
 
 class ArgParser(Tap):
     debug: bool = False # Debug mode for less data loading
+    load_model: bool = False # Whether to load an existing model (if possible) or train a new one
 
 class GazePredictionNetwork(nn.Module):
     """
@@ -117,19 +120,19 @@ class GazePredictor():
     """
     def __init__(
             self, 
-            prediction_network: GazePredictionNetwork,
+            model: GazePredictionNetwork,
             dataset: GazeDataset,
             output_dir: str
         ):
-        self.prediction_network = prediction_network
+        self.model = model
         self.train_loader, self.val_loader = self._init_data_loaders(dataset)
         self.output_dir = output_dir
 
         # Loss function, optimizer, compute device and tesorboard writer
         self.loss_function = nn.KLDivLoss(reduction="batchmean")
-        self.optimizer = optim.Adadelta(self.prediction_network.parameters(), lr=1.0, rho=0.95, eps=1e-08, weight_decay=0.0)
+        self.optimizer = optim.Adadelta(self.model.parameters(), lr=1.0, rho=0.95, eps=1e-08, weight_decay=0.0)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.prediction_network.to(self.device)
+        self.model.to(self.device)
         self.writer = SummaryWriter(os.path.join(output_dir, "tensorboard"))
 
         # Init Grokfast
@@ -140,17 +143,17 @@ class GazePredictor():
 
     def train(self, n_epochs: int):
         for self.epoch in range(self.epoch, self.epoch + n_epochs):
-            self.prediction_network.train()
+            self.model.train()
             running_loss = 0.0
 
             for batch_idx, (inputs, targets, _) in enumerate(self.train_loader):
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
 
                 self.optimizer.zero_grad()
-                outputs = self.prediction_network(inputs)
+                outputs = self.model(inputs)
                 loss = self.loss_function(outputs, targets)
                 loss.backward()
-                self.grads = gradfilter_ema(self.prediction_network, self.grads)
+                self.grads = gradfilter_ema(self.model, self.grads)
                 self.optimizer.step()
 
                 running_loss += loss.item()
@@ -162,7 +165,7 @@ class GazePredictor():
                     print(f'[Epoch {self.epoch + 1}, Batch {batch_idx + 1}] Loss: {running_loss / 100:.4f}')
                     running_loss = 0.0
 
-            self.prediction_network.eval()
+            self.model.eval()
 
             if self.epoch % 10 == 9:
                 self.save()
@@ -171,11 +174,26 @@ class GazePredictor():
         
         # Save the trained model
         self.save()
+
+    def eval(self):
+        """
+        :returns Tuple[float, float]: KL Divergence and AUC
+        """
+        kl_divs, aucs = [], []
+        for frame_stack_batch, saliency_map_batch, _ in self.val_loader:
+            # Prediction in log space as expected by KLDivLoss
+            prediction = self.model(frame_stack_batch.to(self.device))
+            saliency_map_batch = saliency_map_batch.to(self.device)
+
+            kl_divs.append(nn.KLDivLoss()(prediction, saliency_map_batch).detach().cpu().numpy())
+            aucs.append(saliency_auc(prediction.exp(), saliency_map_batch, self.device).cpu().numpy())
+
+        return np.mean(kl_divs), np.mean(aucs)
     
     def save(self):
         save_path = f"{self.epoch + 1}.pth"
         torch.save(
-            self.prediction_network.state_dict(), 
+            self.model.state_dict(), 
             os.path.join(self.output_dir, "models", save_path)
         )
         print(f"Saved model to {save_path}")
@@ -184,22 +202,23 @@ class GazePredictor():
         """
         :returns `Tuple[DataLoader, DataLoader]` train_loader, val_loader: `torch.DataLoader` objects for training and validation
         """
-        # Creating data indices for training and validation splits
-        validation_split = 0.2
-        indices = list(range(len(dataset)))
-        split = int(np.floor(validation_split * len(dataset)))
+        BATCH_SIZE = 64
+        VALIDATION_SPLIT = 0.2
 
-        # Shuffle
-        np.random.seed(seed=0)
-        np.random.shuffle(indices)
+        # Creating data indices for training and validation splits
+        indices = list(range(len(dataset)))
+        split = int(np.floor(VALIDATION_SPLIT * len(dataset)))
 
         # Creating data samplers and loaders
         train_indices, val_indices = indices[split:], indices[:split]
-        train_sampler = torch.utils.data.SubsetRandomSampler(train_indices)
-        val_sampler = torch.utils.data.SubsetRandomSampler(val_indices)
 
-        train_loader = DataLoader(dataset, batch_size=32, sampler=train_sampler)
-        val_loader = DataLoader(dataset, batch_size=32, sampler=val_sampler)
+        # Shuffle after the split because subsequent images are highly correlated
+        np.random.seed(seed=42)
+        np.random.shuffle(train_indices)
+        np.random.shuffle(val_indices)
+
+        train_loader = DataLoader(dataset, BATCH_SIZE, sampler=SubsetRandomSampler(train_indices))
+        val_loader = DataLoader(dataset, BATCH_SIZE, sampler=SubsetRandomSampler(val_indices))
 
         return train_loader, val_loader
     
@@ -213,8 +232,7 @@ class GazePredictor():
 
         return predictor
 
-
-if __name__ == "__main__": 
+def train_predictor():
     args = ArgParser().parse_args()
 
     # Use bfloat16 to speed up matrix computation
@@ -224,8 +242,7 @@ if __name__ == "__main__":
     env_name = "ms_pacman"
     single_run = "52_RZ_2394668_Aug-10-14-52-42" if args.debug else ""
     dataset = GazeDataset.from_atari_head_files(root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=single_run)
-    loader = DataLoader(dataset, 128)
-
+    
     # Create the dir for saving the trained model
     output_dir = f"output/atari_head/{env_name}"
     model_dir = os.path.join(output_dir, "models")
@@ -233,10 +250,10 @@ if __name__ == "__main__":
 
     # Load an existing Atari HEAD model
     model_files = os.listdir(model_dir)
-    if len(model_files) > 0:
-        print("Loading existing gaze predictor")
+    if (args.load_model) and len(model_files) > 0:
         latest_epoch = sorted([int(file[:-4]) for file in model_files])[-1]
         save_path = os.path.join(model_dir, f"{latest_epoch}.pth")
+        print(f"Loading existing gaze predictor from {save_path}")
         gaze_predictor = GazePredictor.from_save_file(save_path, dataset, output_dir)
     else:
         print("Creating new gaze model from hdfs5 weights")
@@ -244,18 +261,9 @@ if __name__ == "__main__":
         gaze_predictor = GazePredictor(model, dataset, output_dir)
 
     # Train the model
-    gaze_predictor.train(n_epochs=10)
+    # gaze_predictor.train(n_epochs=10)
+    kl_div, auc = gaze_predictor.eval()
+    print(f"KL Divergence: {kl_div}, AUC: {auc}")
 
-    # # Test if the model produces reasonable output on the dataset
-    # frame_stacks, saliency_maps = next(iter(loader))
-    # assert frame_stacks.max() < 1.0 and frame_stacks.min() >= 0, "Greyscale values should be between 0 and 1"
-    # preds = model(frame_stacks)
-    # kl_div = nn.functional.kl_div(preds, saliency_maps)
-    # auc = saliency_auc(preds.exp(), saliency_maps)
-    # preds = preds.exp().detach()
-
-    # # Read ms_pacman_52_RZ_2394668_Aug-10-14-52-42_preds.np and compare it to ground truth
-    # with open("ms_pacman_52_RZ_2394668_Aug-10-14-52-42_preds.np", "rb") as f: 
-    #     predicted_saliency_maps = np.load(f)
-    # saliency_maps = dataset.data["saliency_map"]
-    # saliency_maps = torch.stack(list(saliency_maps)).numpy()
+if __name__ == "__main__": 
+    train_predictor()

@@ -104,6 +104,8 @@ class GazeDataset(Dataset):
     def __getitem__(self, idx):
         """
         Loads the images from paths specified in self.data and creates a saliency map from the gaze_positions.
+        
+        :returns Tuple[Array, Array, Array]: frame_stack, saliency_map and optionally gazes
         """
         item = (
             torch.stack(list(self.data.loc[idx:idx + 3, "frame"])),
@@ -113,3 +115,5 @@ class GazeDataset(Dataset):
 
         assert item[0].shape == torch.Size([4, 84, 84])
         return item
+    
+# TODO: make Train / Test dataset from a split within each trial 

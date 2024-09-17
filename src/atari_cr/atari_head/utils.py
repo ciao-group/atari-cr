@@ -209,7 +209,7 @@ def preprocess(image: np.ndarray):
     frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
     return torch.Tensor(frame / 255.0)
 
-def saliency_auc(saliency_map1: torch.Tensor, saliency_map2: torch.Tensor):
+def saliency_auc(saliency_map1: torch.Tensor, saliency_map2: torch.Tensor, device: torch.device):
     """
     Predicts the AUC between two greyscale saliency maps by comparing their most salient pixels each
 
@@ -217,15 +217,15 @@ def saliency_auc(saliency_map1: torch.Tensor, saliency_map2: torch.Tensor):
     :param Tensor[WxH] saliency_map2: Second saliency map
     """
     # Flatten both maps
-    saliency_map1 = saliency_map1.flatten()
-    saliency_map2 = saliency_map2.flatten()
+    saliency_map1 = saliency_map1.flatten().to(device)
+    saliency_map2 = saliency_map2.flatten().to(device)
     assert saliency_map1.shape == saliency_map2.shape, "Saliency maps need to have the same size"
 
     # Get saliency maps containing only the most salient pixels for every 5% percentile
-    percentiles = torch.arange(0.05, 1., 0.05)
+    percentiles = torch.arange(0.05, 1., 0.05).to(device)
     saliency_map1_thresholds = torch.quantile(saliency_map1, percentiles).view(-1, 1).expand(-1, len(saliency_map1))
     saliency_map2_thresholds = torch.quantile(saliency_map2, percentiles).view(-1, 1).expand(-1, len(saliency_map2))
     thresholded_saliency_maps1 = saliency_map1.expand([len(percentiles), -1]) >= saliency_map1_thresholds
     thresholded_saliency_maps2 = saliency_map2.expand([len(percentiles), -1]) >= saliency_map2_thresholds
 
-    return BinaryAccuracy()(thresholded_saliency_maps1, thresholded_saliency_maps2)
+    return BinaryAccuracy().to(device)(thresholded_saliency_maps1, thresholded_saliency_maps2)
