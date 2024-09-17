@@ -35,9 +35,13 @@ def tuning(config: ConfigParams, time_steps: int):
 
     # Add already found hyper params
     args_dict.update({
-        # "action_repeat": 5,
-        "fov_size": 50,
-        "sensory_action_space_quantization": 4,
+        "action_repeat": 5,
+        "fov_size": 20,
+        "sensory_action_space_quantization": 4, # from 9-16
+        "pvm_stack": 16, # from 9-16
+        "saccade_cost_scale": 0.0015, # from 9-16
+        "no_action_pause_cost": 2.0, # from 9-16
+        "pause_cost": 0.2, # from 9-16
     })
 
     # Add vaguely found hyperparameters
