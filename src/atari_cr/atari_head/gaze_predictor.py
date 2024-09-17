@@ -1,3 +1,4 @@
+from collections import deque
 import os
 import time
 from typing import List
@@ -5,12 +6,13 @@ from sklearn.metrics import roc_auc_score
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, SubsetRandomSampler
+from torch.utils.data import DataLoader, SubsetRandomSampler, RandomSampler
 from torch.utils.tensorboard import SummaryWriter
 import torch.optim as optim
 import numpy as np
 import h5py
 from tap import Tap
+from tqdm import tqdm
 
 from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.atari_head.utils import saliency_auc
@@ -142,34 +144,32 @@ class GazePredictor():
         self.epoch = 0
 
     def train(self, n_epochs: int):
-        for self.epoch in range(self.epoch, self.epoch + n_epochs):
-            self.model.train()
-            running_loss = 0.0
+        self.model.train()
 
-            for batch_idx, (inputs, targets, _) in enumerate(self.train_loader):
-                inputs, targets = inputs.to(self.device), targets.to(self.device)
+        final_epoch = self.epoch + n_epochs
+        losses = deque(maxlen=100)
+        for self.epoch in range(self.epoch, final_epoch):
 
-                self.optimizer.zero_grad()
-                outputs = self.model(inputs)
-                loss = self.loss_function(outputs, targets)
-                loss.backward()
-                self.grads = gradfilter_ema(self.model, self.grads)
-                self.optimizer.step()
+            print(f"Epoch {self.epoch + 1} / {final_epoch}")
+            with tqdm(self.train_loader, colour="yellow") as t:
+                for inputs, targets, _ in t:
+                    inputs, targets = inputs.to(self.device), targets.to(self.device)
 
-                running_loss += loss.item()
+                    self.optimizer.zero_grad()
+                    outputs = self.model(inputs)
+                    loss = self.loss_function(outputs, targets)
+                    loss.backward()
+                    self.grads = gradfilter_ema(self.model, self.grads)
+                    self.optimizer.step()
 
-                # Log every 100 mini-batches
-                if batch_idx % 100 == 99:  
-                    global_batch_count = self.epoch * len(self.train_loader) / self.train_loader.batch_size + batch_idx
-                    self.writer.add_scalar("Train Loss", running_loss / 100, global_batch_count)
-                    print(f'[Epoch {self.epoch + 1}, Batch {batch_idx + 1}] Loss: {running_loss / 100:.4f}')
-                    running_loss = 0.0
-
-            self.model.eval()
+                    losses.append(loss.item())
+                    t.set_postfix(loss=f"{np.mean(losses):6.4f}")
+                    if t.n == t.total: t.colour = "green"
 
             if self.epoch % 10 == 9:
                 self.save()
 
+        self.model.eval()
         print('Training finished')
         
         # Save the trained model
@@ -203,22 +203,13 @@ class GazePredictor():
         :returns `Tuple[DataLoader, DataLoader]` train_loader, val_loader: `torch.DataLoader` objects for training and validation
         """
         BATCH_SIZE = 64
-        VALIDATION_SPLIT = 0.2
+        np.random.seed(seed=42)
 
-        # Creating data indices for training and validation splits
-        indices = list(range(len(dataset)))
-        split = int(np.floor(VALIDATION_SPLIT * len(dataset)))
-
-        # Creating data samplers and loaders
-        train_indices, val_indices = indices[split:], indices[:split]
+        train_dataset, test_dataset = dataset.split()
 
         # Shuffle after the split because subsequent images are highly correlated
-        np.random.seed(seed=42)
-        np.random.shuffle(train_indices)
-        np.random.shuffle(val_indices)
-
-        train_loader = DataLoader(dataset, BATCH_SIZE, sampler=SubsetRandomSampler(train_indices))
-        val_loader = DataLoader(dataset, BATCH_SIZE, sampler=SubsetRandomSampler(val_indices))
+        train_loader = DataLoader(train_dataset, BATCH_SIZE, shuffle=True)
+        val_loader = DataLoader(test_dataset, BATCH_SIZE, shuffle=True)
 
         return train_loader, val_loader
     
@@ -261,7 +252,7 @@ def train_predictor():
         gaze_predictor = GazePredictor(model, dataset, output_dir)
 
     # Train the model
-    # gaze_predictor.train(n_epochs=10)
+    gaze_predictor.train(n_epochs=100)
     kl_div, auc = gaze_predictor.eval()
     print(f"KL Divergence: {kl_div}, AUC: {auc}")
 

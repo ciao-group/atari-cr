@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Optional
 import cv2
 import numpy as np
 import pandas as pd
@@ -11,16 +11,21 @@ from atari_cr.atari_head.utils import create_saliency_map, preprocess
 
 class GazeDataset(Dataset):
     def __init__(self, frames: List[torch.Tensor], gaze_lists: List[List[torch.Tensor]], 
-                 saliency_maps: List[torch.Tensor], output_gazes: bool = False):
+                 saliency_maps: List[torch.Tensor], train: Optional[List[bool]] = None, 
+                 output_gazes: bool = False):
+        if train is None:
+            train = [True] * len(frames)
+        
         self.data = pd.DataFrame({
             "frame": frames, 
             "gazes": gaze_lists,
-            "saliency_map": saliency_maps
-        })
+            "saliency_map": saliency_maps,
+            "train": train
+        }).reset_index()
         self.output_gazes = output_gazes
 
     @staticmethod
-    def from_atari_head_files(root_dir: str, load_single_run=""):
+    def from_atari_head_files(root_dir: str, load_single_run="", test_split=0.2):
         """
         Loads the data in the Atari-HEAD format into a dataframe with metadata and image paths.
         """
@@ -40,23 +45,27 @@ class GazeDataset(Dataset):
             csv_path = os.path.join(root_dir, filename)
             subdir_name = os.path.splitext(filename)[0]
 
-            df = pd.read_csv(csv_path)
+            trial_data = pd.read_csv(csv_path)
 
             # Load the images
-            # print(f"Loading images ({i}/{1 if load_single_run else total_files})")
-            df["image_path"] = df["frame_id"].apply(lambda id: os.path.join(root_dir, subdir_name, id + ".png"))
-            df["image_tensor"] = df["image_path"] \
+            trial_data["image_path"] = trial_data["frame_id"].apply(lambda id: os.path.join(root_dir, subdir_name, id + ".png"))
+            trial_data["image_tensor"] = trial_data["image_path"] \
                 .apply(lambda path: cv2.imread(path)) \
                 .apply(preprocess)
                 # .apply(lambda path: transforms.Resize((84, 84))(read_image(path, ImageReadMode.GRAY)).view([84, 84]))
-            # df = df.set_index("frame_id")
             
             # Create saliency maps
-            df["gaze_positions"] = df["gaze_positions"].apply(GazeDataset._parse_gaze_string)
+            trial_data["gaze_positions"] = trial_data["gaze_positions"].apply(GazeDataset._parse_gaze_string)
 
-            data = pd.DataFrame({
-                "frame": df["image_tensor"],
-                "gazes": df["gaze_positions"]
+            # Mark train and test data
+            split_index = int(len(trial_data) * (1 - test_split))
+            trial_data.loc[:split_index, "train"] = True
+            trial_data.loc[split_index:, "train"] = False
+
+            trimmed_trial_data = pd.DataFrame({
+                "frame": trial_data["image_tensor"],
+                "gazes": trial_data["gaze_positions"],
+                "train": trial_data["train"].astype(bool)
             })
 
             # Load or create saliency maps
@@ -65,15 +74,15 @@ class GazeDataset(Dataset):
             if os.path.exists(save_path):
                 print(f"Loading existing saliency maps for {filename}")
                 with open(save_path, "rb") as f: saliency_maps = np.load(f, allow_pickle=True)
-                data["saliency"] = pd.Series([array for array in saliency_maps])
+                trimmed_trial_data["saliency"] = pd.Series([array for array in saliency_maps])
             else:
                 print(f"Creating saliency maps for {filename}")
                 os.makedirs(saliency_path, exist_ok=True)
-                data["saliency"] = data["gazes"].progress_apply(lambda gazes: create_saliency_map(gazes).numpy())
-                with open(save_path, "wb") as f: np.save(f, data["saliency"].to_numpy())
+                trimmed_trial_data["saliency"] = trimmed_trial_data["gazes"].progress_apply(lambda gazes: create_saliency_map(gazes).numpy())
+                with open(save_path, "wb") as f: np.save(f, trimmed_trial_data["saliency"].to_numpy())
                 print(f"Saliency maps saved under {save_path}")
 
-            dfs.append(data)
+            dfs.append(trimmed_trial_data)
 
             if load_single_run:
                 break
@@ -84,8 +93,21 @@ class GazeDataset(Dataset):
         return GazeDataset(
             combined_df["frame"],
             combined_df["gazes"],
-            combined_df["saliency"]
+            combined_df["saliency"],
+            combined_df["train"]
         )
+    
+    def split(self):
+        """
+        Splits the dataset into one dataset containing train data and one dataset containing test data
+        """
+        train_df = self.data[self.data["train"]]
+        test_df = self.data[~self.data["train"]]
+
+        train_dataset = GazeDataset(train_df["frame"], train_df["gazes"], train_df["saliency_map"], train_df['train'])
+        test_dataset = GazeDataset(test_df["frame"], test_df["gazes"], test_df["saliency_map"], test_df['train'])
+
+        return train_dataset, test_dataset
 
     @staticmethod
     def _parse_gaze_string(gaze_string: str) -> torch.tensor:
@@ -97,9 +119,8 @@ class GazeDataset(Dataset):
                 for s in gaze_string.replace("(", "").replace("'", "").split(")")[:-1]
         ])
 
-    def __len__(self):
-        # return len(self.data)
-        return len(self.data) - 3
+    # TODO: Make the frame stacks end at every trial end; current;y frame stack contain images of different trials
+    def __len__(self): return len(self.data) - 3
 
     def __getitem__(self, idx):
         """
@@ -115,5 +136,3 @@ class GazeDataset(Dataset):
 
         assert item[0].shape == torch.Size([4, 84, 84])
         return item
-    
-# TODO: make Train / Test dataset from a split within each trial 
