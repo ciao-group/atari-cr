@@ -119,7 +119,7 @@ class GazeDataset(Dataset):
                 for s in gaze_string.replace("(", "").replace("'", "").split(")")[:-1]
         ])
 
-    # TODO: Make the frame stacks end at every trial end; current;y frame stack contain images of different trials
+    # TODO: Make the frame stacks end at every trial end; currently frame stack contain images of different trials
     def __len__(self): return len(self.data) - 3
 
     def __getitem__(self, idx):

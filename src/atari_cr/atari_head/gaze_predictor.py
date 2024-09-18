@@ -16,11 +16,13 @@ from tqdm import tqdm
 
 from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.atari_head.utils import saliency_auc
-from atari_cr.common.utils import gradfilter_ema, grid_image, show_tensor, grid_image2
+from atari_cr.common.utils import gradfilter_ema, debug_array
 
 class ArgParser(Tap):
     debug: bool = False # Debug mode for less data loading
     load_model: bool = False # Whether to load an existing model (if possible) or train a new one
+    n: int = 100 # Number of training iterations
+    eval_train_data: bool = False # Whether to use the train data for evaluation as well. For debugging
 
 class GazePredictionNetwork(nn.Module):
     """
@@ -124,11 +126,13 @@ class GazePredictor():
             self, 
             model: GazePredictionNetwork,
             dataset: GazeDataset,
-            output_dir: str
+            output_dir: str,
+            model_name: str = "all_trials"
         ):
         self.model = model
         self.train_loader, self.val_loader = self._init_data_loaders(dataset)
         self.output_dir = output_dir
+        self.model_name = model_name
 
         # Loss function, optimizer, compute device and tesorboard writer
         self.loss_function = nn.KLDivLoss(reduction="batchmean")
@@ -143,7 +147,8 @@ class GazePredictor():
         # Count the number of trained epochs
         self.epoch = 0
 
-    def train(self, n_epochs: int):
+    def train(self, n_epochs: int, save_interval=100):
+        if n_epochs == 0: return
         self.model.train()
 
         final_epoch = self.epoch + n_epochs
@@ -164,9 +169,9 @@ class GazePredictor():
 
                     losses.append(loss.item())
                     t.set_postfix(loss=f"{np.mean(losses):6.4f}")
-                    if t.n == t.total: t.colour = "green"
+                    if t.n == t.total - 1: t.colour = "green"
 
-            if self.epoch % 10 == 9:
+            if self.epoch % save_interval == save_interval - 1:
                 self.save()
 
         self.model.eval()
@@ -175,26 +180,31 @@ class GazePredictor():
         # Save the trained model
         self.save()
 
-    def eval(self):
+    def eval(self, on_train_data=False):
         """
+        :param bool on_train_data: Whether to eval the predictor on the train set. For debugging purposes.
         :returns Tuple[float, float]: KL Divergence and AUC
         """
-        kl_divs, aucs = [], []
-        for frame_stack_batch, saliency_map_batch, _ in self.val_loader:
+        loader = self.train_loader if on_train_data else self.val_loader
+        if on_train_data: print("Warning: Evaluating on training data")
+        kl_divs, aucs = torch.zeros(len(loader)), torch.zeros(len(loader))
+        for i, (frame_stack_batch, saliency_map_batch, _) in enumerate(loader):
             # Prediction in log space as expected by KLDivLoss
             prediction = self.model(frame_stack_batch.to(self.device))
             saliency_map_batch = saliency_map_batch.to(self.device)
 
-            kl_divs.append(nn.KLDivLoss()(prediction, saliency_map_batch).detach().cpu().numpy())
-            aucs.append(saliency_auc(prediction.exp(), saliency_map_batch, self.device).cpu().numpy())
+            kl_divs[i] = nn.KLDivLoss(reduction="batchmean")(prediction, saliency_map_batch).detach()
+            aucs[i] = saliency_auc(prediction.exp(), saliency_map_batch, self.device)
 
-        return np.mean(kl_divs), np.mean(aucs)
+        return kl_divs.mean(), aucs.mean()
     
     def save(self):
         save_path = f"{self.epoch + 1}.pth"
+        save_dir = os.path.join(self.output_dir, "models", self.model_name)
+        os.makedirs(save_dir, exist_ok=True)
         torch.save(
             self.model.state_dict(), 
-            os.path.join(self.output_dir, "models", save_path)
+            os.path.join(save_dir, save_path)
         )
         print(f"Saved model to {save_path}")
 
@@ -202,7 +212,7 @@ class GazePredictor():
         """
         :returns `Tuple[DataLoader, DataLoader]` train_loader, val_loader: `torch.DataLoader` objects for training and validation
         """
-        BATCH_SIZE = 64
+        BATCH_SIZE = 512
         np.random.seed(seed=42)
 
         train_dataset, test_dataset = dataset.split()
@@ -218,7 +228,8 @@ class GazePredictor():
         model = GazePredictionNetwork()
         model.load_state_dict(torch.load(save_path))
 
-        predictor = GazePredictor(model, dataset, output_dir)
+        model_name = save_path.split("/")[-2]
+        predictor = GazePredictor(model, dataset, output_dir, model_name)
         predictor.epoch = int(save_path.split("/")[-1][:-4])
 
         return predictor
@@ -228,15 +239,17 @@ def train_predictor():
 
     # Use bfloat16 to speed up matrix computation
     torch.set_float32_matmul_precision("medium")
+    if args.debug: torch.cuda.memory._record_memory_history()
 
     # Create dataset and data loader
     env_name = "ms_pacman"
     single_run = "52_RZ_2394668_Aug-10-14-52-42" if args.debug else ""
+    model_name = single_run or "all_trials"
     dataset = GazeDataset.from_atari_head_files(root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=single_run)
     
     # Create the dir for saving the trained model
     output_dir = f"output/atari_head/{env_name}"
-    model_dir = os.path.join(output_dir, "models")
+    model_dir = os.path.join(output_dir, "models", model_name)
     os.makedirs(model_dir, exist_ok=True)
 
     # Load an existing Atari HEAD model
@@ -249,12 +262,15 @@ def train_predictor():
     else:
         print("Creating new gaze model from hdfs5 weights")
         model = GazePredictionNetwork.from_h5(f"data/h5_gaze_predictors/{env_name}.hdf5")
-        gaze_predictor = GazePredictor(model, dataset, output_dir)
+        gaze_predictor = GazePredictor(model, dataset, output_dir, model_name)
 
     # Train the model
-    gaze_predictor.train(n_epochs=100)
+    gaze_predictor.train(n_epochs=args.n)
     kl_div, auc = gaze_predictor.eval()
-    print(f"KL Divergence: {kl_div}, AUC: {auc}")
+    print(f"KL Divergence: {kl_div:6.4f}, AUC: {auc:6.4f}")
+    if args.eval_train_data: 
+        kl_div, auc = gaze_predictor.eval(args.eval_train_data)
+        print(f"Evaluation on Training Data:\tKL Divergence: {kl_div:6.4f}, AUC: {auc:6.4f}")
 
 if __name__ == "__main__": 
     train_predictor()

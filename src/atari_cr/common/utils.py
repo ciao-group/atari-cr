@@ -491,6 +491,18 @@ def grid_image(array: Union[np.ndarray, torch.Tensor], line_color=[255, 0, 0], l
 
     return grid
 
+def debug_array(array: Union[np.ndarray, torch.Tensor]):
+    """
+    Saves a 2D, 3D or 4D greyscale array as an image under 'debug.png'.
+    """
+    if isinstance(array, torch.Tensor): array = array.detach().cpu().numpy()
+    match len(array.shape):
+        case 4: image_array = grid_image(array)
+        case 3: image_array = grid_image(array[np.newaxis])
+        case 2: image_array = grid_image(array[np.newaxis][np.newaxis])
+
+    Image.fromarray(image_array, "RGB").save("debug.png")
+
 def get_env_attributes(env) -> List[Tuple[str, Any]]:
     """ Returns a list of env attributes together with wrapped env attributes. """
     attributes = []

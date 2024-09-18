@@ -11,8 +11,10 @@
             "program": "src/atari_cr/atari_head/gaze_predictor.py",
             "console": "integratedTerminal",
             "args": [
-                // "--debug",
-                "--load_model"
+                "--debug",
+                "--load_model",
+                "--n", "100",
+                "--eval_train_data"
             ]
         },
         {
