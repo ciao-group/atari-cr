@@ -13,8 +13,9 @@
             "args": [
                 "--debug",
                 "--load_model",
-                "--n", "100",
-                "--eval_train_data"
+                "--n", "0",
+                // "--eval_train_data",
+                "--eval_tf",
             ]
         },
         {

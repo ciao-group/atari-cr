@@ -476,18 +476,18 @@ def grid_image(array: Union[np.ndarray, torch.Tensor], line_color=[255, 0, 0], l
     grid_size = (y * n_rows + line_width * (n_rows - 1), x * n_cols + line_width * (n_cols - 1), n_channels)
     grid = np.zeros(grid_size, dtype=np.uint8)
 
+    # Create colored lines
+    for i in range(1, n_rows):
+        grid[i*(y+line_width)-line_width:i*(y+line_width), :] = line_color
+    for j in range(1, n_cols):
+        grid[:, j*(x+line_width)-line_width:j*(x+line_width)] = line_color
+
     # Plot each image in the grid
     for i in range(n_rows):
         for j in range(n_cols):
             y_start = i * (y + line_width)
             x_start = j * (x + line_width)
             grid[y_start:y_start+y, x_start:x_start+x] = array[i, j]
-
-    # Create colored lines
-    for i in range(1, n_rows):
-        grid[i*(y+line_width)-line_width:i*(y+line_width), :] = line_color
-    for j in range(1, n_cols):
-        grid[:, j*(x+line_width)-line_width:j*(x+line_width)] = line_color
 
     return grid
 

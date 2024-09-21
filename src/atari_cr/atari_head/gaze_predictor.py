@@ -12,7 +12,7 @@ import torch.optim as optim
 import numpy as np
 import h5py
 from tap import Tap
-from tqdm import tqdm
+from atari_cr.common.tqdm import tqdm
 
 from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.atari_head.utils import saliency_auc
@@ -23,6 +23,9 @@ class ArgParser(Tap):
     load_model: bool = False # Whether to load an existing model (if possible) or train a new one
     n: int = 100 # Number of training iterations
     eval_train_data: bool = False # Whether to use the train data for evaluation as well. For debugging
+    eval_tf: bool = False # Whether to also evaluate the original tensorflow model
+    load_saliency: bool = False # Whether to load existing saliency maps.
+    use_og_saliency: bool = False # Whether to use the original funtion for creating saliency maps
 
 class GazePredictionNetwork(nn.Module):
     """
@@ -156,7 +159,7 @@ class GazePredictor():
         for self.epoch in range(self.epoch, final_epoch):
 
             print(f"Epoch {self.epoch + 1} / {final_epoch}")
-            with tqdm(self.train_loader, colour="yellow") as t:
+            with tqdm(self.train_loader) as t:
                 for inputs, targets, _ in t:
                     inputs, targets = inputs.to(self.device), targets.to(self.device)
 
@@ -169,7 +172,6 @@ class GazePredictor():
 
                     losses.append(loss.item())
                     t.set_postfix(loss=f"{np.mean(losses):6.4f}")
-                    if t.n == t.total - 1: t.colour = "green"
 
             if self.epoch % save_interval == save_interval - 1:
                 self.save()
@@ -233,19 +235,25 @@ class GazePredictor():
         predictor.epoch = int(save_path.split("/")[-1][:-4])
 
         return predictor
+    
+def evaluate_tf_predictor():
+    with open("ms_pacman_52_RZ_2394668_Aug-10-14-52-42_preds.np", "rb") as f: 
+        tf_preds = np.load(f)
 
 def train_predictor():
     args = ArgParser().parse_args()
 
     # Use bfloat16 to speed up matrix computation
     torch.set_float32_matmul_precision("medium")
-    if args.debug: torch.cuda.memory._record_memory_history()
+    if args.debug: torch.cuda.memory._record_memory_history(True)
 
     # Create dataset and data loader
     env_name = "ms_pacman"
     single_run = "52_RZ_2394668_Aug-10-14-52-42" if args.debug else ""
     model_name = single_run or "all_trials"
-    dataset = GazeDataset.from_atari_head_files(root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=single_run)
+    dataset = GazeDataset.from_atari_head_files(
+        root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=single_run, 
+        load_saliency=args.load_saliency, use_og_saliency=args.use_og_saliency)
     
     # Create the dir for saving the trained model
     output_dir = f"output/atari_head/{env_name}"
@@ -271,6 +279,16 @@ def train_predictor():
     if args.eval_train_data: 
         kl_div, auc = gaze_predictor.eval(args.eval_train_data)
         print(f"Evaluation on Training Data:\tKL Divergence: {kl_div:6.4f}, AUC: {auc:6.4f}")
+
+    # Eval original tensorflow model
+    if args.eval_tf:
+        with open("output/debug/ms_pacman_52_RZ_2394668_Aug-10-14-52-42_preds.np", "rb") as f: 
+            tf_preds = np.load(f).copy()
+        ground_truth_saliency = np.stack(list(dataset.data["saliency_map"]))
+
+        debug_array(np.stack([tf_preds[:16], ground_truth_saliency[:16]]))
+        breakpoint()
+    
 
 if __name__ == "__main__": 
     train_predictor()

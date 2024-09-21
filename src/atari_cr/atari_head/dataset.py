@@ -1,13 +1,17 @@
 import os
+import pickle
 from typing import List, Optional
 import cv2
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
-from tqdm import tqdm
+from atari_cr.common.tqdm import tqdm
 
+from atari_cr.atari_head.og_heatmap import DatasetWithHeatmap
 from atari_cr.atari_head.utils import create_saliency_map, preprocess
+
+# from atari_cr.atari_head.og_heatmap import DatasetWithHeatmap
 
 class GazeDataset(Dataset):
     def __init__(self, frames: List[torch.Tensor], gaze_lists: List[List[torch.Tensor]], 
@@ -25,7 +29,7 @@ class GazeDataset(Dataset):
         self.output_gazes = output_gazes
 
     @staticmethod
-    def from_atari_head_files(root_dir: str, load_single_run="", test_split=0.2):
+    def from_atari_head_files(root_dir: str, load_single_run="", test_split=0.2, load_saliency=False, use_og_saliency=False):
         """
         Loads the data in the Atari-HEAD format into a dataframe with metadata and image paths.
         """
@@ -68,19 +72,25 @@ class GazeDataset(Dataset):
                 "train": trial_data["train"].astype(bool)
             })
 
-            # Load or create saliency maps
-            saliency_path = os.path.join(root_dir, "saliency")
-            save_path = os.path.join(saliency_path, filename)[:-4] + ".np"
-            if os.path.exists(save_path):
-                print(f"Loading existing saliency maps for {filename}")
-                with open(save_path, "rb") as f: saliency_maps = np.load(f, allow_pickle=True)
-                trimmed_trial_data["saliency"] = pd.Series([array for array in saliency_maps])
-            else:
-                print(f"Creating saliency maps for {filename}")
-                os.makedirs(saliency_path, exist_ok=True)
-                trimmed_trial_data["saliency"] = trimmed_trial_data["gazes"].progress_apply(lambda gazes: create_saliency_map(gazes).numpy())
-                with open(save_path, "wb") as f: np.save(f, trimmed_trial_data["saliency"].to_numpy())
-                print(f"Saliency maps saved under {save_path}")
+            if use_og_saliency: 
+                gazes = list(t.reshape([-1]).tolist() for t in trial_data["gaze_positions"])
+                with open("52_gazes.pkl", "wb") as f: pickle.dump(gazes, f)
+                saliency_maps = DatasetWithHeatmap().createGazeHeatmap(gazes, 84)
+                trimmed_trial_data["saliency"] = pd.Series([array for array in saliency_maps.reshape(saliency_maps.shape[:-1])])
+            else: 
+                # Load or create saliency maps
+                saliency_path = os.path.join(root_dir, "saliency")
+                save_path = os.path.join(saliency_path, filename)[:-4] + ".np"
+                if os.path.exists(save_path) and load_saliency:
+                    print(f"Loading existing saliency maps for {filename}")
+                    with open(save_path, "rb") as f: saliency_maps = np.load(f, allow_pickle=True)
+                    trimmed_trial_data["saliency"] = pd.Series([array for array in saliency_maps])
+                else:
+                    print(f"Creating saliency maps for {filename}")
+                    os.makedirs(saliency_path, exist_ok=True)
+                    trimmed_trial_data["saliency"] = trimmed_trial_data["gazes"].progress_apply(lambda gazes: create_saliency_map(gazes).numpy())
+                    with open(save_path, "wb") as f: np.save(f, trimmed_trial_data["saliency"].to_numpy())
+                    print(f"Saliency maps saved under {save_path}")
 
             dfs.append(trimmed_trial_data)
 

@@ -123,6 +123,6 @@ if __name__ == "__main__":
     # tf.saved_model.save(gp.model, "saved_model")
     preds = gp.predict(d.gaze_imgs)
     preds = tf.reshape(preds, preds.shape[:-1])
-    with open(f"{game_name}_{sys.argv[1].split('/')[-1].split('.')[0]}_preds.np", "wb") as f: np.save(f, preds)
+    with open(f"output/og_{game_name}_{sys.argv[1].split('/')[-1].split('.')[0]}_preds.np", "wb") as f: np.save(f, preds)
     breakpoint()
 

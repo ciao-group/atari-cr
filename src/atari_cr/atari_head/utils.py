@@ -79,7 +79,8 @@ def create_saliency_map(gaze_positions: torch.Tensor):
     # Adjust sigma to correspond to one visual degree
     # Screen Size: 44,6 x 28,5 visual degrees; Visual Degrees per Pixel: 0,5310 x 0,3393
     sigmas = 1 / (torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE) / torch.Tensor(SCREEN_SIZE))
-    sigma = 2
+    # Update the sigma to more closely match the outputs of the original gaze predictor
+    sigmas *= 2.5
     # Scale the coords from the original resolution down to the screen size
     gaze_positions *= (torch.Tensor(SCREEN_SIZE) / torch.Tensor([160, 210]))
 
@@ -96,7 +97,8 @@ def create_saliency_map(gaze_positions: torch.Tensor):
     saliency_map, _ = torch.max(torch.exp(-torch.sum(((mesh - gaze_positions)**2) / (2 * sigmas**2), dim=1)), dim=0)
 
     # Make the tensor sum to 1 for KL Divergence
-    saliency_map = torch.nn.Softmax(dim=0)(saliency_map.flatten()).view(SCREEN_SIZE)
+    if saliency_map.sum() == 0: saliency_map = torch.ones(saliency_map.shape)
+    saliency_map = saliency_map / saliency_map.sum()
     return saliency_map
 
 def open_mp4_as_frame_list(path: str):
