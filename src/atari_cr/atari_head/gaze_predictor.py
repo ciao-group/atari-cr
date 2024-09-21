@@ -51,7 +51,7 @@ class GazePredictionNetwork(nn.Module):
         
         # Softmax layer; Uses log softmax to conform to the KLDiv expected input
         self.log_softmax = nn.LogSoftmax(dim=1)
-        self.dropout = nn.Dropout(0.0)
+        self.dropout = nn.Dropout(0.5)
 
     def forward(self, x):
         # Convolutional layers
