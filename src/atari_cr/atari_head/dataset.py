@@ -32,20 +32,20 @@ class GazeDataset(Dataset):
     def from_atari_head_files(root_dir: str, load_single_run="", test_split=0.2, load_saliency=False, use_og_saliency=False):
         """
         Loads the data in the Atari-HEAD format into a dataframe with metadata and image paths.
+
+        :param str load_single_run: Name of a single trial to be used. If empty, all trials are loaded
         """
         tqdm.pandas()
         dfs = []
 
         # Count the files that still need to be loaded
-        i = 0
-        csv_files = list(filter(lambda filename: filename.endswith('.csv'), os.listdir(root_dir)))
-        total_files = len(csv_files)
+        csv_files = list(filter(
+            lambda filename: filename.endswith('.csv') and load_single_run in filename, 
+            os.listdir(root_dir)
+        ))
 
         print("Loading images into memory")
-        for filename in tqdm(csv_files, total=total_files):
-            if not load_single_run in filename: continue
-            i += 1
-
+        for filename in tqdm(csv_files, total=len(csv_files)):
             csv_path = os.path.join(root_dir, filename)
             subdir_name = os.path.splitext(filename)[0]
 
@@ -93,9 +93,6 @@ class GazeDataset(Dataset):
                     print(f"Saliency maps saved under {save_path}")
 
             dfs.append(trimmed_trial_data)
-
-            if load_single_run:
-                break
 
         # Combine all dataframes
         combined_df = pd.concat(dfs, ignore_index=True)
