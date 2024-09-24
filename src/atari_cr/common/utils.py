@@ -450,7 +450,6 @@ def grid_image2(images: Union[np.ndarray, torch.Tensor]):
     plt.tight_layout()
     plt.savefig("debug.png")
 
-
 def grid_image(array: Union[np.ndarray, torch.Tensor], line_color=[255, 0, 0], line_width=1):
     """
     Display a grid of rgb images seperated by colored lines
@@ -470,7 +469,13 @@ def grid_image(array: Union[np.ndarray, torch.Tensor], line_color=[255, 0, 0], l
     n_rows, n_cols, y, x, n_channels = array.shape 
 
     # Convert to uint8
-    if array.dtype == np.float32: array = to_uint8_image(array)
+    if not array.flags["WRITEABLE"]: array = array.copy()
+    if array.dtype == np.float32: 
+        for i in range(len(array)):
+            for j in range(len(array[i])):
+                array[i,j] = array[i,j] - array[i,j].min()
+                array[i,j] = (array[i,j] / array[i,j].max()) * 255
+        array = array.astype(np.uint8)
 
     # Create a new RGB array to hold the grid with separating lines
     grid_size = (y * n_rows + line_width * (n_rows - 1), x * n_cols + line_width * (n_cols - 1), n_channels)
@@ -491,11 +496,16 @@ def grid_image(array: Union[np.ndarray, torch.Tensor], line_color=[255, 0, 0], l
 
     return grid
 
-def debug_array(array: Union[np.ndarray, torch.Tensor]):
+def debug_array(array: Union[np.ndarray, torch.Tensor, List[torch.Tensor]]):
     """
     Saves a 2D, 3D or 4D greyscale array as an image under 'debug.png'.
     """
+    if isinstance(array, List): 
+        for i in range(len(array)):
+            array[i] = array[i].detach().cpu() if isinstance(array[i], torch.Tensor) else array[i]
+        array = np.stack(array)
     if isinstance(array, torch.Tensor): array = array.detach().cpu().numpy()
+    if array.dtype == np.float64: array = array.astype(np.float32)
     match len(array.shape):
         case 4: image_array = grid_image(array)
         case 3: image_array = grid_image(array[np.newaxis])
@@ -582,18 +592,6 @@ def EMMA_fixation_time(
     t_enc_new = (1 - (t_sacc / t_enc)) * e_new
 
     return (t_prep, t_exec, t_enc_new), t_sacc + t_enc_new, True
-
-def to_uint8_image(img: Union[np.ndarray, torch.Tensor]):
-    """
-    Converts a float32 image with values between 0 and 1 to a uint8 image with values between 0 and 255
-    """
-    if isinstance(img, np.ndarray): img = torch.Tensor(img)
-
-    img = img - img.min()  # Shift to positive range
-    img = img / img.max()  # Normalize to [0, 1]
-    img = (img * 255).byte()  # Scale to [0, 255] and convert to uint8
-    return img
-
 
 def show_tensor(t: Union[torch.Tensor, np.ndarray], save_path = "debug.png"):
     """

@@ -1,7 +1,9 @@
 from collections import deque
 import os
 import time
-from typing import List
+from typing import Callable, List
+import cv2
+import pandas as pd
 from sklearn.metrics import roc_auc_score
 import torch
 import torch.nn as nn
@@ -182,21 +184,22 @@ class GazePredictor():
         # Save the trained model
         self.save()
 
-    def eval(self, on_train_data=False):
+    def eval(self, on_train_data=False, external_model: Callable[[torch.Tensor], torch.Tensor] = None):
         """
         :param bool on_train_data: Whether to eval the predictor on the train set. For debugging purposes.
         :returns Tuple[float, float]: KL Divergence and AUC
         """
         loader = self.train_loader if on_train_data else self.val_loader
+        model = external_model or self.model
         if on_train_data: print("Warning: Evaluating on training data")
         kl_divs, aucs = torch.zeros(len(loader)), torch.zeros(len(loader))
         for i, (frame_stack_batch, saliency_map_batch, _) in enumerate(loader):
             # Prediction in log space as expected by KLDivLoss
-            prediction = self.model(frame_stack_batch.to(self.device))
+            prediction = model(frame_stack_batch.to(self.device))
             saliency_map_batch = saliency_map_batch.to(self.device)
 
             kl_divs[i] = nn.KLDivLoss(reduction="batchmean")(prediction, saliency_map_batch).detach()
-            aucs[i] = saliency_auc(prediction.exp(), saliency_map_batch, self.device)
+            aucs[i] = saliency_auc(prediction.exp(), saliency_map_batch, self.device).mean()
 
         return kl_divs.mean(), aucs.mean()
     
@@ -278,7 +281,47 @@ def train_predictor():
     print(f"KL Divergence: {kl_div:6.4f}, AUC: {auc:6.4f}")
     if args.eval_train_data: 
         kl_div, auc = gaze_predictor.eval(args.eval_train_data)
-        print(f"Evaluation on Training Data:\tKL Divergence: {kl_div:6.4f}, AUC: {auc:6.4f}")
+        print(f"Evaluation on Training Data: KL Divergence: {kl_div:6.4f}, AUC: {auc:6.4f}")
+
+    # Baseline evaluation
+    def optical_flow(t: torch.Tensor):
+        """
+        Wrapper to call the optical flow method from open cv on a validation set batch of data.
+
+        :param Tensor[B x frame_stack x H x W] t: Batch of stacked frames
+        :return Tensor[B x H x W]:
+        """
+        array = (t * 255).type(torch.uint8).detach().cpu().numpy()
+        batch_size, _, height, width = t.shape
+        saliency_batch = np.zeros([batch_size, height, width])
+        for i, frame_stack in enumerate(array):
+            flow: np.ndarray = cv2.calcOpticalFlowFarneback(frame_stack[-2], frame_stack[-1], None, 0.5, 3, 15, 3, 5, 1.2, 0)
+            # Interpret the absolute flow velocity as movement_saliency
+            flow = np.square(flow)
+            movement_saliency = np.sqrt(flow[..., 0] + flow[..., 1])
+            # Normalize the saliency map to sum to 1
+            movement_saliency = movement_saliency - movement_saliency.min()
+            movement_saliency = movement_saliency / movement_saliency.sum()
+            saliency_batch[i] = movement_saliency
+        return torch.Tensor(saliency_batch).to(gaze_predictor.device)
+    kl_div, auc = gaze_predictor.eval(external_model=optical_flow)
+    print(f"Baseline Evaluation: KL Divergence: {kl_div:6.4f}, AUC: {auc:6.4f}")
+
+    # Get one validation batch for debugging
+    if args.debug:
+        frame_stack, saliency, _ = next(iter(gaze_predictor.val_loader))
+        frame_stack = frame_stack[16:32].to(gaze_predictor.device)
+        saliency = saliency[16:32].to(gaze_predictor.device)
+    # Look at output of different models
+        saliency = saliency
+        model_saliency = gaze_predictor.model(frame_stack).exp()
+        baseline_saliency = optical_flow(frame_stack)
+        print(pd.DataFrame({
+            "min": [saliency.min().item(), model_saliency.min().item(), baseline_saliency.min().item()],
+            "max": [saliency.max().item(), model_saliency.max().item(), baseline_saliency.max().item()],
+            "sum": [saliency.sum().item(), model_saliency.sum().item(), baseline_saliency.sum().item()],
+        }, index=["GT", "Model", "Baseline"]))
+        debug_array([saliency, model_saliency, baseline_saliency])  
 
     # Eval original tensorflow model
     if args.eval_tf:

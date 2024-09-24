@@ -10,7 +10,7 @@ from torchmetrics.classification import BinaryAccuracy
 from PIL import Image
 
 from atari_cr.common.models import RecordBuffer
-from atari_cr.common.utils import grid_image
+from atari_cr.common.utils import grid_image, debug_array
 
 # Screen Size in visual degrees: 44,6 x 28,5
 # Visual Degrees per Pixel with 84 x 84 pixels: 0,5310 x 0,3393
@@ -80,7 +80,7 @@ def create_saliency_map(gaze_positions: torch.Tensor):
     # Screen Size: 44,6 x 28,5 visual degrees; Visual Degrees per Pixel: 0,5310 x 0,3393
     sigmas = 1 / (torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE) / torch.Tensor(SCREEN_SIZE))
     # Update the sigma to more closely match the outputs of the original gaze predictor
-    sigmas *= 2.5
+    sigmas *= 3
     # Scale the coords from the original resolution down to the screen size
     gaze_positions *= (torch.Tensor(SCREEN_SIZE) / torch.Tensor([160, 210]))
 
@@ -211,23 +211,39 @@ def preprocess(image: np.ndarray):
     frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
     return torch.Tensor(frame / 255.0)
 
-def saliency_auc(saliency_map1: torch.Tensor, saliency_map2: torch.Tensor, device: torch.device):
+def saliency_auc(gt_saliency: torch.Tensor, pred_saliency: torch.Tensor, device: torch.device):
     """
     Predicts the AUC between two greyscale saliency maps by comparing their most salient pixels each
+    as described in doi.org/10.3758/s13428-012-0226-9.
 
-    :param Tensor[WxH] saliency_map1: First saliency map
-    :param Tensor[WxH] saliency_map2: Second saliency map
+    :param Tensor[BxWxH] ground_truth_saliency: Ground truth saliency map
+    :param Tensor[BxWxH] predicted_saliency: Predicted saliency map
+
+    :return Tensor[Bx4]: AUC for most salient 2%, 5%, 10% and 20% of pixels
     """
+    assert gt_saliency.shape == pred_saliency.shape, "Saliency maps need to have the same size"
+
     # Flatten both maps
-    saliency_map1 = saliency_map1.flatten().to(device)
-    saliency_map2 = saliency_map2.flatten().to(device)
-    assert saliency_map1.shape == saliency_map2.shape, "Saliency maps need to have the same size"
+    batch_size, x, y = gt_saliency.shape
+    n_pixels = x*y
+    gt_saliency = gt_saliency.to(device).flatten(start_dim=1)
+    pred_saliency = pred_saliency.to(device).flatten(start_dim=1)
 
-    # Get saliency maps containing only the most salient pixels for every 5% percentile
-    percentiles = torch.arange(0.05, 1., 0.05).to(device)
-    saliency_map1_thresholds = torch.quantile(saliency_map1, percentiles).view(-1, 1).expand(-1, len(saliency_map1))
-    saliency_map2_thresholds = torch.quantile(saliency_map2, percentiles).view(-1, 1).expand(-1, len(saliency_map2))
-    thresholded_saliency_maps1 = saliency_map1.expand([len(percentiles), -1]) >= saliency_map1_thresholds
-    thresholded_saliency_maps2 = saliency_map2.expand([len(percentiles), -1]) >= saliency_map2_thresholds
+    def percentile_saliency(saliency_map: torch.Tensor, percentiles: torch.Tensor):
+        """ Get the q most salient pixels in the map for every fraction q in percentiles """
+        thresholds = torch.quantile(saliency_map, percentiles, dim=1).view(len(percentiles), batch_size, 1).expand(-1, -1, n_pixels)
+        return saliency_map.expand(len(percentiles), batch_size, n_pixels) >= thresholds
 
-    return BinaryAccuracy().to(device)(thresholded_saliency_maps1, thresholded_saliency_maps2)
+    # Get the q most salient ground_truth pixels for q in [2%, 5%, 10%, 20%]
+    gt_percentiles = torch.Tensor([0.02, 0.05, 0.10, 0.20]).to(device)
+    gt_percentile_saliency_maps = percentile_saliency(gt_saliency, gt_percentiles)
+
+    # Get the predicted saliency maps containing only the most salient pixels for every 5% percentile
+    pred_percentiles = torch.arange(0.05, 1., 0.05).to(device)
+    pred_percentile_saliency_maps = percentile_saliency(pred_saliency, pred_percentiles)
+
+    # Broadcast for comparison
+    gt_percentile_saliency_maps = gt_percentile_saliency_maps.view(len(gt_percentiles), 1, batch_size, n_pixels).expand(-1, len(pred_percentiles), -1, -1)
+    pred_percentile_saliency_maps = pred_percentile_saliency_maps.view(1, len(pred_percentiles), batch_size, n_pixels).expand(len(gt_percentiles), -1, -1, -1)
+
+    return (gt_percentile_saliency_maps == pred_percentile_saliency_maps).type(torch.float32).mean(dim=[1,3])
