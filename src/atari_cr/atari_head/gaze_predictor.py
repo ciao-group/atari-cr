@@ -52,7 +52,7 @@ class GazePredictionNetwork(nn.Module):
         
         # Softmax layer; Uses log softmax to conform to the KLDiv expected input
         self.log_softmax = nn.LogSoftmax(dim=1)
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(0.375)
 
     def forward(self, x):
         # Convolutional layers
@@ -186,21 +186,23 @@ class GazePredictor():
     def eval(self, on_train_data=False, external_model: Callable[[torch.Tensor], torch.Tensor] = None):
         """
         :param bool on_train_data: Whether to eval the predictor on the train set. For debugging purposes.
+        :param Callable external_model: Model creating a saliency map in log space
         :returns Tuple[float, float]: KL Divergence and AUC
         """
         loader = self.train_loader if on_train_data else self.val_loader
         model = external_model or self.model
         if on_train_data: print("Warning: Evaluating on training data")
-        kl_divs, aucs = torch.zeros(len(loader)), torch.zeros(len(loader))
+        kl_divs = torch.zeros(len(loader))
+        aucs = torch.zeros([len(loader), 4])
         for i, (frame_stack_batch, saliency_map_batch, _) in enumerate(loader):
             # Prediction in log space as expected by KLDivLoss
             prediction = model(frame_stack_batch.to(self.device))
             saliency_map_batch = saliency_map_batch.to(self.device)
 
             kl_divs[i] = nn.KLDivLoss(reduction="batchmean")(prediction, saliency_map_batch).detach()
-            aucs[i] = self.saliency_auc(prediction.exp(), saliency_map_batch, self.device).mean()
+            aucs[i] = self.saliency_auc(saliency_map_batch, prediction.exp(), self.device).mean(dim=1)
 
-        return kl_divs.mean(), aucs.mean()
+        return kl_divs.mean(), aucs.mean(dim=0)
     
     def save(self):
         save_path = f"{self.epoch + 1}.pth"
@@ -275,10 +277,6 @@ class GazePredictor():
         pred_percentile_saliency_maps = pred_percentile_saliency_maps.view(1, len(pred_percentiles), batch_size, n_pixels).expand(len(gt_percentiles), -1, -1, -1)
 
         return (gt_percentile_saliency_maps == pred_percentile_saliency_maps).type(torch.float32).mean(dim=[1,3])
-    
-def evaluate_tf_predictor():
-    with open("ms_pacman_52_RZ_2394668_Aug-10-14-52-42_preds.np", "rb") as f: 
-        tf_preds = np.load(f)
 
 def train_predictor():
     args = ArgParser().parse_args()
@@ -314,11 +312,11 @@ def train_predictor():
 
     # Train the model
     gaze_predictor.train(n_epochs=args.n)
-    kl_div, auc = gaze_predictor.eval()
-    print(f"KL Divergence: {kl_div:6.4f}, AUC: {auc:6.4f}")
+    model_kl_div, model_auc = gaze_predictor.eval()
+    # print(f"KL Divergence: {model_kl_div:6.4f}, AUC: {model_auc}")
     if args.eval_train_data: 
-        kl_div, auc = gaze_predictor.eval(args.eval_train_data)
-        print(f"Evaluation on Training Data: KL Divergence: {kl_div:6.4f}, AUC: {auc:6.4f}")
+        train_kl_div, train_auc = gaze_predictor.eval(args.eval_train_data)
+        print(f"Evaluation on Training Data: KL Divergence: {train_kl_div:6.4f}, AUC: {train_auc}")
 
     # Baseline evaluation
     def optical_flow(t: torch.Tensor):
@@ -340,24 +338,36 @@ def train_predictor():
             movement_saliency = movement_saliency - movement_saliency.min()
             movement_saliency = movement_saliency / movement_saliency.sum()
             saliency_batch[i] = movement_saliency
-        return torch.Tensor(saliency_batch).to(gaze_predictor.device)
-    kl_div, auc = gaze_predictor.eval(external_model=optical_flow)
-    print(f"Baseline Evaluation: KL Divergence: {kl_div:6.4f}, AUC: {auc:6.4f}")
+        flow_saliency = torch.Tensor(saliency_batch).to(gaze_predictor.device)
+        return nn.LogSoftmax(dim=1)(flow_saliency.view([batch_size, -1])).view([batch_size, width, height])
+    flow_kl_div, flow_auc = gaze_predictor.eval(external_model=optical_flow)
+    # print(f"Baseline Evaluation: KL Divergence: {flow_kl_div:6.4f}, AUC: {flow_auc:6.4f}")
 
-    # Get one validation batch for debugging
     if args.debug:
+        # Get one validation batch for debugging
         frame_stack, saliency, _ = next(iter(gaze_predictor.val_loader))
         frame_stack = frame_stack[16:32].to(gaze_predictor.device)
         saliency = saliency[16:32].to(gaze_predictor.device)
-    # Look at output of different models
+        # Look at output of different models
         saliency = saliency
         model_saliency = gaze_predictor.model(frame_stack).exp()
-        baseline_saliency = optical_flow(frame_stack)
+        baseline_saliency = optical_flow(frame_stack).exp()
+        # Ground truth evaluation as sanity check
+        gt_kl_div = nn.KLDivLoss(reduction="batchmean")(saliency.log(), saliency).detach()
+        gt_auc = GazePredictor.saliency_auc(saliency, saliency, gaze_predictor.device).mean(dim=1)
+        # Random saliency for reference
+        random = torch.rand(saliency.shape).to(gaze_predictor.device)
+        random = nn.Softmax()(random.view(saliency.shape[0], -1)).view(saliency.shape)
+        random_kl_div = nn.KLDivLoss(reduction="batchmean")(random.log(), saliency).detach()
+        random_auc = GazePredictor.saliency_auc(saliency, random, gaze_predictor.device).mean(dim=1)
         print(pd.DataFrame({
-            "min": [saliency.min().item(), model_saliency.min().item(), baseline_saliency.min().item()],
-            "max": [saliency.max().item(), model_saliency.max().item(), baseline_saliency.max().item()],
-            "sum": [saliency.sum().item(), model_saliency.sum().item(), baseline_saliency.sum().item()],
-        }, index=["GT", "Model", "Baseline"]))
+            "min": [saliency.min().item(), model_saliency.min().item(), baseline_saliency.min().item(), random.min().item()],
+            "max": [saliency.max().item(), model_saliency.max().item(), baseline_saliency.max().item(), random.max().item()],
+            "sum": [saliency.sum().item(), model_saliency.sum().item(), baseline_saliency.sum().item(), random.sum().item()],
+            "kl_div": [gt_kl_div.item(), model_kl_div.item(), flow_kl_div.item(), random_kl_div.item()],
+            # 20% AUC because it seems to seperate random and optical flow best from gt
+            r"20% auc": [gt_auc[3].item(), model_auc[3].item(), flow_auc[3].item(), random_auc[3].item()],
+        }, index=["GT", "Model", "Optical Flow", "Random"]))
         debug_array([saliency, model_saliency, baseline_saliency])  
 
     # Eval original tensorflow model
