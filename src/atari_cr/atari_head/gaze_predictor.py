@@ -52,7 +52,7 @@ class GazePredictionNetwork(nn.Module):
         
         # Softmax layer; Uses log softmax to conform to the KLDiv expected input
         self.log_softmax = nn.LogSoftmax(dim=1)
-        self.dropout = nn.Dropout(0.375)
+        self.dropout = nn.Dropout(0.75)
 
     def forward(self, x):
         # Convolutional layers
@@ -140,12 +140,14 @@ class GazePredictor():
 
         # Loss function, optimizer, compute device and tesorboard writer
         self.loss_function = nn.KLDivLoss(reduction="batchmean")
-        self.optimizer = optim.Adadelta(self.model.parameters(), lr=1.0, rho=0.95, eps=1e-08, weight_decay=0.0)
+        # self.optimizer = optim.Adadelta(self.model.parameters(), lr=1.0, rho=0.95, eps=1e-08, weight_decay=0.0)
+        self.optimizer = optim.Adam(self.model.parameters())
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
         self.writer = SummaryWriter(os.path.join(output_dir, "tensorboard"))
 
         # Init Grokfast
+        self.grokfast = False
         self.grads = None
 
         # Count the number of trained epochs
@@ -157,6 +159,7 @@ class GazePredictor():
 
         final_epoch = self.epoch + n_epochs
         losses = deque(maxlen=100)
+        eval_kl_divs, train_kl_divs = [], []
         for self.epoch in range(self.epoch, final_epoch):
 
             print(f"Epoch {self.epoch + 1} / {final_epoch}")
@@ -168,7 +171,7 @@ class GazePredictor():
                     outputs = self.model(inputs)
                     loss = self.loss_function(outputs, targets)
                     loss.backward()
-                    self.grads = gradfilter_ema(self.model, self.grads)
+                    if self.grokfast: self.grads = gradfilter_ema(self.model, self.grads)
                     self.optimizer.step()
 
                     losses.append(loss.item())
@@ -176,6 +179,15 @@ class GazePredictor():
 
             if self.epoch % save_interval == save_interval - 1:
                 self.save()
+
+                kl_div, auc = self.eval()
+                eval_kl_divs.append(kl_div.item())
+                print(f"Eval KLDivs: {[f'{x:5.3f}' for x in eval_kl_divs]}")
+                print(f"Eval AUC: {auc}")
+                kl_div, auc = self.eval(on_train_data=True)
+                train_kl_divs.append(kl_div.item())
+                print(f"Train KLDivs: {[f'{x:5.3f}' for x in train_kl_divs]}")
+                print(f"Tain AUC: {auc}")
 
         self.model.eval()
         print('Training finished')
@@ -349,7 +361,7 @@ def train_predictor():
         frame_stack = frame_stack[16:32].to(gaze_predictor.device)
         saliency = saliency[16:32].to(gaze_predictor.device)
         # Look at output of different models
-        saliency = saliency
+        saliency = nn.Softmax()(saliency.view(saliency.shape[0], -1)).view(saliency.shape)
         model_saliency = gaze_predictor.model(frame_stack).exp()
         baseline_saliency = optical_flow(frame_stack).exp()
         # Ground truth evaluation as sanity check
