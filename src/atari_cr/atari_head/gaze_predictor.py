@@ -17,7 +17,6 @@ from tap import Tap
 from atari_cr.common.tqdm import tqdm
 
 from atari_cr.atari_head.dataset import GazeDataset
-from atari_cr.atari_head.utils import saliency_auc
 from atari_cr.common.utils import gradfilter_ema, debug_array
 
 class ArgParser(Tap):
@@ -199,7 +198,7 @@ class GazePredictor():
             saliency_map_batch = saliency_map_batch.to(self.device)
 
             kl_divs[i] = nn.KLDivLoss(reduction="batchmean")(prediction, saliency_map_batch).detach()
-            aucs[i] = saliency_auc(prediction.exp(), saliency_map_batch, self.device).mean()
+            aucs[i] = self.saliency_auc(prediction.exp(), saliency_map_batch, self.device).mean()
 
         return kl_divs.mean(), aucs.mean()
     
@@ -238,6 +237,44 @@ class GazePredictor():
         predictor.epoch = int(save_path.split("/")[-1][:-4])
 
         return predictor
+    
+    @staticmethod
+    def saliency_auc(gt_saliency: torch.Tensor, pred_saliency: torch.Tensor, device: torch.device):
+        """
+        Predicts the AUC between two greyscale saliency maps by comparing their most salient pixels each
+        as described in doi.org/10.3758/s13428-012-0226-9.
+
+        :param Tensor[BxWxH] ground_truth_saliency: Ground truth saliency map
+        :param Tensor[BxWxH] predicted_saliency: Predicted saliency map
+
+        :return Tensor[Bx4]: AUC for most salient 2%, 5%, 10% and 20% of pixels
+        """
+        assert gt_saliency.shape == pred_saliency.shape, "Saliency maps need to have the same size"
+
+        # Flatten both maps
+        batch_size, x, y = gt_saliency.shape
+        n_pixels = x*y
+        gt_saliency = gt_saliency.to(device).flatten(start_dim=1)
+        pred_saliency = pred_saliency.to(device).flatten(start_dim=1)
+
+        def percentile_saliency(saliency_map: torch.Tensor, percentiles: torch.Tensor):
+            """ Get the q most salient pixels in the map for every fraction q in percentiles """
+            thresholds = torch.quantile(saliency_map, percentiles, dim=1).view(len(percentiles), batch_size, 1).expand(-1, -1, n_pixels)
+            return saliency_map.expand(len(percentiles), batch_size, n_pixels) >= thresholds
+
+        # Get the q most salient ground_truth pixels for q in [2%, 5%, 10%, 20%]
+        gt_percentiles = torch.Tensor([0.02, 0.05, 0.10, 0.20]).to(device)
+        gt_percentile_saliency_maps = percentile_saliency(gt_saliency, gt_percentiles)
+
+        # Get the predicted saliency maps containing only the most salient pixels for every 5% percentile
+        pred_percentiles = torch.arange(0.05, 1., 0.05).to(device)
+        pred_percentile_saliency_maps = percentile_saliency(pred_saliency, pred_percentiles)
+
+        # Broadcast for comparison
+        gt_percentile_saliency_maps = gt_percentile_saliency_maps.view(len(gt_percentiles), 1, batch_size, n_pixels).expand(-1, len(pred_percentiles), -1, -1)
+        pred_percentile_saliency_maps = pred_percentile_saliency_maps.view(1, len(pred_percentiles), batch_size, n_pixels).expand(len(gt_percentiles), -1, -1, -1)
+
+        return (gt_percentile_saliency_maps == pred_percentile_saliency_maps).type(torch.float32).mean(dim=[1,3])
     
 def evaluate_tf_predictor():
     with open("ms_pacman_52_RZ_2394668_Aug-10-14-52-42_preds.np", "rb") as f: 

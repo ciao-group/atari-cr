@@ -59,48 +59,6 @@ def transform_to_proper_csv(game_dir: str):
         df.to_csv(".".join(file_path.split(".")[:-1]) + ".csv", index=False)
         os.remove(file_path)
 
-def create_saliency_map(gaze_positions: torch.Tensor):
-    """ 
-    Takes gaze positions on a 84 by 84 pixels screen to turn them into a saliency map 
-    
-    :param Tensor[Nx2]: A Tensor containing all gaze positions associated with one frame
-    """
-    SCREEN_SIZE = [84, 84]
-
-    # OPTIONAL: Implement this for a batch of saliency maps
-    if gaze_positions.shape[0] == 0:
-        return torch.zeros(SCREEN_SIZE)
-
-    # Generate x and y indices
-    x = torch.arange(0, SCREEN_SIZE[0], 1)
-    y = torch.arange(0, SCREEN_SIZE[1], 1)
-    x, y = torch.meshgrid(x, y, indexing="xy")
-
-    # Adjust sigma to correspond to one visual degree
-    # Screen Size: 44,6 x 28,5 visual degrees; Visual Degrees per Pixel: 0,5310 x 0,3393
-    sigmas = 1 / (torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE) / torch.Tensor(SCREEN_SIZE))
-    # Update the sigma to more closely match the outputs of the original gaze predictor
-    sigmas *= 3
-    # Scale the coords from the original resolution down to the screen size
-    gaze_positions *= (torch.Tensor(SCREEN_SIZE) / torch.Tensor([160, 210]))
-
-    # Expand the original tensors for broadcasting
-    n_positions = gaze_positions.shape[0]
-    gaze_positions = gaze_positions.view(n_positions, 2, 1, 1).expand(-1, -1, *SCREEN_SIZE)
-    x = x.view(1, *SCREEN_SIZE).expand(n_positions, *SCREEN_SIZE)
-    y = y.view(1, *SCREEN_SIZE).expand(n_positions, *SCREEN_SIZE)
-    mesh = torch.stack([x, y], dim=1)
-    sigmas = sigmas.view(1, 2, 1, 1).expand(n_positions, -1, *SCREEN_SIZE)
-    # gaze_positions is now Nx2x84x84 with 84x84 identical copies
-    # x and y are now both Nx84x84 with N identical copies
-    # mesh is Nx2x84x84 with N copies of every possible combination of x and y coordinates
-    saliency_map, _ = torch.max(torch.exp(-torch.sum(((mesh - gaze_positions)**2) / (2 * sigmas**2), dim=1)), dim=0)
-
-    # Make the tensor sum to 1 for KL Divergence
-    if saliency_map.sum() == 0: saliency_map = torch.ones(saliency_map.shape)
-    saliency_map = saliency_map / saliency_map.sum()
-    return saliency_map
-
 def open_mp4_as_frame_list(path: str):
     video = cv2.VideoCapture(path)
 
@@ -115,55 +73,6 @@ def open_mp4_as_frame_list(path: str):
 
     video.release()
     return frames
-
-def evaluate_agent(atari_head_gaze_predictor: nn.Module, recordings_path: str, game: str):
-    """
-    Evaluate an agent given a path to their gameplay record buffer data.
-
-    :param str recordings_path: Path to the agent's eval data, containing images and associated gaze positions 
-    :returns Tuple[float, float]: KL-Divergence and AUC of the agent's saliency maps compared to Atari-HEAD 
-    """
-    kl_divs, aucs = [], []
-    for file in filter(lambda x: x.endswith(".pt"), os.listdir(recordings_path)):
-        data = RecordBuffer.from_file(file)
-        dataset = data.to_atari_head(game)
-
-        # Load the data and compare the agents saliency to the gaze predictor's saliency
-        loader = DataLoader(dataset, batch_size=16, drop_last=True)
-        for frame_stacks, _, agent_saliency_maps in loader:
-            ground_truth_saliency_maps = atari_head_gaze_predictor(frame_stacks)
-
-            kl_divergence = nn.KLDivLoss()(agent_saliency_maps, ground_truth_saliency_maps)
-            auc = roc_auc_score(agent_saliency_maps.flatten(), ground_truth_saliency_maps.flatten()) 
-
-            aucs.append(auc)
-            kl_divs.append(kl_divergence)
-
-        # # Get saliency maps for all 4-stacks of frames        
-        # data = torch.load(os.path.join(recordings_path, file))
-        # frames = open_mp4_as_frame_list(data["rgb"])
-        # greyscale_frames = [Image.fromarray(frame).convert("L") for frame in frames]
-        # scaled_tensors = [transform(frame) for frame in greyscale_frames]
-        # ground_truth_saliency_maps = []
-        # for i in range(len(scaled_tensors) - 3):
-        #     frame_stack = torch.vstack(scaled_tensors[i:i + 4])
-        #     # saliency_map = <model>(frame_stack)
-        #     # ground_truth_saliency_maps.append(saliency_map)
-        # # ground_truth_saliency_maps = torch.stack(ground_truth_saliency_maps)
-
-        # # Get saliency maps made from agents gazes
-        # gazes = data["fov_loc"]
-        # agent_saliency_maps = []
-        # for gaze in gazes[3:]:
-        #     agent_saliency_maps.append(create_saliency_map(torch.Tensor(gaze).unsqueeze(0)))
-        # agent_saliency_maps = torch.stack(agent_saliency_maps)
-
-        # # Compare them using KL Divergence and AUC
-        # assert len(ground_truth_saliency_maps) == len(agent_saliency_maps)
-        # kl_divergence = nn.KLDivLoss()(agent_saliency_maps, ground_truth_saliency_maps)
-        # auc = roc_auc_score(agent_saliency_maps.flatten(), ground_truth_saliency_maps.flatten()) 
-
-    return np.mean(kl_divs), np.mean(aucs)
 
 def debug_recording(recordings_path: str):
     """
@@ -210,40 +119,3 @@ def preprocess(image: np.ndarray):
     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
     frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
     return torch.Tensor(frame / 255.0)
-
-def saliency_auc(gt_saliency: torch.Tensor, pred_saliency: torch.Tensor, device: torch.device):
-    """
-    Predicts the AUC between two greyscale saliency maps by comparing their most salient pixels each
-    as described in doi.org/10.3758/s13428-012-0226-9.
-
-    :param Tensor[BxWxH] ground_truth_saliency: Ground truth saliency map
-    :param Tensor[BxWxH] predicted_saliency: Predicted saliency map
-
-    :return Tensor[Bx4]: AUC for most salient 2%, 5%, 10% and 20% of pixels
-    """
-    assert gt_saliency.shape == pred_saliency.shape, "Saliency maps need to have the same size"
-
-    # Flatten both maps
-    batch_size, x, y = gt_saliency.shape
-    n_pixels = x*y
-    gt_saliency = gt_saliency.to(device).flatten(start_dim=1)
-    pred_saliency = pred_saliency.to(device).flatten(start_dim=1)
-
-    def percentile_saliency(saliency_map: torch.Tensor, percentiles: torch.Tensor):
-        """ Get the q most salient pixels in the map for every fraction q in percentiles """
-        thresholds = torch.quantile(saliency_map, percentiles, dim=1).view(len(percentiles), batch_size, 1).expand(-1, -1, n_pixels)
-        return saliency_map.expand(len(percentiles), batch_size, n_pixels) >= thresholds
-
-    # Get the q most salient ground_truth pixels for q in [2%, 5%, 10%, 20%]
-    gt_percentiles = torch.Tensor([0.02, 0.05, 0.10, 0.20]).to(device)
-    gt_percentile_saliency_maps = percentile_saliency(gt_saliency, gt_percentiles)
-
-    # Get the predicted saliency maps containing only the most salient pixels for every 5% percentile
-    pred_percentiles = torch.arange(0.05, 1., 0.05).to(device)
-    pred_percentile_saliency_maps = percentile_saliency(pred_saliency, pred_percentiles)
-
-    # Broadcast for comparison
-    gt_percentile_saliency_maps = gt_percentile_saliency_maps.view(len(gt_percentiles), 1, batch_size, n_pixels).expand(-1, len(pred_percentiles), -1, -1)
-    pred_percentile_saliency_maps = pred_percentile_saliency_maps.view(1, len(pred_percentiles), batch_size, n_pixels).expand(len(gt_percentiles), -1, -1, -1)
-
-    return (gt_percentile_saliency_maps == pred_percentile_saliency_maps).type(torch.float32).mean(dim=[1,3])

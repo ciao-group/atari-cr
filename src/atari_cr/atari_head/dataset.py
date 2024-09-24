@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 from atari_cr.common.tqdm import tqdm
 
 from atari_cr.atari_head.og_heatmap import DatasetWithHeatmap
-from atari_cr.atari_head.utils import create_saliency_map, preprocess
+from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE, preprocess
 
 # from atari_cr.atari_head.og_heatmap import DatasetWithHeatmap
 
@@ -88,7 +88,7 @@ class GazeDataset(Dataset):
                 else:
                     print(f"Creating saliency maps for {filename}")
                     os.makedirs(saliency_path, exist_ok=True)
-                    trimmed_trial_data["saliency"] = trimmed_trial_data["gazes"].progress_apply(lambda gazes: create_saliency_map(gazes).numpy())
+                    trimmed_trial_data["saliency"] = trimmed_trial_data["gazes"].progress_apply(lambda gazes: GazeDataset.create_saliency_map(gazes).numpy())
                     with open(save_path, "wb") as f: np.save(f, trimmed_trial_data["saliency"].to_numpy())
                     print(f"Saliency maps saved under {save_path}")
 
@@ -146,3 +146,46 @@ class GazeDataset(Dataset):
 
         assert item[0].shape == torch.Size([4, 84, 84])
         return item
+    
+    @staticmethod
+    def create_saliency_map(gaze_positions: torch.Tensor):
+        """ 
+        Takes gaze positions on a 84 by 84 pixels screen to turn them into a saliency map 
+        
+        :param Tensor[Nx2]: A Tensor containing all gaze positions associated with one frame
+        """
+        SCREEN_SIZE = [84, 84]
+
+        # OPTIONAL: Implement this for a batch of saliency maps
+        if gaze_positions.shape[0] == 0:
+            return torch.zeros(SCREEN_SIZE)
+
+        # Generate x and y indices
+        x = torch.arange(0, SCREEN_SIZE[0], 1)
+        y = torch.arange(0, SCREEN_SIZE[1], 1)
+        x, y = torch.meshgrid(x, y, indexing="xy")
+
+        # Adjust sigma to correspond to one visual degree
+        # Screen Size: 44,6 x 28,5 visual degrees; Visual Degrees per Pixel: 0,5310 x 0,3393
+        sigmas = 1 / (torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE) / torch.Tensor(SCREEN_SIZE))
+        # Update the sigma to more closely match the outputs of the original gaze predictor
+        # sigmas *= 3
+        # Scale the coords from the original resolution down to the screen size
+        gaze_positions *= (torch.Tensor(SCREEN_SIZE) / torch.Tensor([160, 210]))
+
+        # Expand the original tensors for broadcasting
+        n_positions = gaze_positions.shape[0]
+        gaze_positions = gaze_positions.view(n_positions, 2, 1, 1).expand(-1, -1, *SCREEN_SIZE)
+        x = x.view(1, *SCREEN_SIZE).expand(n_positions, *SCREEN_SIZE)
+        y = y.view(1, *SCREEN_SIZE).expand(n_positions, *SCREEN_SIZE)
+        mesh = torch.stack([x, y], dim=1)
+        sigmas = sigmas.view(1, 2, 1, 1).expand(n_positions, -1, *SCREEN_SIZE)
+        # gaze_positions is now Nx2x84x84 with 84x84 identical copies
+        # x and y are now both Nx84x84 with N identical copies
+        # mesh is Nx2x84x84 with N copies of every possible combination of x and y coordinates
+        saliency_map, _ = torch.max(torch.exp(-torch.sum(((mesh - gaze_positions)**2) / (2 * sigmas**2), dim=1)), dim=0)
+
+        # Make the tensor sum to 1 for KL Divergence
+        if saliency_map.sum() == 0: saliency_map = torch.ones(saliency_map.shape)
+        saliency_map = saliency_map / saliency_map.sum()
+        return saliency_map
