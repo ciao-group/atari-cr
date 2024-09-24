@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import torch
+from torch import nn
 from torch.utils.data import Dataset
 from atari_cr.common.tqdm import tqdm
 
@@ -149,7 +150,8 @@ class GazeDataset(Dataset):
         """ 
         Takes gaze positions on a 84 by 84 pixels screen to turn them into a saliency map 
         
-        :param Tensor[Nx2]: A Tensor containing all gaze positions associated with one frame
+        :param Tensor[N x 2] gaze_positions: A Tensor containing all gaze positions associated with one frame
+        :return Tensor[W x H]: Greyscale saliency map
         """
         SCREEN_SIZE = [84, 84]
 
@@ -183,6 +185,11 @@ class GazeDataset(Dataset):
         saliency_map, _ = torch.max(torch.exp(-torch.sum(((mesh - gaze_positions)**2) / (2 * sigmas**2), dim=1)), dim=0)
 
         # Make the tensor sum to 1 for KL Divergence
-        if saliency_map.sum() == 0: saliency_map = torch.ones(saliency_map.shape)
-        saliency_map = saliency_map / saliency_map.sum()
+        softmax = False
+        if softmax:
+            # For some reason, softmaxing instead of normalizing breaks model training
+            saliency_map = nn.Softmax()(saliency_map.view(-1)).view(SCREEN_SIZE)
+        else:
+            if saliency_map.sum() == 0: saliency_map = torch.ones(saliency_map.shape)
+            saliency_map = saliency_map / saliency_map.sum()
         return saliency_map
