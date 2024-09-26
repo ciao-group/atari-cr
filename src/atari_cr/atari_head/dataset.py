@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch import nn
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from atari_cr.common.tqdm import tqdm
 
 from atari_cr.atari_head.og_heatmap import DatasetWithHeatmap
@@ -116,6 +116,28 @@ class GazeDataset(Dataset):
         test_dataset = GazeDataset(test_df["frame"], test_df["gazes"], test_df["saliency_map"], test_df['train'])
 
         return train_dataset, test_dataset
+    
+    def split(self, batch_size=512):
+        """ 
+        Splits the dataset into one dataset containing train data and one dataset containing test data
+        and returns them as loaders.
+        
+        :return: Train and validation loader 
+        """
+        # TODO: Make frame stacks not include more than one trial
+        np.random.seed(seed=42)
+
+        train_df = self.data[self.data["train"]]
+        test_df = self.data[~self.data["train"]]
+
+        train_dataset = GazeDataset(train_df["frame"], train_df["gazes"], train_df["saliency_map"], train_df['train'])
+        test_dataset = GazeDataset(test_df["frame"], test_df["gazes"], test_df["saliency_map"], test_df['train'])
+
+        # Shuffle after the split because subsequent images are highly correlated
+        train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
+        val_loader = DataLoader(test_dataset, batch_size, shuffle=True)
+
+        return train_loader, val_loader
 
     @staticmethod
     def _parse_gaze_string(gaze_string: str) -> torch.tensor:
@@ -188,7 +210,7 @@ class GazeDataset(Dataset):
         softmax = False
         if softmax:
             # For some reason, softmaxing instead of normalizing breaks model training
-            saliency_map = nn.Softmax()(saliency_map.view(-1)).view(SCREEN_SIZE)
+            saliency_map = nn.Softmax(dim=0)(saliency_map.view(-1)).view(SCREEN_SIZE)
         else:
             if saliency_map.sum() == 0: saliency_map = torch.ones(saliency_map.shape)
             saliency_map = saliency_map / saliency_map.sum()

@@ -134,7 +134,7 @@ class GazePredictor():
             model_name: str = "all_trials"
         ):
         self.model = model
-        self.train_loader, self.val_loader = self._init_data_loaders(dataset)
+        self.train_loader, self.val_loader = dataset.split(batch_size=512)
         self.output_dir = output_dir
         self.model_name = model_name
 
@@ -225,21 +225,6 @@ class GazePredictor():
             os.path.join(save_dir, save_path)
         )
         print(f"Saved model to {save_path}")
-
-    def _init_data_loaders(self, dataset: GazeDataset):
-        """
-        :returns `Tuple[DataLoader, DataLoader]` train_loader, val_loader: `torch.DataLoader` objects for training and validation
-        """
-        BATCH_SIZE = 512
-        np.random.seed(seed=42)
-
-        train_dataset, test_dataset = dataset.split()
-
-        # Shuffle after the split because subsequent images are highly correlated
-        train_loader = DataLoader(train_dataset, BATCH_SIZE, shuffle=True)
-        val_loader = DataLoader(test_dataset, BATCH_SIZE, shuffle=True)
-
-        return train_loader, val_loader
     
     @staticmethod
     def from_save_file(save_path: str, dataset: GazeDataset, output_dir: str):
@@ -361,7 +346,7 @@ def train_predictor():
         frame_stack = frame_stack[16:32].to(gaze_predictor.device)
         saliency = saliency[16:32].to(gaze_predictor.device)
         # Look at output of different models
-        saliency = nn.Softmax()(saliency.view(saliency.shape[0], -1)).view(saliency.shape)
+        saliency = nn.Softmax(dim=0)(saliency.view(saliency.shape[0], -1)).view(saliency.shape)
         model_saliency = gaze_predictor.model(frame_stack).exp()
         baseline_saliency = optical_flow(frame_stack).exp()
         # Ground truth evaluation as sanity check
@@ -369,7 +354,7 @@ def train_predictor():
         gt_auc = GazePredictor.saliency_auc(saliency, saliency, gaze_predictor.device).mean(dim=1)
         # Random saliency for reference
         random = torch.rand(saliency.shape).to(gaze_predictor.device)
-        random = nn.Softmax()(random.view(saliency.shape[0], -1)).view(saliency.shape)
+        random = nn.Softmax(dim=0)(random.view(saliency.shape[0], -1)).view(saliency.shape)
         random_kl_div = nn.KLDivLoss(reduction="batchmean")(random.log(), saliency).detach()
         random_auc = GazePredictor.saliency_auc(saliency, random, gaze_predictor.device).mean(dim=1)
         print(pd.DataFrame({
