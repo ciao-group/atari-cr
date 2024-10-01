@@ -39,6 +39,14 @@ tf = [
     "tensorflow[and-cuda]",
     "opencv-python"
 ]
+text = [
+    "torch==2.3.0",
+    "torchtext==0.18.0",
+    "torchdata",
+    "spacy",
+    "numpy<2.0.0",
+    "portalocker"
+]
 
 [project.urls] 
 Repository = "https://github.com/Niko32/atari-cr"

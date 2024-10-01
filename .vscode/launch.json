@@ -11,7 +11,7 @@
             "program": "src/atari_cr/atari_head/gaze_predictor.py",
             "console": "integratedTerminal",
             "args": [
-                "--debug",
+                // "--debug",
                 "--load_model",
                 "--n", "0",
                 "--eval_train_data",
@@ -25,6 +25,18 @@
             "request": "launch",
             "program": "src/atari_cr/common/hyperparams.py",
             "console": "integratedTerminal",
+        },
+        {
+            "name": "ViT Debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/atari_cr/atari_head/vit.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--debug",
+                "--load_saliency"
+            ]
         },
         {
             "name": "DQN CR Sugarl Debug",

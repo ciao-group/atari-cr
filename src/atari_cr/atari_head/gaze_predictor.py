@@ -14,7 +14,7 @@ import torch.optim as optim
 import numpy as np
 import h5py
 from tap import Tap
-from atari_cr.common.tqdm import tqdm
+from atari_cr.common.module_overrides import tqdm
 
 from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.common.utils import gradfilter_ema, debug_array
@@ -125,22 +125,25 @@ class GazePredictionNetwork(nn.Module):
 class GazePredictor():
     """
     Wrapper around GazePredictionNetwork to handle training etc.
+
+    :param torch.nn.Module model: Model predicting a [1,84,84] saliency map from a [4,84,84] stack 
+        of greyscale images
     """
     def __init__(
             self, 
-            model: GazePredictionNetwork,
+            model: nn.Module,
             dataset: GazeDataset,
             output_dir: str,
             model_name: str = "all_trials"
         ):
         self.model = model
         self.train_loader, self.val_loader = dataset.split(batch_size=512)
+        self.max_gazes = dataset.max_gazes
         self.output_dir = output_dir
         self.model_name = model_name
 
         # Loss function, optimizer, compute device and tesorboard writer
         self.loss_function = nn.KLDivLoss(reduction="batchmean")
-        # self.optimizer = optim.Adadelta(self.model.parameters(), lr=1.0, rho=0.95, eps=1e-08, weight_decay=0.0)
         self.optimizer = optim.Adam(self.model.parameters())
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
@@ -227,8 +230,8 @@ class GazePredictor():
         print(f"Saved model to {save_path}")
     
     @staticmethod
-    def from_save_file(save_path: str, dataset: GazeDataset, output_dir: str):
-        model = GazePredictionNetwork()
+    def from_save_file(save_path: str, dataset: GazeDataset, output_dir: str, model_class=GazePredictionNetwork):
+        model = model_class()
         model.load_state_dict(torch.load(save_path))
 
         model_name = save_path.split("/")[-2]
