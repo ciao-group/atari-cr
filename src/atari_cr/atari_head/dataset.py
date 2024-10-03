@@ -1,4 +1,3 @@
-from enum import Enum
 import os
 import pickle
 from typing import List, Literal, Optional
@@ -8,33 +7,35 @@ import pandas as pd
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
-from atari_cr.common.module_overrides import tqdm
 
-from atari_cr.atari_head.og_heatmap import DatasetWithHeatmap
+from atari_cr.common.module_overrides import tqdm
+from atari_cr.atari_head.authors_code.og_heatmap import DatasetWithHeatmap
 from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE, preprocess
 
 MAX_GAZES = 3000 # Maximum allowed number of gaze positions, rows with more are cut from the data
 SCREEN_SIZE = [84, 84]
 DATASET_SCREEN_SIZE = [160, 210] # Taken from https://github.com/corgiTrax/Gaze-Data-Processor/blob/master/data_visualizer.py
 
-class Mode(Enum):
-    SALIENCY = 0
-    GAZE_CLASSES = 1
-
 class GazeDataset(Dataset):
+    """
+    Dataset object for the Atari-HEAD dataset
+
+    :param Optional[int] max_gazes: Highest number of gazes on one frame in the dataset
+    :param bool class_output: Whether to output the gaze positions as 1D discrete class labels
+    """
     def __init__(self, data: pd.DataFrame, train: Optional[List[bool]] = None, 
-                 max_gazes: Optional[int] = None, mode: Mode = Mode.SALIENCY):
+                 max_gazes: Optional[int] = None, class_output=False):
         if not "train" in data.columns:
             if train is not None: data["train"] = train
             else: data["train"] = True
 
         self.data = data.reset_index(drop=True)
         self.max_gazes = max_gazes 
-        self.mode = mode
+        self.class_output = class_output
 
     @staticmethod
     def from_atari_head_files(root_dir: str, load_single_run="", test_split=0.2, 
-            load_saliency=False, use_og_saliency=False, mode: Mode=Mode.SALIENCY):
+            load_saliency=False, use_og_saliency=False, class_output=False):
         """
         Loads the data in the Atari-HEAD format into a dataframe with metadata and image paths.
 
@@ -63,7 +64,6 @@ class GazeDataset(Dataset):
                 .apply(preprocess)
                 # .apply(lambda path: transforms.Resize((84, 84))(read_image(path, ImageReadMode.GRAY)).view([84, 84]))
             
-            # Create saliency maps
             trial_data["gaze_positions"] = trial_data["gaze_positions"].apply(GazeDataset._parse_gaze_string)
 
             # Mark train and test data
@@ -77,16 +77,16 @@ class GazeDataset(Dataset):
                 "train": trial_data["train"].astype(bool)
             })
 
-            # A small fraction of frames has up to 16.000 gaze positions
-            # The number of gazes for these is trimmed to the 0.999 percentile to facilitate learning
-            trimmed_trial_data["gaze_counts"] = trimmed_trial_data["gazes"].apply(len)
-            max_gazes = int(trimmed_trial_data["gaze_counts"].quantile(0.999)) # Number of gazes at 0.999 quantile
-            trimmed_trial_data["gazes"] = trimmed_trial_data["gazes"].apply(lambda t: t[:max_gazes])
-            trimmed_trial_data["gaze_counts"] = trimmed_trial_data["gazes"].apply(len)
+            if class_output:
+                # A small fraction of frames has up to 16.000 gaze positions
+                # The number of gazes for these is trimmed to the 0.999 percentile to facilitate learning
+                trimmed_trial_data["gaze_counts"] = trimmed_trial_data["gazes"].apply(len)
+                max_gazes = int(trimmed_trial_data["gaze_counts"].quantile(0.999)) # Number of gazes at 0.999 quantile
+                trimmed_trial_data["gazes"] = trimmed_trial_data["gazes"].apply(lambda t: t[:max_gazes])
+                trimmed_trial_data["gaze_counts"] = trimmed_trial_data["gazes"].apply(len)
 
-            # Trim the gaze positions to be within the screen
-            # Original max coords: [287.45, 419.12], min coords: [-112.39,-40.02]
-            if mode == Mode.GAZE_CLASSES:
+                # Trim the gaze positions to be within the screen
+                # Original max coords: [287.45, 419.12], min coords: [-112.39,-40.02]
                 min_coords = torch.Tensor([0,0])
                 max_coords = torch.Tensor(DATASET_SCREEN_SIZE)
                 def trim_coords(t: torch.Tensor):
@@ -105,9 +105,6 @@ class GazeDataset(Dataset):
                 return t * scaling
             trimmed_trial_data["gazes"] = trimmed_trial_data["gazes"].apply(scale_coords)
 
-            a = torch.stack([t.max(dim=0)[0] for t in trimmed_trial_data["gazes"] if t.shape != torch.Size([0])])
-            print(a.max(dim=0))
-
             if use_og_saliency: 
                 gazes = list(t.reshape([-1]).tolist() for t in trial_data["gaze_positions"])
                 with open("52_gazes.pkl", "wb") as f: pickle.dump(gazes, f)
@@ -124,7 +121,7 @@ class GazeDataset(Dataset):
                 else:
                     print(f"Creating saliency maps for {filename}")
                     os.makedirs(saliency_path, exist_ok=True)
-                    trimmed_trial_data["saliency"] = trimmed_trial_data["gazes"].progress_apply(lambda gazes: GazeDataset.create_saliency_map(gazes).numpy())
+                    trimmed_trial_data["saliency"] = trimmed_trial_data["gazes"].progress_apply(lambda gazes: GazeDataset.create_saliency_map(gazes).cpu().numpy())
                     with open(save_path, "wb") as f: np.save(f, trimmed_trial_data["saliency"].to_numpy())
                     print(f"Saliency maps saved under {save_path}")
 
@@ -133,17 +130,17 @@ class GazeDataset(Dataset):
         # Combine all dataframes
         combined_df = pd.concat(dfs, ignore_index=True)
 
-        # Pad the gazes to be retrievable using data loaders
-        def pad_gazes(t: torch.Tensor):
-            """ :param Tensor[N,2] t: """
-            max_n = combined_df["gaze_counts"].max()
-            padded_t = torch.full([max_n, 2], -1) # Pad empty coords with [-1,-1]
-            if t.shape == torch.Size([0]): return padded_t
-            padded_t[:t.size(0), :] = t
-            return padded_t
-        combined_df["gazes"] = combined_df["gazes"].apply(pad_gazes)
+        # # Pad the gazes to be retrievable using data loaders
+        # def pad_gazes(t: torch.Tensor):
+        #     """ :param Tensor[N,2] t: """
+        #     max_n = combined_df["gaze_counts"].max()
+        #     padded_t = torch.full([max_n, 2], -1) # Pad empty coords with [-1,-1]
+        #     if t.shape == torch.Size([0]): return padded_t
+        #     padded_t[:t.size(0), :] = t
+        #     return padded_t
+        # combined_df["gazes"] = combined_df["gazes"].apply(pad_gazes)
 
-        if mode == Mode.GAZE_CLASSES:
+        if class_output:
             # Turn the coordinates from a (x,y) pair to a 1D vector of size 7056 for transformer usage
             def to_gaze_class(t: torch.Tensor):
                 """ :param Tensor[N,2] t: """
@@ -152,8 +149,8 @@ class GazeDataset(Dataset):
             
         return GazeDataset(
             combined_df,
-            max_gazes = combined_df["gaze_counts"].max(),
-            mode=mode
+            # max_gazes = combined_df["gaze_counts"].max(),
+            class_output=class_output
         )
     
     def split(self, batch_size=512):
@@ -169,8 +166,8 @@ class GazeDataset(Dataset):
         train_df = self.data[self.data["train"]]
         val_df = self.data[~self.data["train"]]
 
-        train_dataset = GazeDataset(train_df, max_gazes=self.max_gazes, mode=self.mode)
-        val_dataset = GazeDataset(val_df, max_gazes=self.max_gazes, mode=self.mode)
+        train_dataset = GazeDataset(train_df, max_gazes=self.max_gazes, class_output=self.class_output)
+        val_dataset = GazeDataset(val_df, max_gazes=self.max_gazes, class_output=self.class_output)
 
         # Shuffle after the split because subsequent images are highly correlated
         train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
@@ -188,7 +185,6 @@ class GazeDataset(Dataset):
                 for s in gaze_string.replace("(", "").replace("'", "").split(")")[:-1]
         ])
 
-    # TODO: Make the frame stacks end at every trial end; currently frame stack contain images of different trials
     def __len__(self): return len(self.data) - 3
 
     def __getitem__(self, idx):
@@ -201,13 +197,11 @@ class GazeDataset(Dataset):
         item = (torch.stack(list(self.data.loc[idx:idx + 3, "frame"])),)
 
         # Output
-        match(self.mode):
-            case Mode.SALIENCY: item = (*item,
-                self.data.loc[idx + 3, "saliency"],
-                self.data.loc[idx + 3, "gazes"],
-            )
-            case Mode.GAZE_CLASSES: item = (*item,
-                self.data.loc[idx + 3, "gaze_classes"],
+        if self.class_output:
+            item = (*item, self.data.loc[idx + 3, "gaze_classes"])
+        else:
+            item = (*item, self.data.loc[idx + 3, "saliency"],
+                # self.data.loc[idx + 3, "gazes"],
             )
 
         return item
@@ -220,19 +214,26 @@ class GazeDataset(Dataset):
         :param Tensor[N x 2] gaze_positions: A Tensor containing all gaze positions associated with one frame
         :return Tensor[W x H]: Greyscale saliency map
         """
+        DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+        # Double precision; helpful for AUC score calculation later
+        dtype = torch.float64
+        gaze_positions = gaze_positions.to(DEVICE).to(dtype)
+
+        # Return zeros when there is no gaze
         if gaze_positions.shape[0] == 0:
-            return torch.zeros(SCREEN_SIZE)
+            return torch.zeros(SCREEN_SIZE).to(DEVICE).to(dtype)
 
         # Generate x and y indices
-        x = torch.arange(0, SCREEN_SIZE[0], 1)
-        y = torch.arange(0, SCREEN_SIZE[1], 1)
+        x = torch.arange(0, SCREEN_SIZE[0], 1).to(DEVICE).to(dtype)
+        y = torch.arange(0, SCREEN_SIZE[1], 1).to(DEVICE).to(dtype)
         x, y = torch.meshgrid(x, y, indexing="xy")
 
         # Adjust sigma to correspond to one visual degree
         # Screen Size: 44,6 x 28,5 visual degrees; Visual Degrees per Pixel: 0,5310 x 0,3393
-        sigmas = 1 / (torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE) / torch.Tensor(SCREEN_SIZE))
-        # Update the sigma to more closely match the outputs of the original gaze predictor
-        # sigmas *= 3
+        sigmas = (1 / (torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE).to(dtype) / torch.Tensor(SCREEN_SIZE).to(dtype))).to(DEVICE)
+        # Update the sigma to move percentiles for auc calculation into the range of float64
+        sigmas *= 4
 
         # Expand the original tensors for broadcasting
         n_positions = gaze_positions.shape[0]
@@ -249,9 +250,11 @@ class GazeDataset(Dataset):
         # Make the tensor sum to 1 for KL Divergence
         softmax = False
         if softmax:
-            # For some reason, softmaxing instead of normalizing breaks model training
-            saliency_map = nn.Softmax(dim=0)(saliency_map.view(-1)).view(SCREEN_SIZE)
+            # Softmaxing instead of normalizing breaks model training
+            # Probably because of extremely high entropy after softmaxing
+            saliency_map = torch.sparse.softmax(saliency_map.view(-1), dim=0).view(SCREEN_SIZE)
         else:
+            # Normalization
             if saliency_map.sum() == 0: saliency_map = torch.ones(saliency_map.shape)
             saliency_map = saliency_map / saliency_map.sum()
         return saliency_map

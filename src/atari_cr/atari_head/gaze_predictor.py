@@ -1,14 +1,11 @@
 from collections import deque
 import os
-import time
-from typing import Callable, List
+from typing import Callable, Optional
 import cv2
 import pandas as pd
-from sklearn.metrics import roc_auc_score
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, SubsetRandomSampler, RandomSampler
 from torch.utils.tensorboard import SummaryWriter
 import torch.optim as optim
 import numpy as np
@@ -167,7 +164,7 @@ class GazePredictor():
 
             print(f"Epoch {self.epoch + 1} / {final_epoch}")
             with tqdm(self.train_loader) as t:
-                for inputs, targets, _ in t:
+                for inputs, targets in t:
                     inputs, targets = inputs.to(self.device), targets.to(self.device)
 
                     self.optimizer.zero_grad()
@@ -208,8 +205,8 @@ class GazePredictor():
         model = external_model or self.model
         if on_train_data: print("Warning: Evaluating on training data")
         kl_divs = torch.zeros(len(loader))
-        aucs = torch.zeros([len(loader), 4])
-        for i, (frame_stack_batch, saliency_map_batch, _) in enumerate(loader):
+        aucs = [None] * len(loader)
+        for i, (frame_stack_batch, saliency_map_batch) in enumerate(loader):
             # Prediction in log space as expected by KLDivLoss
             prediction = model(frame_stack_batch.to(self.device))
             saliency_map_batch = saliency_map_batch.to(self.device)
@@ -217,7 +214,7 @@ class GazePredictor():
             kl_divs[i] = nn.KLDivLoss(reduction="batchmean")(prediction, saliency_map_batch).detach()
             aucs[i] = self.saliency_auc(saliency_map_batch, prediction.exp(), self.device).mean(dim=1)
 
-        return kl_divs.mean(), aucs.mean(dim=0)
+        return kl_divs.mean(), torch.stack(aucs).mean(dim=0)
     
     def save(self):
         save_path = f"{self.epoch + 1}.pth"
@@ -232,7 +229,7 @@ class GazePredictor():
     @staticmethod
     def from_save_file(save_path: str, dataset: GazeDataset, output_dir: str, model_class=GazePredictionNetwork):
         model = model_class()
-        model.load_state_dict(torch.load(save_path))
+        model.load_state_dict(torch.load(save_path, weights_only=False))
 
         model_name = save_path.split("/")[-2]
         predictor = GazePredictor(model, dataset, output_dir, model_name)
@@ -241,13 +238,14 @@ class GazePredictor():
         return predictor
     
     @staticmethod
-    def saliency_auc(gt_saliency: torch.Tensor, pred_saliency: torch.Tensor, device: torch.device):
+    def saliency_auc(gt_saliency: torch.Tensor, pred_saliency: torch.Tensor, device: torch.device, threshold_gt=False):
         """
         Predicts the AUC between two greyscale saliency maps by comparing their most salient pixels each
         as described in doi.org/10.3758/s13428-012-0226-9.
 
         :param Tensor[BxWxH] ground_truth_saliency: Ground truth saliency map
         :param Tensor[BxWxH] predicted_saliency: Predicted saliency map
+        :param bool threshold_gt: Whether to also have a changing threshold for the ground truth
 
         :return Tensor[Bx4]: AUC for most salient 2%, 5%, 10% and 20% of pixels
         """
@@ -260,29 +258,57 @@ class GazePredictor():
         pred_saliency = pred_saliency.to(device).flatten(start_dim=1)
 
         def percentile_saliency(saliency_map: torch.Tensor, percentiles: torch.Tensor):
-            """ Get the q most salient pixels in the map for every fraction q in percentiles """
-            thresholds = torch.quantile(saliency_map, percentiles, dim=1).view(len(percentiles), batch_size, 1).expand(-1, -1, n_pixels)
+            """ Get the q most salient pixels in the map for every fraction q in percentiles 
+
+            :param Tensor[B,WxH] saliency_map: 
+            :param Tensor[5] percentiles: """
+            # Double precision to handle very small differences in thresholds
+            saliency_map, percentiles = saliency_map.double(), percentiles.double()
+            thresholds = torch.quantile(saliency_map, percentiles, dim=1) # -> [4,B]
+            thresholds = thresholds.view(len(percentiles), batch_size, 1).expand(-1, -1, n_pixels) # -> [4,B,WxH]
             return saliency_map.expand(len(percentiles), batch_size, n_pixels) >= thresholds
 
-        # Get the q most salient ground_truth pixels for q in [2%, 5%, 10%, 20%]
-        gt_percentiles = torch.Tensor([0.02, 0.05, 0.10, 0.20]).to(device)
-        gt_percentile_saliency_maps = percentile_saliency(gt_saliency, gt_percentiles)
-
-        # Get the predicted saliency maps containing only the most salient pixels for every 5% percentile
+        # Get the predicted saliency maps containing only the most salient pixels for every qth percentile
         pred_percentiles = torch.arange(0.05, 1., 0.05).to(device)
         pred_percentile_saliency_maps = percentile_saliency(pred_saliency, pred_percentiles)
+        # debug_array(pred_percentile_saliency_maps.view(-1,16,84,84))
+
+        if threshold_gt:
+            gt_percentiles = pred_percentiles
+        else:
+            # Get the q most salient ground_truth pixels for q in [2%, 5%, 10%, 15%, 20%, 50%]
+            gt_percentiles = torch.Tensor([0.98, 0.95, 0.90, 0.85, 0.80, 0.50]).to(device)
+        gt_percentile_saliency_maps = percentile_saliency(gt_saliency, gt_percentiles) # -> [4,B,WxH]
+        # debug_array(gt_percentile_saliency_maps.view(-1,16,84,84))
 
         # Broadcast for comparison
-        gt_percentile_saliency_maps = gt_percentile_saliency_maps.view(len(gt_percentiles), 1, batch_size, n_pixels).expand(-1, len(pred_percentiles), -1, -1)
-        pred_percentile_saliency_maps = pred_percentile_saliency_maps.view(1, len(pred_percentiles), batch_size, n_pixels).expand(len(gt_percentiles), -1, -1, -1)
+        gt_percentile_saliency_maps = gt_percentile_saliency_maps.unsqueeze(0)
+        pred_percentile_saliency_maps = pred_percentile_saliency_maps.unsqueeze(0)
+        if not threshold_gt:
+            gt_percentile_saliency_maps = gt_percentile_saliency_maps.transpose(0,1)
+            gt_percentile_saliency_maps = gt_percentile_saliency_maps.expand(-1, len(pred_percentiles), -1, -1)
+            pred_percentile_saliency_maps = pred_percentile_saliency_maps.expand(len(gt_percentiles), -1, -1, -1)
 
         return (gt_percentile_saliency_maps == pred_percentile_saliency_maps).type(torch.float32).mean(dim=[1,3])
+    
+def entropy(t: torch.Tensor, dim: Optional[int] = None):
+    """ :param Tensor t: """
+    t = (t + 1e-9) / (1 + t.numel() * 1e-9) # Avoid zeros
+    return -(t*t.log()).sum(dim=dim)
+
+def norm_entropy(t: torch.Tensor, dim: Optional[int] = None):
+    """ Normalized entropy for a batch of distributions 
+    :param Tensor[B,*] t: """
+    new_numel = 1 if dim is None else t.numel() / t.size(dim)
+    return entropy(t, dim) / entropy(torch.full(t.shape, new_numel/t.numel()).to(t.device), dim)
 
 def train_predictor():
     args = ArgParser().parse_args()
 
     # Use bfloat16 to speed up matrix computation
-    torch.set_float32_matmul_precision("medium")
+    # torch.set_float32_matmul_precision("medium")
+    torch.manual_seed(42)
+    np.random.seed(42)
     if args.debug: torch.cuda.memory._record_memory_history(True)
 
     # Create dataset and data loader
@@ -312,7 +338,7 @@ def train_predictor():
 
     # Train the model
     gaze_predictor.train(n_epochs=args.n)
-    model_kl_div, model_auc = gaze_predictor.eval()
+    # model_kl_div, model_auc = gaze_predictor.eval()
     # print(f"KL Divergence: {model_kl_div:6.4f}, AUC: {model_auc}")
     if args.eval_train_data: 
         train_kl_div, train_auc = gaze_predictor.eval(args.eval_train_data)
@@ -340,35 +366,47 @@ def train_predictor():
             saliency_batch[i] = movement_saliency
         flow_saliency = torch.Tensor(saliency_batch).to(gaze_predictor.device)
         return nn.LogSoftmax(dim=1)(flow_saliency.view([batch_size, -1])).view([batch_size, width, height])
-    flow_kl_div, flow_auc = gaze_predictor.eval(external_model=optical_flow)
+    # flow_kl_div, flow_auc = gaze_predictor.eval(external_model=optical_flow)
     # print(f"Baseline Evaluation: KL Divergence: {flow_kl_div:6.4f}, AUC: {flow_auc:6.4f}")
 
     if args.debug:
         # Get one validation batch for debugging
-        frame_stack, saliency, _ = next(iter(gaze_predictor.val_loader))
+        frame_stack, gt_saliency = next(iter(gaze_predictor.val_loader))
         frame_stack = frame_stack[16:32].to(gaze_predictor.device)
-        saliency = saliency[16:32].to(gaze_predictor.device)
+        gt_saliency = gt_saliency[16:32].to(gaze_predictor.device)
+        # Add small number to 0 values for KLDiv to work and make it add to one per batch again
+        gt_saliency += torch.finfo(gt_saliency.dtype).eps 
+        gt_saliency *= gt_saliency.size(0) / gt_saliency.sum()
+
         # Look at output of different models
-        saliency = nn.Softmax(dim=0)(saliency.view(saliency.shape[0], -1)).view(saliency.shape)
-        model_saliency = gaze_predictor.model(frame_stack).exp()
+        model_saliency = gaze_predictor.model(frame_stack).exp().detach()
         baseline_saliency = optical_flow(frame_stack).exp()
-        # Ground truth evaluation as sanity check
-        gt_kl_div = nn.KLDivLoss(reduction="batchmean")(saliency.log(), saliency).detach()
-        gt_auc = GazePredictor.saliency_auc(saliency, saliency, gaze_predictor.device).mean(dim=1)
-        # Random saliency for reference
-        random = torch.rand(saliency.shape).to(gaze_predictor.device)
-        random = nn.Softmax(dim=0)(random.view(saliency.shape[0], -1)).view(saliency.shape)
-        random_kl_div = nn.KLDivLoss(reduction="batchmean")(random.log(), saliency).detach()
-        random_auc = GazePredictor.saliency_auc(saliency, random, gaze_predictor.device).mean(dim=1)
-        print(pd.DataFrame({
-            "min": [saliency.min().item(), model_saliency.min().item(), baseline_saliency.min().item(), random.min().item()],
-            "max": [saliency.max().item(), model_saliency.max().item(), baseline_saliency.max().item(), random.max().item()],
-            "sum": [saliency.sum().item(), model_saliency.sum().item(), baseline_saliency.sum().item(), random.sum().item()],
-            "kl_div": [gt_kl_div.item(), model_kl_div.item(), flow_kl_div.item(), random_kl_div.item()],
-            # 20% AUC because it seems to seperate random and optical flow best from gt
-            r"20% auc": [gt_auc[3].item(), model_auc[3].item(), flow_auc[3].item(), random_auc[3].item()],
-        }, index=["GT", "Model", "Optical Flow", "Random"]))
-        debug_array([saliency, model_saliency, baseline_saliency])  
+        random_saliency = torch.rand(gt_saliency.shape).to(gaze_predictor.device)
+        random_saliency = nn.Softmax(dim=1)(random_saliency.view(gt_saliency.shape[0], -1)).view(gt_saliency.shape)
+        models = {"Saliency": [gt_saliency, model_saliency, baseline_saliency, random_saliency]}
+
+        # KLDiv
+        kldiv_loss = lambda t: nn.KLDivLoss(reduction="batchmean")(t.log(), gt_saliency).item()
+        models["KLDiv"] = list(map(kldiv_loss, models["Saliency"]))
+        # AUC, [2%, 5%, 10%, 15%, 20%, 50%]
+        auc_score = lambda t: GazePredictor.saliency_auc(gt_saliency, t, gaze_predictor.device, True).mean(dim=1)[0].item()
+        models["AUC"] = list(map(auc_score, models["Saliency"]))
+        # Normalized Entropy
+        n_entropy = lambda t: norm_entropy(t.view(t.size(0), -1), dim=1).mean().item()
+        models["Normalized Entropy"] = list(map(n_entropy, models["Saliency"]))
+
+        model_df = pd.DataFrame({
+            "Min": list(map(lambda t: t.min().item(), models["Saliency"])),
+            "Max": list(map(lambda t: t.max().item(), models["Saliency"])),
+            "Sum": list(map(lambda t: t.sum().item(), models["Saliency"])),
+            "KLDiv": models["KLDiv"],
+            "T AUC": models["AUC"],
+            "Norm. Entropy": models["Normalized Entropy"]
+        }, index=["Ground Truth", "Gaze Predictor", "Optical Flow", "Random"])
+        print(model_df)
+ 
+        debug_array(models["Saliency"])  
+        print(f"Image has been saved to 'debug.png' with rows: GT,Model,Flow")
 
     # Eval original tensorflow model
     if args.eval_tf:
@@ -376,9 +414,7 @@ def train_predictor():
             tf_preds = np.load(f).copy()
         ground_truth_saliency = np.stack(list(dataset.data["saliency_map"]))
 
-        debug_array(np.stack([tf_preds[:16], ground_truth_saliency[:16]]))
-        breakpoint()
-    
+        debug_array(np.stack([tf_preds[:16], ground_truth_saliency[:16]]))    
 
 if __name__ == "__main__": 
     train_predictor()

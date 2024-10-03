@@ -171,11 +171,13 @@ def train_epoch(model: Seq2SeqTransformer, optimizer, train_loader, loss_fn):
         loss.backward()
 
         optimizer.step()
+        # TODO: Find out why losses are nan
         losses += loss.item()
 
     return losses / len(list(train_loader))
 
 def evaluate(model, val_loader, loss_fn):
+    # TODO: Copy stuff from the train function
     model.eval()
     losses = 0
 

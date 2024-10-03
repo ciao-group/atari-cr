@@ -59,7 +59,7 @@ if __name__ == "__main__":
     model_name = single_run or "all_trials"
     dataset = GazeDataset.from_atari_head_files(
         root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=single_run, 
-        load_saliency=args.load_saliency, mode=Mode.GAZE_CLASSES)
+        load_saliency=args.load_saliency, class_output=True)
     train_loader, val_loader = dataset.split(batch_size=64)
 
     # Train loop

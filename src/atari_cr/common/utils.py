@@ -473,8 +473,16 @@ def grid_image(array: Union[np.ndarray, torch.Tensor], line_color=[255, 0, 0], l
     if array.dtype == np.float32: 
         for i in range(len(array)):
             for j in range(len(array[i])):
-                array[i,j] = array[i,j] - array[i,j].min()
-                array[i,j] = (array[i,j] / array[i,j].max()) * 255
+                if array[i,j].min() == array[i,j].max():
+                    # Clip arrays with all elements having the same value to be between 0 and 1
+                    array[i,j] = np.max([array[i,j], np.zeros(array[i,j].shape)])
+                    array[i,j] = np.min([array[i,j], np.ones(array[i,j].shape)])
+                else:
+                    # Or normalize to be between 0 and 1
+                    array[i,j] = array[i,j] - array[i,j].min()
+                    array[i,j] = array[i,j] / array[i,j].max()
+                # Scale to be between 0 and 255
+                array[i,j] *= 255
         array = array.astype(np.uint8)
 
     # Create a new RGB array to hold the grid with separating lines
@@ -500,12 +508,17 @@ def debug_array(array: Union[np.ndarray, torch.Tensor, List[torch.Tensor]]):
     """
     Saves a 2D, 3D or 4D greyscale array as an image under 'debug.png'.
     """
+    # Turn a list of arrays or tensors into one array
     if isinstance(array, List): 
         for i in range(len(array)):
             array[i] = array[i].detach().cpu() if isinstance(array[i], torch.Tensor) else array[i]
         array = np.stack(array)
+    # Turn a single tensor into an array
     if isinstance(array, torch.Tensor): array = array.detach().cpu().numpy()
+    # Handle different dtypes
     if array.dtype == np.float64: array = array.astype(np.float32)
+    if array.dtype == np.bool: array = array.astype(np.float32)
+    # Turn 2D and 3D into 4D
     match len(array.shape):
         case 4: image_array = grid_image(array)
         case 3: image_array = grid_image(array[np.newaxis])
@@ -592,18 +605,3 @@ def EMMA_fixation_time(
     t_enc_new = (1 - (t_sacc / t_enc)) * e_new
 
     return (t_prep, t_exec, t_enc_new), t_sacc + t_enc_new, True
-
-def show_tensor(t: Union[torch.Tensor, np.ndarray], save_path = "debug.png"):
-    """
-    Saves a grayscale tensor as a .png image for debugging.
-    """
-    # Convert numpy array to torch tensor
-    if isinstance(t, np.ndarray): t = torch.Tensor(t)
-    
-    # Convert float32 to uint8
-    if t.dtype == torch.float32: t = to_uint8_image(t)
-
-    # Make a pillow image and save it
-    image = Image.fromarray(t.numpy(), "L")
-    image.save(save_path)
-    print(f"Tensor saved under '{save_path}'")
