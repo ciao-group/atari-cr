@@ -33,7 +33,8 @@ torch = [
     "optuna",
     "torchmetrics",
     "h5py",
-    "tqdm"
+    "tqdm",
+    "polars[numpy,plot]"
 ]
 tf = [
     "tensorflow[and-cuda]",
@@ -54,3 +55,10 @@ Repository = "https://github.com/Niko32/atari-cr"
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
+
+[tool.ruff.lint]
+select = ["E4", "E5", "E7", "E9", "F", "W", "C"]
+ignore = ["E701"] # Single line if statements
+
+[tool.ruff.format]
+docstring-code-format = true
