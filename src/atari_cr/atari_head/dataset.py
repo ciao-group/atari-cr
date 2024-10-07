@@ -22,9 +22,12 @@ class GazeDataset(Dataset):
     """
 
     def __init__(
-        self, data: pl.DataFrame, class_output=False
+        self, data: pl.DataFrame, frames: torch.Tensor, saliency: torch.Tensor,
+        class_output=False
     ):
         self.data = data
+        self.frames = frames
+        self.saliency = saliency
         self.class_output = class_output
 
     def split(self, batch_size=256):
@@ -77,17 +80,14 @@ class GazeDataset(Dataset):
             gazes
         """
         # Input
-        item = self.data.filter(pl.col("id").is_between(idx - 3, idx)).select(
-            pl.col("frame")).to_series()
-        item = (torch.stack(list(item)), )
+        item = (self.frames[idx - 3:idx + 1], )
 
         # Output
         if self.class_output:
             raise NotImplementedError
         else:
             item = (*item,
-                self.data.filter(
-                    pl.col("id") == idx).select(pl.col("saliency")).item())
+                self.saliency[idx])
 
         return item
 
@@ -106,7 +106,7 @@ class GazeDataset(Dataset):
         :param str load_single_run: Name of a single trial to be used. If
             empty, all trials are loaded
         """
-        dfs = []
+        dfs, frames, saliency = [], [], []
 
         # Count the files that still need to be loaded
         csv_files = list(
@@ -126,14 +126,7 @@ class GazeDataset(Dataset):
             trial_data = (
                 pl.scan_csv(csv_path, null_values=["null"])
                 .select([
-                    pl.col("frame_id")
-                    .map_elements(
-                        lambda id: preprocess(
-                            cv2.imread(os.path.join(root_dir, subdir_name, id + ".png"))
-                        ),
-                        pl.Object,
-                    )
-                    .alias("frame"),
+                    pl.col("frame_id"),
                     # Parse gaze positions string to a list of float arrays
                     pl.when(pl.col("gaze_positions") == "[]")
                     .then(None)
@@ -144,11 +137,21 @@ class GazeDataset(Dataset):
                     .str.split(") ")
                     .list.eval(
                         pl.element().str.split(" ").cast(pl.List(pl.Float32))
-                    ).map_elements(torch.Tensor, pl.Object)
+                    )
                 ])
                 .with_row_index("trial_frame_id")
                 .collect()
             )
+
+            # Move the frames out of the df
+            trial_frames = torch.from_numpy(np.array([
+                preprocess(cv2.imread(os.path.join(root_dir, subdir_name, id + ".png")))
+                 for id in trial_data["frame_id"]]))
+            assert len(trial_frames) == len(trial_data)
+
+            # Move the gazes out of the df
+            trial_gazes = [torch.from_numpy(np.array([[]]) if series is None else
+                np.stack(series.to_numpy())) for series in trial_data["gazes"]]
 
             # Mark train and test data
             split_index = int(len(trial_data) * (1 - test_split))
@@ -164,11 +167,10 @@ class GazeDataset(Dataset):
                 # A small fraction of frames has up to 16.000 gaze positions
                 # The number of gazes for these is trimmed
                 # to the 0.999 percentile to facilitate learning
-                gaze_counts = trial_data["gazes"].list.len()
+                gaze_counts = [len(a) for a in trial_gazes]
                 # Number of gazes at 0.999 quantile
                 max_gazes = int(np.quantile(gaze_counts, 0.999))
-                trial_data = trial_data.with_columns([pl.col("gazes").head(max_gazes)])
-
+                trial_gazes = [gazes[:max_gazes] for gazes in trial_gazes]
                 # Trim the gaze positions to be within the screen
                 min_coords = torch.Tensor([0, 0])
                 max_coords = torch.Tensor(DATASET_SCREEN_SIZE)
@@ -181,16 +183,13 @@ class GazeDataset(Dataset):
                     t = torch.min(t, max_coords.view([1, 2]).expand([n, 2]))
                     return t
 
-                trial_data = trial_data.with_columns(
-                    pl.col("gazes").map_elements(trim_coords)
-                )
+                trial_gazes = [trim_coords(gazes) for gazes in trial_gazes]
 
             # Scale the coords from the original resolution down to the screen size
             scaling = ((torch.Tensor(SCREEN_SIZE) - torch.Tensor([1, 1])) \
                        / torch.Tensor(DATASET_SCREEN_SIZE))
-
-            trial_data = trial_data.with_columns(
-                pl.col("gazes").map_elements(lambda t: t * scaling))
+            trial_gazes = [gazes * scaling if gazes.size(1) == 2 else gazes
+                           for gazes in trial_gazes]
 
             # Load or create saliency maps
             saliency_path = os.path.join(root_dir, "saliency")
@@ -198,47 +197,27 @@ class GazeDataset(Dataset):
             if os.path.exists(save_path) and load_saliency:
                 print(f"Loading existing saliency maps for {filename}")
                 with open(save_path, "rb") as f:
-                    saliency_maps = np.load(f, allow_pickle=True)
-                trial_data = trial_data.with_columns(
-                    pl.Series(name="saliency", values=list(saliency_maps),
-                              dtype=pl.Object)
-                )
+                    trial_saliency = np.load(f, allow_pickle=True)
             else:
                 print(f"Creating saliency maps for {filename}")
                 os.makedirs(saliency_path, exist_ok=True)
-                trial_data = trial_data.with_columns(
-                    pl.col("gazes")
-                    .map_elements(
-                        lambda gazes: GazeDataset
-                            .create_saliency_map(gazes).cpu(),
-                        pl.Object
-                    ).alias("saliency")
-                )
-                np.save(save_path, trial_data["saliency"].to_numpy())
+                trial_saliency = [GazeDataset.create_saliency_map(gazes).cpu()
+                                  for gazes in trial_gazes]
+                np.save(save_path, trial_saliency)
                 print(f"Saliency maps saved under {save_path}")
 
             dfs.append(trial_data)
+            frames.extend(trial_frames)
+            saliency.extend(trial_saliency)
 
-        # Combine all dataframes
+        # Combine the trial data
         df: pl.DataFrame = pl.concat(dfs, how="vertical")
+        frames = torch.stack(frames)
+        saliency = torch.stack(saliency)
+        assert len(df) == len(frames) and len(saliency) == len(df)
 
         # Create a global id column
         df = df.with_columns(pl.arange(len(df)).alias("id"))
-
-        # Fill null values for saliency with white tensors
-        zeros = pl.lit(torch.zeros(SCREEN_SIZE, dtype=torch.float64), allow_object=True)
-        df = df.with_columns(pl.col("saliency").fill_null(zeros))
-
-        # # Create an index for retrieving stacks of 4 frames
-        # stack_cond = pl.col("trial_frame_id") >= 3
-        # n_stacks = df.lazy().filter(stack_cond).select(pl.len()).collect().item()
-        # df = df.with_columns(
-        #     pl.when(stack_cond)
-        #     .then(0).otherwise(1)
-        #     # .then(pl.arange(0, n_stacks))
-        #     # .otherwise(pl.arange(-1, -(len(df) - n_stacks) - 1, -1))
-        #     .alias("stack_id")
-        # )
 
         if class_output:
             # Turn the coordinates from a (x,y) pair to a 1D vector of size 7056 for
@@ -251,7 +230,7 @@ class GazeDataset(Dataset):
                 pl.col("gazes").map(to_gaze_class).alias("gaze_classes")
             )
 
-        return GazeDataset(df, class_output=class_output)
+        return GazeDataset(df, frames, saliency, class_output=class_output)
 
     @staticmethod
     def create_saliency_map(gaze_positions: torch.Tensor):
@@ -270,7 +249,7 @@ class GazeDataset(Dataset):
         gaze_positions = gaze_positions.to(DEVICE).to(dtype)
 
         # Return zeros when there is no gaze
-        if gaze_positions.shape[0] == 0:
+        if gaze_positions.shape[-1] == 0:
             return torch.zeros(SCREEN_SIZE).to(DEVICE).to(dtype)
 
         # Generate x and y indices

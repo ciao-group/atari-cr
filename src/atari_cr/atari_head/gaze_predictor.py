@@ -18,9 +18,9 @@ from atari_cr.common.utils import gradfilter_ema
 
 class ArgParser(Tap):
     debug: bool = False # Debug mode for less data loading
-    load_model: bool = False # Whether to load an existing model (if possible) or train a new one
+    load_model: bool = False # Whether to try and load an existing model
     n: int = 100 # Number of training iterations
-    eval_train_data: bool = False # Whether to use the train data for evaluation as well. For debugging
+    eval_train_data: bool = False # Whether to make an evaluation on the train data too
     load_saliency: bool = False # Whether to load existing saliency maps.
 
 class EvalResult(TypedDict):
@@ -223,11 +223,13 @@ class GazePredictor():
             entropies = torch.zeros(len(loader))
             for i, (frame_stack_batch, saliency_batch) in enumerate(loader):
                 saliency_batch = saliency_batch.to(self.device)
-                pred = saliency_batch if gt else model(frame_stack_batch.to(self.device))
+                pred = saliency_batch if gt else model(
+                    frame_stack_batch.to(self.device))
                 if not gt: pred = pred.to(self.device).exp()
 
                 # Non log space metrics
-                aucs[i] = self.saliency_auc(saliency_batch, pred, self.device, True).mean()
+                aucs[i] = self.saliency_auc(
+                    saliency_batch, pred, self.device, True).mean()
                 sums[i] = pred.sum() / pred.size(0)
                 entropies[i] = norm_entropy(pred.view(pred.size(0), -1), dim=1).mean()
                 min_val = min(min_val, pred.min().item())
@@ -284,7 +286,7 @@ class GazePredictor():
                 saliency_batch = np.zeros([batch_size, height, width])
                 for i, frame_stack in enumerate(array):
                     flow: np.ndarray = cv2.calcOpticalFlowFarneback(
-                        frame_stack[-2], frame_stack[-1], None, 0.5, 3, 15, 3, 5, 1.2, 0)
+                        frame_stack[-2], frame_stack[-1],None, 0.5, 3, 15, 3, 5, 1.2, 0)
                     # Interpret the absolute flow velocity as movement_saliency
                     flow = np.square(flow)
                     movement_saliency = np.sqrt(flow[..., 0] + flow[..., 1])
