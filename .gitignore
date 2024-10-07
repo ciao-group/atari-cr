@@ -15,6 +15,7 @@ data
 ray_results
 *.np
 *.pkl
+*.svg
 
 # Old dir structure
 runs

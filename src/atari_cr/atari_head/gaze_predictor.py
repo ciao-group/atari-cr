@@ -2,7 +2,7 @@ from collections import deque
 import os
 from typing import Callable, Optional, TypedDict
 import cv2
-import pandas as pd
+import polars as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -261,42 +261,55 @@ class GazePredictor():
         """
         Evluates the model against some baselines and returns a result dataframe.
         """
-        evals = {}
-        evals["Ground Truth"] = self.eval(gt=True)
-        if eval_train_data:
-            evals["Gaze Predictor (Train)"] = self.eval(eval_train_data)
-        evals["Gaze Predictor"] = self.eval()
+        print("Evaluating...")
+        with tqdm(total=5 if eval_train_data else 4) as pbar:
+            evals = {}
+            evals["Ground Truth"] = self.eval(gt=True)
+            pbar.update(1)
 
-        # Baseline evaluation
-        def optical_flow(t: torch.Tensor):
-            """
-            Wrapper to call the optical flow method from open cv on a validation set
-            batch of data.
+            if eval_train_data:
+                evals["Gaze Predictor (Train)"] = self.eval(eval_train_data)
+                pbar.update(1)
 
-            :param Tensor[B x frame_stack x H x W] t: Batch of stacked frames
-            :return Tensor[B x H x W]:
-            """
-            array = (t * 255).type(torch.uint8).detach().cpu().numpy()
-            batch_size, _, height, width = t.shape
-            saliency_batch = np.zeros([batch_size, height, width])
-            for i, frame_stack in enumerate(array):
-                flow: np.ndarray = cv2.calcOpticalFlowFarneback(
-                    frame_stack[-2], frame_stack[-1], None, 0.5, 3, 15, 3, 5, 1.2, 0)
-                # Interpret the absolute flow velocity as movement_saliency
-                flow = np.square(flow)
-                movement_saliency = np.sqrt(flow[..., 0] + flow[..., 1])
-                # Normalize the saliency map to sum to 1
-                movement_saliency = movement_saliency - movement_saliency.min()
-                movement_saliency = movement_saliency / movement_saliency.sum()
-                saliency_batch[i] = movement_saliency
-            flow_saliency = torch.Tensor(saliency_batch).to(self.device)
-            return nn.LogSoftmax(dim=1)(flow_saliency.view([batch_size, -1])).view(
-                [batch_size, width, height])
-        evals["Optical Flow"] = self.eval(external_model=optical_flow)
-        def random_pred(t): return F.log_softmax(
-            torch.rand([t.size(0),84*84]),dim=1).view([t.size(0),84,84])
-        evals["Random"] = self.eval(external_model=random_pred)
-        evals = pd.DataFrame(evals).transpose()
+            evals["Gaze Predictor"] = self.eval()
+            pbar.update(1)
+
+            # Baseline evaluation
+            def optical_flow(t: torch.Tensor):
+                """
+                Wrapper to call the optical flow method from open cv on a validation set
+                batch of data.
+
+                :param Tensor[B x frame_stack x H x W] t: Batch of stacked frames
+                :return Tensor[B x H x W]:
+                """
+                array = (t * 255).type(torch.uint8).detach().cpu().numpy()
+                batch_size, _, height, width = t.shape
+                saliency_batch = np.zeros([batch_size, height, width])
+                for i, frame_stack in enumerate(array):
+                    flow: np.ndarray = cv2.calcOpticalFlowFarneback(
+                        frame_stack[-2], frame_stack[-1], None, 0.5, 3, 15, 3, 5, 1.2, 0)
+                    # Interpret the absolute flow velocity as movement_saliency
+                    flow = np.square(flow)
+                    movement_saliency = np.sqrt(flow[..., 0] + flow[..., 1])
+                    # Normalize the saliency map to sum to 1
+                    movement_saliency = movement_saliency - movement_saliency.min()
+                    movement_saliency = movement_saliency / movement_saliency.sum()
+                    saliency_batch[i] = movement_saliency
+                flow_saliency = torch.Tensor(saliency_batch).to(self.device)
+                return nn.LogSoftmax(dim=1)(flow_saliency.view([batch_size, -1])).view(
+                    [batch_size, width, height])
+            evals["Optical Flow"] = self.eval(external_model=optical_flow)
+            pbar.update(1)
+
+            def random_pred(t): return F.log_softmax(
+                torch.rand([t.size(0),84*84]),dim=1).view([t.size(0),84,84])
+            evals["Random"] = self.eval(external_model=random_pred)
+            pbar.update(1)
+
+            model_names = pl.Series("model", list(evals.keys())).to_frame()
+            evals = pl.concat([model_names, pl.from_dicts(list(evals.values()))],
+                            how="horizontal")
         return evals
 
     def save(self):
@@ -442,7 +455,7 @@ def train_predictor():
     gaze_predictor.train(n_epochs=args.n)
     evals = gaze_predictor.baseline_eval(args.eval_train_data)
     print(evals)
-    evals.to_csv(os.path.join(eval_dir, f"{gaze_predictor.epoch + 1}.csv"))
+    evals.write_csv(os.path.join(eval_dir, f"{gaze_predictor.epoch + 1}.csv"))
 
 if __name__ == "__main__":
     train_predictor()

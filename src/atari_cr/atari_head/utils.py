@@ -1,16 +1,12 @@
 import os
 import cv2
 import numpy as np
-import pandas as pd
-from sklearn.metrics import roc_auc_score
+import polars as pl
 import torch
-from torch import nn
-from torch.utils.data import DataLoader
-from torchmetrics.classification import BinaryAccuracy
 from PIL import Image
 
 from atari_cr.common.models import RecordBuffer
-from atari_cr.common.utils import grid_image, debug_array
+from atari_cr.common.utils import grid_image
 
 # Screen Size in visual degrees: 44,6 x 28,5
 # Visual Degrees per Pixel with 84 x 84 pixels: 0,5310 x 0,3393
@@ -20,7 +16,8 @@ def transform_to_proper_csv(game_dir: str):
     """
     Transforms the pseudo csv format used by Atari-HEAD to proper csv
 
-    :param str game_dir: The directory containing files for one game. Obtained by unzipping \<game\>.zip
+    :param str game_dir: The directory containing files for one game.
+        Obtained by unzipping \\<game\\>.zip
     """
     csv_files = list(filter(lambda file_name: ".txt" in file_name, os.listdir(game_dir)))
     for file_name in csv_files:
@@ -47,16 +44,16 @@ def transform_to_proper_csv(game_dir: str):
             ])
 
         # Export the data to csv and delete the original files
-        df = pd.DataFrame(data, columns=[
-            "frame_id", 
-            "episode_id", 
-            "score", 
-            "duration(ms)", 
-            "unclipped_reward", 
-            "action", 
+        df = pl.DataFrame(data, columns=[
+            "frame_id",
+            "episode_id",
+            "score",
+            "duration(ms)",
+            "unclipped_reward",
+            "action",
             "gaze_positions"
         ])
-        df.to_csv(".".join(file_path.split(".")[:-1]) + ".csv", index=False)
+        df.write_csv(".".join(file_path.split(".")[:-1]) + ".csv", index=False)
         os.remove(file_path)
 
 def open_mp4_as_frame_list(path: str):
@@ -65,7 +62,7 @@ def open_mp4_as_frame_list(path: str):
     frames = []
     while True:
         success, frame = video.read()
-        
+
         if success:
             frames.append(frame)
         else:

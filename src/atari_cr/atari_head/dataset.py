@@ -225,7 +225,7 @@ class GazeDataset(Dataset):
         # Create a global id column
         df = df.with_columns(pl.arange(len(df)).alias("id"))
 
-        # TODO: Fill null values for saliency with white tensors
+        # Fill null values for saliency with white tensors
         zeros = pl.lit(torch.zeros(SCREEN_SIZE, dtype=torch.float64), allow_object=True)
         df = df.with_columns(pl.col("saliency").fill_null(zeros))
 

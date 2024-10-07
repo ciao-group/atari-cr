@@ -25,7 +25,6 @@ torch = [
     "opencv-python>=4.10",
     "gymnasium>=0.29",
     # Additionally used pacakages
-    "pandas",
     "typed-argument-parser",
     "scikit-learn",
     "ray[tune, default]",
