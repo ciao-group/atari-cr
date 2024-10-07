@@ -195,7 +195,6 @@ class GazeDataset(Dataset):
             saliency_path = os.path.join(root_dir, "saliency")
             save_path = os.path.join(saliency_path, filename)[:-4] + ".np"
             if os.path.exists(save_path) and load_saliency:
-                print(f"Loading existing saliency maps for {filename}")
                 with open(save_path, "rb") as f:
                     trial_saliency = np.load(f, allow_pickle=True)
             else:
