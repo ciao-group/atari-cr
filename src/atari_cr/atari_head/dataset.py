@@ -77,8 +77,8 @@ class GazeDataset(Dataset):
             gazes
         """
         # Input
-        item = self.data.lazy().filter(pl.col("id").is_between(idx - 3, idx)).select(
-            pl.col("frame")).collect().to_series()
+        item = self.data.filter(pl.col("id").is_between(idx - 3, idx)).select(
+            pl.col("frame")).to_series()
         item = (torch.stack(list(item)), )
 
         # Output
@@ -86,8 +86,8 @@ class GazeDataset(Dataset):
             raise NotImplementedError
         else:
             item = (*item,
-                self.data.lazy().filter(
-                    pl.col("id") == idx).select(pl.col("saliency")).collect().item())
+                self.data.filter(
+                    pl.col("id") == idx).select(pl.col("saliency")).item())
 
         return item
 

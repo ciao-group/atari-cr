@@ -214,14 +214,14 @@ class GazePredictor():
         loader = self.train_loader if on_train_data else self.val_loader
         model = external_model or self.model
 
-        min_val, max_val = 0, 0
-        sums = torch.zeros(len(loader))
-        kl_divs = torch.zeros(len(loader))
-        aucs = torch.zeros(len(loader))
-        entropies = torch.zeros(len(loader))
-        for i, (frame_stack_batch, saliency_batch) in enumerate(loader):
+        with torch.no_grad():
 
-            with torch.no_grad():
+            min_val, max_val = 0, 0
+            sums = torch.zeros(len(loader))
+            kl_divs = torch.zeros(len(loader))
+            aucs = torch.zeros(len(loader))
+            entropies = torch.zeros(len(loader))
+            for i, (frame_stack_batch, saliency_batch) in enumerate(loader):
                 saliency_batch = saliency_batch.to(self.device)
                 pred = saliency_batch if gt else model(frame_stack_batch.to(self.device))
                 if not gt: pred = pred.to(self.device).exp()
@@ -242,18 +242,14 @@ class GazePredictor():
                 kl_divs[i] = nn.KLDivLoss(reduction="batchmean")(
                     pred, saliency_batch).detach()
 
-            # # Cleanup GPU memory because somehow torch does not do this on its own here
-            # del saliency_batch, pred
-            # torch.cuda.empty_cache()
-
-        r: EvalResult = {
-            "min": min_val,
-            "max": max_val,
-            "sum": sums.mean().item(),
-            "kl_div": kl_divs.mean().item(),
-            "auc": aucs.mean().item(),
-            "entropy": entropies.mean().item()
-        }
+            r: EvalResult = {
+                "min": min_val,
+                "max": max_val,
+                "sum": sums.mean().item(),
+                "kl_div": kl_divs.mean().item(),
+                "auc": aucs.mean().item(),
+                "entropy": entropies.mean().item()
+            }
 
         return r
 
