@@ -18,14 +18,14 @@ class SensoryActionMode(Enum):
                 return SensoryActionMode.RELATIVE
             case _:
                 raise ValueError("Invalid sensory action mode")
-            
+
     def __str__(self):
         match(self):
             case SensoryActionMode.ABSOLUTE:
                 return "absolute"
             case SensoryActionMode.RELATIVE:
                 return "relative"
-            
+
 class RecordBuffer(TypedDict):
     """
     Buffer saving the env history for one episode
@@ -45,9 +45,9 @@ class RecordBuffer(TypedDict):
 
     @staticmethod
     def new():
-        buffer = dict((key, []) for key in RecordBuffer.__annotations__)
+        buffer = { key: [] for key in RecordBuffer.__annotations__ }
         buffer["fov_size"] = (0, 0)
-        return buffer     
+        return buffer
 
     @staticmethod
     def from_file(file_path: str):
@@ -63,11 +63,12 @@ class RecordBuffer(TypedDict):
         record_buffer: RecordBuffer
         return record_buffer
 
-    def to_atari_head(self, game: str): 
+    def to_atari_head(self, game: str):
         """
         Create a GazeDataset from the buffer.
 
-        :param str game: The atari game recorded in the buffer. Required to know which action is the pause action
+        :param str game: The atari game recorded in the buffer. Required to know which
+            action is the pause action
         """
         from atari_cr.atari_head import GazeDataset
 

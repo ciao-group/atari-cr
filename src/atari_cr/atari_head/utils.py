@@ -5,8 +5,8 @@ import polars as pl
 import torch
 from PIL import Image
 
-from atari_cr.common.models import RecordBuffer
-from atari_cr.common.utils import grid_image
+from atari_cr.models import RecordBuffer
+from atari_cr.utils import grid_image
 
 # Screen Size in visual degrees: 44,6 x 28,5
 # Visual Degrees per Pixel with 84 x 84 pixels: 0,5310 x 0,3393

@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 import polars as pl
 
-from atari_cr.common.module_overrides import tqdm
+from atari_cr.module_overrides import tqdm
 from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE, preprocess
 
 SCREEN_SIZE = [84, 84]

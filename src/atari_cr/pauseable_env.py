@@ -8,8 +8,8 @@ from typing import TypedDict, List, Tuple
 import copy
 from torchvision.transforms import Resize
 
-from atari_cr.common.models import SensoryActionMode, RecordBuffer
-from atari_cr.common.utils import EMMA_fixation_time
+from atari_cr.models import SensoryActionMode, RecordBuffer
+from atari_cr.utils import EMMA_fixation_time
 from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE
         
 

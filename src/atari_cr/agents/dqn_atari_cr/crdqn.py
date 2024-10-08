@@ -16,13 +16,13 @@ from gymnasium.vector import VectorEnv
 from gymnasium.spaces import Discrete
 
 from active_gym import FixedFovealEnv
-from atari_cr.common.pauseable_env import PauseableFixedFovealEnv
-from atari_cr.common.models import SensoryActionMode
-from atari_cr.common.buffers import DoubleActionReplayBuffer
-from atari_cr.common.pvm_buffer import PVMBuffer
-from atari_cr.common.utils import linear_schedule
+from atari_cr.pauseable_env import PauseableFixedFovealEnv
+from atari_cr.models import SensoryActionMode
+from atari_cr.buffers import DoubleActionReplayBuffer
+from atari_cr.pvm_buffer import PVMBuffer
+from atari_cr.utils import linear_schedule
 from atari_cr.agents.dqn_atari_cr.networks import QNetwork, SelfPredictionNetwork
-from atari_cr.common.utils import gradfilter_ema
+from atari_cr.utils import gradfilter_ema
 
 class CRDQN:
     """

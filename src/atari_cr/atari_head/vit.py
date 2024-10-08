@@ -4,7 +4,7 @@ import numpy as np
 
 from atari_cr.atari_head.dataset import GazeDataset, Mode
 from atari_cr.atari_head.gaze_predictor import ArgParser
-from atari_cr.common.module_overrides import ViTEmbedder
+from atari_cr.module_overrides import ViTEmbedder
 from atari_cr.atari_head.translation_transformer import Seq2SeqTransformer, train_epoch, evaluate, greedy_decode, PAD
 
 if __name__ == "__main__":

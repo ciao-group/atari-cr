@@ -13,9 +13,9 @@ from tap import Tap
 
 from active_gym.atari_env import AtariEnv, AtariEnvArgs, AtariFixedFovealEnv
 
-from atari_cr.common.utils import seed_everything, get_sugarl_reward_scale_atari, get_env_attributes
-from atari_cr.common.pauseable_env import PauseableFixedFovealEnv
-from atari_cr.common.models import SensoryActionMode
+from atari_cr.utils import seed_everything, get_sugarl_reward_scale_atari, get_env_attributes
+from atari_cr.pauseable_env import PauseableFixedFovealEnv
+from atari_cr.models import SensoryActionMode
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
 
 # OPTIONAL: Remove normal pause cost in favor of a bigger penalty for 30 pauses in a row

@@ -11,10 +11,10 @@ import torch.optim as optim
 import numpy as np
 import h5py
 from tap import Tap
-from atari_cr.common.module_overrides import tqdm
+from atari_cr.module_overrides import tqdm
 
 from atari_cr.atari_head.dataset import GazeDataset
-from atari_cr.common.utils import gradfilter_ema
+from atari_cr.utils import gradfilter_ema
 
 class ArgParser(Tap):
     debug: bool = False # Debug mode for less data loading
@@ -311,8 +311,9 @@ class GazePredictor():
         return evals
 
     def save(self):
-        save_path = f"{self.epoch + 1}.pth"
-        save_dir = os.path.join(self.output_dir, "models", self.model_name)
+        save_path = "checkpoint.pth"
+        save_dir = os.path.join(
+            self.output_dir, "models", self.model_name, str(self.epoch + 1))
         os.makedirs(save_dir, exist_ok=True)
         torch.save(
             self.model.state_dict(),
@@ -433,14 +434,12 @@ def train_predictor():
     output_dir = f"output/atari_head/{env_name}"
     model_dir = os.path.join(output_dir, "models", model_name)
     os.makedirs(model_dir, exist_ok=True)
-    eval_dir = os.path.join(output_dir, "model_evals", model_name)
-    os.makedirs(eval_dir, exist_ok=True)
 
     # Load an existing Atari HEAD model
     model_files = os.listdir(model_dir)
     if (args.load_model) and len(model_files) > 0:
-        latest_epoch = sorted([int(file[:-4]) for file in model_files])[-1]
-        save_path = os.path.join(model_dir, f"{latest_epoch}.pth")
+        latest_epoch = sorted([int(file) for file in model_files])[-1]
+        save_path = os.path.join(model_dir, str(latest_epoch), "checkpoint.pth")
         print(f"Loading existing gaze predictor from {save_path}")
         gaze_predictor = GazePredictor.from_save_file(save_path, dataset, output_dir)
     else:
@@ -453,7 +452,7 @@ def train_predictor():
     gaze_predictor.train(n_epochs=args.n)
     evals = gaze_predictor.baseline_eval(args.eval_train_data)
     print(evals)
-    evals.write_csv(os.path.join(eval_dir, f"{gaze_predictor.epoch + 1}.csv"))
+    evals.write_csv(os.path.join(model_dir, str(gaze_predictor.epoch), "eval.csv"))
 
 if __name__ == "__main__":
     train_predictor()

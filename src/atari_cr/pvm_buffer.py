@@ -8,7 +8,7 @@ import numpy as np
 import numpy as np
 from PIL import Image
 
-from atari_cr.common.utils import grid_image
+from atari_cr.utils import grid_image
 
 
 class PVMBuffer:

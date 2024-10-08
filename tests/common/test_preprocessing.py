@@ -1,14 +1,14 @@
 import unittest
 from gymnasium import spaces
 
-from atari_cr.common.preprocessing import get_action_dim
+from atari_cr.module_overrides import get_action_dim
 
 class TestGetActionDim(unittest.TestCase):
     def test_box_space(self):
         action_space = spaces.Box(low=0, high=1, shape=(3, 4))
         expected_dim = 12
         self.assertEqual(get_action_dim(action_space), expected_dim)
-        
+
         action_space = spaces.Box(low=0, high=1, shape=(5,))
         expected_dim = 5
         self.assertEqual(get_action_dim(action_space), expected_dim)
@@ -27,7 +27,7 @@ class TestGetActionDim(unittest.TestCase):
         action_space = spaces.MultiBinary(10)
         expected_dim = 10
         self.assertEqual(get_action_dim(action_space), expected_dim)
-        
+
         action_space = spaces.MultiBinary([4, 3])
         with self.assertRaises(AssertionError):
             get_action_dim(action_space)

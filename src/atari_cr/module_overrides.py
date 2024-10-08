@@ -1,9 +1,12 @@
 from functools import partial
-from typing import Callable, Optional
-from torch import Tensor, nn
+from typing import Callable, Optional, Union, Dict
+from torch import nn
 import torch
 from torchvision.models.vision_transformer import VisionTransformer
 from tqdm import tqdm
+from gymnasium import spaces
+
+import stable_baselines3.common.preprocessing as sb_preprocessing
 
 class tqdm(tqdm):
     @property
@@ -17,7 +20,7 @@ class tqdm(tqdm):
         if d["n"] == d["total"]: d.update({"colour": "green"})
 
         return d
-    
+
 class ViTEmbedder(VisionTransformer):
     def __init__(
         self,
@@ -33,7 +36,8 @@ class ViTEmbedder(VisionTransformer):
         device="cpu"
     ):
         nn.Module.__init__(self)
-        torch._assert(image_size % patch_size == 0, "Input shape indivisible by patch size!")
+        torch._assert(
+            image_size % patch_size == 0, "Input shape indivisible by patch size!")
         self.image_size = image_size
         self.patch_size = patch_size
         self.hidden_dim = hidden_dim
@@ -46,7 +50,8 @@ class ViTEmbedder(VisionTransformer):
         self.device = device
 
         self.conv_proj = nn.Conv2d(
-            in_channels=3, out_channels=hidden_dim, kernel_size=patch_size, stride=patch_size
+            in_channels=3, out_channels=hidden_dim, kernel_size=patch_size,
+            stride=patch_size
         )
 
         self.seq_length = (image_size // patch_size) ** 2
@@ -66,3 +71,19 @@ class ViTEmbedder(VisionTransformer):
         x = torch.cat([batch_class_token, x], dim=1)
 
         return x
+
+# Taken from stable_baselines3.common.preprocessing
+def get_action_dim(action_space: spaces.Space) -> Union[int, Dict]:
+    """
+    Get the dimension of the action space.
+
+    :param action_space:
+    :return:
+    """
+    if isinstance(action_space, spaces.Dict):
+        action_dims = []
+        for key in action_space:
+            action_dims.append(get_action_dim(action_space[key]))
+        return action_dims
+    else:
+        return sb_preprocessing.get_action_dim(action_space)

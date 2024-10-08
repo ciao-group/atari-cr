@@ -7,7 +7,7 @@ import torch.nn as nn
 from torch.nn import Transformer
 import math
 
-from atari_cr.common.module_overrides import tqdm
+from atari_cr.module_overrides import tqdm
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 UNK, PAD, BOS, EOS = 0, 1, 2, 3

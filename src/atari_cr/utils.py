@@ -180,30 +180,6 @@ def get_flattened_obs_dim(observation_space: spaces.Space) -> int:
         # Use Gym internal method
         return spaces.utils.flatdim(observation_space)
 
-
-def get_action_dim(action_space: spaces.Space) -> int:
-    """
-    Get the dimension of the action space.
-    :param action_space:
-    :return:
-    """
-    if isinstance(action_space, spaces.Box):
-        return int(np.prod(action_space.shape))
-    elif isinstance(action_space, spaces.Discrete):
-        # Action is an int
-        return 1
-    elif isinstance(action_space, spaces.MultiDiscrete):
-        # Number of discrete actions
-        return int(len(action_space.nvec))
-    elif isinstance(action_space, spaces.MultiBinary):
-        # Number of binary actions
-        return int(action_space.n)
-    elif isinstance(action_space, spaces.Dict):
-        return get_action_dim(action_space["motor_action"])
-    else:
-        raise NotImplementedError(f"{action_space} action space is not supported")
-
-
 def check_for_nested_spaces(obs_space: spaces.Space):
     """
     Make sure the observation space does not have nested spaces (Dicts/Tuples inside Dicts/Tuples).

@@ -1,7 +1,6 @@
 import copy
 import warnings
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Generator, List, Optional, Union, NamedTuple
+from typing import Any, Dict, Optional, Union, NamedTuple
 
 import numpy as np
 import torch as th
@@ -9,7 +8,8 @@ from gymnasium import spaces
 from gymnasium.vector import VectorEnv
 from stable_baselines3.common.buffers import BaseBuffer, ReplayBuffer
 
-from atari_cr.common.utils import get_action_dim, get_obs_shape, get_device
+from atari_cr.utils import get_obs_shape, get_device
+from atari_cr.module_overrides import get_action_dim
 
 try:
     # Check memory used by replay buffer when possible
@@ -100,7 +100,7 @@ class DoubleActionReplayBuffer(BaseBuffer):
         optimize_memory_usage: bool = False,
         handle_timeout_termination: bool = True,
     ):
-        
+
         self.buffer_size = buffer_size
         self.observation_space = observation_space
         self.motor_action_space = motor_action_space
@@ -130,7 +130,8 @@ class DoubleActionReplayBuffer(BaseBuffer):
             )
         self.optimize_memory_usage = optimize_memory_usage
 
-        self.observations = np.zeros((self.buffer_size, self.n_envs) + self.obs_shape, dtype=observation_space.dtype)
+        self.observations = np.zeros((self.buffer_size, self.n_envs) + self.obs_shape,
+                                     dtype=observation_space.dtype)
 
         if optimize_memory_usage:
             # `observations` contains also the next observation
