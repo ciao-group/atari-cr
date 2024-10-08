@@ -117,7 +117,7 @@ class GazeDataset(Dataset):
             )
         )
 
-        print("Loading images into memory")
+        print("Loading images and saliency maps into memory")
         for filename in tqdm(csv_files, total=len(csv_files)):
             csv_path = os.path.join(root_dir, filename)
             subdir_name = os.path.splitext(filename)[0]
@@ -193,16 +193,15 @@ class GazeDataset(Dataset):
 
             # Load or create saliency maps
             saliency_path = os.path.join(root_dir, "saliency")
-            save_path = os.path.join(saliency_path, filename)[:-4] + ".np"
+            save_path = os.path.join(saliency_path, filename)[:-4] + ".pt"
             if os.path.exists(save_path) and load_saliency:
-                with open(save_path, "rb") as f:
-                    trial_saliency = np.load(f, allow_pickle=True)
+                trial_saliency = torch.load(save_path, weights_only=False)
             else:
                 print(f"Creating saliency maps for {filename}")
                 os.makedirs(saliency_path, exist_ok=True)
                 trial_saliency = [GazeDataset.create_saliency_map(gazes).cpu()
                                   for gazes in trial_gazes]
-                np.save(save_path, trial_saliency)
+                torch.save(trial_saliency, save_path)
                 print(f"Saliency maps saved under {save_path}")
 
             dfs.append(trial_data)

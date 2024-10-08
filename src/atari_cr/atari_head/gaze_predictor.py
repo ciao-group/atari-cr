@@ -187,14 +187,14 @@ class GazePredictor():
             if self.epoch % save_interval == save_interval - 1:
                 self.save()
 
-                kl_div, auc = self.eval()
-                eval_kl_divs.append(kl_div.item())
+                _eval = self.eval()
+                eval_kl_divs.append(_eval["kl_div"])
                 print(f"Eval KLDivs: {[f'{x:5.3f}' for x in eval_kl_divs]}")
-                print(f"Eval AUC: {auc}")
-                kl_div, auc = self.eval(on_train_data=True)
-                train_kl_divs.append(kl_div.item())
+                print(f"Eval AUC: {_eval['auc']}")
+                _eval = self.eval(on_train_data=True)
+                train_kl_divs.append(_eval["kl_div"])
                 print(f"Train KLDivs: {[f'{x:5.3f}' for x in train_kl_divs]}")
-                print(f"Tain AUC: {auc}")
+                print(f"Tain AUC: {_eval['auc']}")
 
         self.model.eval()
         print('Training finished')
