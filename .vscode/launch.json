@@ -12,7 +12,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
-                // "--debug",
+                "--debug",
                 "--load_model",
                 "--n", "1",
                 "--eval_train_data",

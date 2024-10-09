@@ -6,7 +6,7 @@ import polars as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader
 import torch.optim as optim
 import numpy as np
 import h5py
@@ -133,24 +133,14 @@ class GazePredictor():
     :param torch.nn.Module model: Model predicting a [1,84,84] saliency map
         from a [4,84,84] stack of greyscale images
     """
-    def __init__(
-            self,
-            model: nn.Module,
-            dataset: GazeDataset,
-            output_dir: str,
-            model_name: str = "all_trials"
-        ):
+    def __init__(self, model: nn.Module):
         self.model = model
-        self.train_loader, self.val_loader = dataset.split()
-        self.output_dir = output_dir
-        self.model_name = model_name
 
         # Loss function, optimizer, compute device and tesorboard writer
         self.loss_function = nn.KLDivLoss(reduction="batchmean")
         self.optimizer = optim.Adam(self.model.parameters())
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
-        self.writer = SummaryWriter(os.path.join(output_dir, "tensorboard"))
 
         # Init Grokfast
         self.grokfast = False
@@ -159,7 +149,8 @@ class GazePredictor():
         # Count the number of trained epochs
         self.epoch = 0
 
-    def train(self, n_epochs: int, save_interval=100):
+    def train(self, n_epochs: int, train_loader: DataLoader, val_loader: DataLoader,
+              output_dir: str, save_interval=100):
         if n_epochs == 0: return
         self.model.train()
 
@@ -169,7 +160,7 @@ class GazePredictor():
         for self.epoch in range(self.epoch, final_epoch):
 
             print(f"Epoch {self.epoch + 1} / {final_epoch}")
-            with tqdm(self.train_loader) as t:
+            with tqdm(train_loader) as t:
                 for inputs, targets in t:
                     inputs, targets = inputs.to(self.device), targets.to(self.device)
 
@@ -185,13 +176,13 @@ class GazePredictor():
                     t.set_postfix(loss=f"{np.mean(losses):6.4f}")
 
             if self.epoch % save_interval == save_interval - 1:
-                self.save()
+                self.save(output_dir)
 
-                _eval = self.eval()
+                _eval = self.eval(val_loader)
                 eval_kl_divs.append(_eval["kl_div"])
                 print(f"Eval KLDivs: {[f'{x:5.3f}' for x in eval_kl_divs]}")
                 print(f"Eval AUC: {_eval['auc']}")
-                _eval = self.eval(on_train_data=True)
+                _eval = self.eval(train_loader)
                 train_kl_divs.append(_eval["kl_div"])
                 print(f"Train KLDivs: {[f'{x:5.3f}' for x in train_kl_divs]}")
                 print(f"Tain AUC: {_eval['auc']}")
@@ -200,9 +191,9 @@ class GazePredictor():
         print('Training finished')
 
         # Save the trained model
-        self.save()
+        self.save(output_dir)
 
-    def eval(self, on_train_data=False,
+    def eval(self, loader: DataLoader,
              external_model: Callable[[torch.Tensor], torch.Tensor] = None, gt=False):
         """
         :param bool on_train_data: Whether to eval the predictor on the train set.
@@ -211,7 +202,6 @@ class GazePredictor():
         :param bool gt: Whether to produce a baseline evaluation using ground truth data
         :returns Tuple[float, float]: KL Divergence and AUC
         """
-        loader = self.train_loader if on_train_data else self.val_loader
         model = external_model or self.model
 
         with torch.no_grad():
@@ -255,21 +245,22 @@ class GazePredictor():
 
         return r
 
-    def baseline_eval(self, eval_train_data=False):
+    def baseline_eval(self, val_loader: DataLoader,
+                      train_loader: Optional[DataLoader] = None):
         """
         Evluates the model against some baselines and returns a result dataframe.
         """
         print("Evaluating...")
-        with tqdm(total=5 if eval_train_data else 4) as pbar:
+        with tqdm(total=4 if train_loader is None else 5) as pbar:
             evals = {}
-            evals["Ground Truth"] = self.eval(gt=True)
+            evals["Ground Truth"] = self.eval(val_loader, gt=True)
             pbar.update(1)
 
-            if eval_train_data:
-                evals["Gaze Predictor (Train)"] = self.eval(eval_train_data)
+            if train_loader is not None:
+                evals["Gaze Predictor (Train)"] = self.eval(train_loader)
                 pbar.update(1)
 
-            evals["Gaze Predictor"] = self.eval()
+            evals["Gaze Predictor"] = self.eval(val_loader)
             pbar.update(1)
 
             # Baseline evaluation
@@ -297,12 +288,12 @@ class GazePredictor():
                 flow_saliency = torch.Tensor(saliency_batch).to(self.device)
                 return nn.LogSoftmax(dim=1)(flow_saliency.view([batch_size, -1])).view(
                     [batch_size, width, height])
-            evals["Optical Flow"] = self.eval(external_model=optical_flow)
+            evals["Optical Flow"] = self.eval(val_loader, external_model=optical_flow)
             pbar.update(1)
 
             def random_pred(t): return F.log_softmax(
                 torch.rand([t.size(0),84*84]),dim=1).view([t.size(0),84,84])
-            evals["Random"] = self.eval(external_model=random_pred)
+            evals["Random"] = self.eval(val_loader, external_model=random_pred)
             pbar.update(1)
 
             model_names = pl.Series("model", list(evals.keys())).to_frame()
@@ -310,10 +301,9 @@ class GazePredictor():
                             how="horizontal")
         return evals
 
-    def save(self):
+    def save(self, output_dir: str):
         save_path = "checkpoint.pth"
-        save_dir = os.path.join(
-            self.output_dir, "models", self.model_name, str(self.epoch + 1))
+        save_dir = os.path.join(output_dir, str(self.epoch + 1))
         os.makedirs(save_dir, exist_ok=True)
         torch.save(
             self.model.state_dict(),
@@ -322,13 +312,11 @@ class GazePredictor():
         print(f"Saved model to {save_path}")
 
     @staticmethod
-    def from_save_file(save_path: str, dataset: GazeDataset, output_dir: str,
-                       model_class=GazePredictionNetwork):
+    def from_save_file(save_path: str, model_class=GazePredictionNetwork):
         model = model_class()
         model.load_state_dict(torch.load(save_path, weights_only=False))
 
-        model_name = save_path.split("/")[-2]
-        predictor = GazePredictor(model, dataset, output_dir, model_name)
+        predictor = GazePredictor(model)
         predictor.epoch = int(save_path.split("/")[-1][:-4])
 
         return predictor
@@ -429,10 +417,11 @@ def train_predictor():
     dataset = GazeDataset.from_atari_head_files(
         root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=single_run,
         load_saliency=args.load_saliency)
+    train_loader, val_loader = dataset.split()
 
     # Create the dir for saving the trained model and its evaluations
     output_dir = f"output/atari_head/{env_name}"
-    model_dir = os.path.join(output_dir, "models", model_name)
+    model_dir = os.path.join(output_dir, model_name)
     os.makedirs(model_dir, exist_ok=True)
 
     # Load an existing Atari HEAD model
@@ -441,16 +430,17 @@ def train_predictor():
         latest_epoch = sorted([int(file) for file in model_files])[-1]
         save_path = os.path.join(model_dir, str(latest_epoch), "checkpoint.pth")
         print(f"Loading existing gaze predictor from {save_path}")
-        gaze_predictor = GazePredictor.from_save_file(save_path, dataset, output_dir)
+        gaze_predictor = GazePredictor.from_save_file(save_path, output_dir)
     else:
         print("Creating new gaze model from hdfs5 weights")
         model = GazePredictionNetwork.from_h5(
             f"data/h5_gaze_predictors/{env_name}.hdf5")
-        gaze_predictor = GazePredictor(model, dataset, output_dir, model_name)
+        gaze_predictor = GazePredictor(model)
 
     # Train the model
-    gaze_predictor.train(n_epochs=args.n)
-    evals = gaze_predictor.baseline_eval(args.eval_train_data)
+    gaze_predictor.train(args.n, train_loader, val_loader, model_dir)
+    evals = gaze_predictor.baseline_eval(
+        val_loader, train_loader if args.eval_train_data else None)
     print(evals)
     evals.write_csv(os.path.join(model_dir, str(gaze_predictor.epoch), "eval.csv"))
 

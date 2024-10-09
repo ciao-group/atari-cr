@@ -1,10 +1,12 @@
 import os
+from typing import List
 import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 import polars as pl
 
+from atari_cr.models import RecordBuffer
 from atari_cr.module_overrides import tqdm
 from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE, preprocess
 
@@ -17,56 +19,49 @@ class GazeDataset(Dataset):
     """
     Dataset object for the Atari-HEAD dataset
 
+    :param Tensor[N,W,H] frames: Greyscale game images
+    :param Tensor[N,W,H] saliency: Saliency maps belonging the frames
+    :param Tensor[N] train_indcies: Indices of frames used for training
+    :param Tensor[N] val_indcies: Inidcies of frames used for validation
     :param bool class_output: Whether to output the gaze positions as 1D
         discrete class labels
     """
 
     def __init__(
-        self, data: pl.DataFrame, frames: torch.Tensor, saliency: torch.Tensor,
-        class_output=False
+        self, frames: torch.Tensor, saliency: torch.Tensor,
+        train_indices: torch.Tensor, val_indices: torch.Tensor, class_output=False
     ):
-        self.data = data
         self.frames = frames
         self.saliency = saliency
+        self.train_indices = train_indices
+        self.val_indices = val_indices
         self.class_output = class_output
 
-    def split(self, batch_size=256):
+    def split(self, batch_size=512):
         """
         Splits the dataset into one dataset containing train data and one
         dataset containing test data and returns them as loaders.
 
         :return: Train and validation loader
         """
-        # Find train and val indices
-        train_indices = list(self.data.lazy().filter(
-            (pl.col("trial_frame_id") >= 3) & pl.col("train")).select(
-            pl.col("id")).collect().to_series())
-        val_indices = list(self.data.lazy().filter(
-            (pl.col("trial_frame_id") >= 3) & ~pl.col("train")).select(
-            pl.col("id")).collect().to_series())
-
-        # Shuffle after the split because
-        # subsequent images are highly correlated
+        # Shuffle happens now, after the indices have been split
+        # This is because subsequent images are highly correlated
         train_loader = DataLoader(
-            self, batch_size, sampler=SubsetRandomSampler(train_indices)
+            self, batch_size, sampler=SubsetRandomSampler(self.train_indices)
         )
         val_loader = DataLoader(
-            self, batch_size, sampler=SubsetRandomSampler(val_indices)
+            self, batch_size, sampler=SubsetRandomSampler(self.val_indices)
         )
 
         return train_loader, val_loader
 
-    @staticmethod
-    def _parse_gaze_string(gaze_string: str) -> np.ndarray:
-        """
-        Parses the string with gaze information into a numpy array.
-        """
-        return np.array(
-            [
-                [float(number) for number in s.strip(", []\\n").split(",")]
-                for s in gaze_string.replace("(", "").replace("'", "").split(")")[:-1]
-            ]
-        )
+    def to_loader(self, batch_size=512):
+        """ Get the entire dataset as a single dataloader """
+        stack_indices = list(self.data.lazy().filter(
+            (pl.col("trial_frame_id") >= 3)).select(
+            pl.col("id")).collect().to_series())
+
+        return DataLoader(self, batch_size, sampler=SubsetRandomSampler(stack_indices))
 
     def __len__(self):
         return (self.data["stack_id"] >= 0).sum()
@@ -148,10 +143,12 @@ class GazeDataset(Dataset):
                 preprocess(cv2.imread(os.path.join(root_dir, subdir_name, id + ".png")))
                  for id in trial_data["frame_id"]]))
             assert len(trial_frames) == len(trial_data)
+            trial_data = trial_data.drop(pl.col("frame_id"))
 
             # Move the gazes out of the df
             trial_gazes = [torch.from_numpy(np.array([[]]) if series is None else
                 np.stack(series.to_numpy())) for series in trial_data["gazes"]]
+            trial_data = trial_data.drop(pl.col("gazes"))
 
             # Mark train and test data
             split_index = int(len(trial_data) * (1 - test_split))
@@ -225,10 +222,35 @@ class GazeDataset(Dataset):
                 return (t.to(torch.int16) * torch.Tensor([1, 84])).sum(axis=1) + 2
 
             df = df.with_columns(
-                pl.col("gazes").map(to_gaze_class).alias("gaze_classes")
+                pl.col("gazes").map_elements(to_gaze_class).alias("gaze_classes")
             )
 
-        return GazeDataset(df, frames, saliency, class_output=class_output)
+        train_indices = torch.Tensor(list(df.lazy().filter(
+            (pl.col("trial_frame_id") >= 3) & pl.col("train")).select(
+            pl.col("id")).collect().to_series()))
+        val_indices = torch.Tensor(list(df.lazy().filter(
+            (pl.col("trial_frame_id") >= 3) & ~pl.col("train")).select(
+            pl.col("id")).collect().to_series()))
+
+        return GazeDataset(
+            frames, saliency, train_indices, val_indices, class_output=class_output)
+
+    @staticmethod
+    def from_game_data(video_files: List[str], metadata_files: List[str]):
+        """ Create a dataset from an agent's recorded game """
+        assert len(video_files) == len(metadata_files), \
+            "video_files and metadata_files have to be of same length"
+
+        dfs = []
+
+        for video_file, metadata_file in zip(video_files, metadata_files):
+            buffer = RecordBuffer.from_file(metadata_file, video_file)
+            # TODO: Make the recordbuffer save multiple fov_locs per frame
+            # TODO: Create saliency map
+            buffer["fov_loc"]
+
+        # TODO: Create a dataset from list of frames and list of saliency maps
+        return GazeDataset()
 
     @staticmethod
     def create_saliency_map(gaze_positions: torch.Tensor):

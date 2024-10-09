@@ -1,10 +1,5 @@
 import os
-from typing import List, Literal, Union
-
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning)
+from typing import Literal
 
 import gymnasium as gym
 import torch
@@ -13,7 +8,8 @@ from tap import Tap
 
 from active_gym.atari_env import AtariEnv, AtariEnvArgs, AtariFixedFovealEnv
 
-from atari_cr.utils import seed_everything, get_sugarl_reward_scale_atari, get_env_attributes
+from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari,
+    get_env_attributes)
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.models import SensoryActionMode
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
@@ -22,10 +18,10 @@ from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
 # OPTIONAL: Test realtive actions better
 
 class ArgParser(Tap):
-    exp_name: str = os.path.basename(__file__).rstrip(".py") # The name of this experiment
+    exp_name: str = os.path.basename(__file__).rstrip(".py") # Name of this experiment
     seed: int = 0 # The seed of the experiment
-    disable_cuda: bool = False # Whether to force the use of CPU 
-    capture_video: bool = False # Whether to capture videos of the agent performances (check out `videos` folder)
+    disable_cuda: bool = False # Whether to force the use of CPU
+    capture_video: bool = False # Whether to capture videos of the agent performances
 
     # Env settings
     env: str = "boxing" # The ID of the environment
@@ -33,7 +29,7 @@ class ArgParser(Tap):
     frame_stack: int = 4 # The number of frames making up one observation
     action_repeat: int = 4 # The number of times an action is repeated
     clip_reward: bool = False # Whether to clip rewards
-    sticky_action_probability: float = 0.0 # The probability that an action by the agent is repeated on the next timestep.
+    sticky_action_probability: float = 0.0 # Probability that an action is repeated on the next timestep
 
     # Fovea settings
     fov_size: int = 20 # The size of the fovea
@@ -85,30 +81,32 @@ def main(args: ArgParser):
     def make_env(seed: int, **kwargs):
         def thunk():
             env_args = AtariEnvArgs(
-                game=args.env, 
-                seed=seed, 
-                obs_size=(84, 84), 
-                frame_stack=args.frame_stack, 
+                game=args.env,
+                seed=seed,
+                obs_size=(84, 84),
+                frame_stack=args.frame_stack,
                 action_repeat=args.action_repeat,
-                fov_size=(args.fov_size, args.fov_size), 
+                fov_size=(args.fov_size, args.fov_size),
                 fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
                 sensory_action_mode=sensory_action_mode,
-                sensory_action_space=(-args.sensory_action_space, args.sensory_action_space),
+                sensory_action_space=(
+                    -args.sensory_action_space, args.sensory_action_space),
                 resize_to_full=args.resize_to_full,
                 clip_reward=args.clip_reward,
                 mask_out=True,
                 **kwargs
             )
             if args.use_pause_env:
-                env = AtariEnv(env_args)    
+                env = AtariEnv(env_args)
                 env = PauseableFixedFovealEnv(
-                    env, env_args, args.pause_cost, args.successive_pause_limit, 
+                    env, env_args, args.pause_cost, args.successive_pause_limit,
                     args.no_action_pause_cost, args.saccade_cost_scale, args.use_emma
                 )
             else:
                 env_args.sensory_action_mode = str(sensory_action_mode)
                 env = AtariFixedFovealEnv(env_args)
-            env.get_wrapper_attr("ale").setFloat('repeat_action_probability', args.sticky_action_probability)
+            env.get_wrapper_attr("ale").setFloat(
+                'repeat_action_probability', args.sticky_action_probability)
             env.action_space.seed(seed)
             env.observation_space.seed(seed)
             return env
@@ -132,9 +130,10 @@ def main(args: ArgParser):
         run_dir = os.path.join("output/runs", run_identifier)
         tb_dir = os.path.join(run_dir, "tensorboard")
         writer = SummaryWriter(os.path.join(tb_dir, f"seed{args.seed}"))
-        hyper_params_table = "\n".join([f"|{key}|{value}|" for key, value in get_env_attributes(env.envs[0])])
+        hyper_params_table = "\n".join(
+            [f"|{key}|{value}|" for key, value in get_env_attributes(env.envs[0])])
         writer.add_text(
-            "Env Hyperparameters", 
+            "Env Hyperparameters",
             f"|param|value|\n|-|-|\n{hyper_params_table}",
         )
 
@@ -147,7 +146,7 @@ def main(args: ArgParser):
         cuda=(not args.disable_cuda),
         learning_rate=args.learning_rate,
         replay_buffer_size=args.buffer_size,
-        pvm_stack=args.pvm_stack, 
+        pvm_stack=args.pvm_stack,
         frame_stack=args.frame_stack,
         batch_size=args.batch_size,
         train_frequency=args.train_frequency,
@@ -156,7 +155,8 @@ def main(args: ArgParser):
         target_network_frequency=args.target_network_frequency,
         eval_frequency=args.eval_frequency,
         n_evals=args.eval_num,
-        sensory_action_space_quantization=(args.sensory_action_x_size, args.sensory_action_y_size),
+        sensory_action_space_quantization=(
+            args.sensory_action_x_size, args.sensory_action_y_size),
         epsilon_interval=(args.start_e, args.end_e),
         exploration_fraction=args.exploration_fraction,
         ignore_sugarl=args.ignore_sugarl,
@@ -170,7 +170,7 @@ def main(args: ArgParser):
     )
     eval_returns = agent.learn(
         n=args.total_timesteps,
-        env_name=args.env, 
+        env_name=args.env,
         experiment_name=args.exp_name
     )
 
