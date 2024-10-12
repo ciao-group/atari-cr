@@ -442,7 +442,7 @@ def train_predictor():
     evals = gaze_predictor.baseline_eval(
         val_loader, train_loader if args.eval_train_data else None)
     print(evals)
-    evals.write_csv(os.path.join(model_dir, str(gaze_predictor.epoch), "eval.csv"))
+    evals.write_csv(os.path.join(model_dir, str(gaze_predictor.epoch + 1), "eval.csv"))
 
 if __name__ == "__main__":
     train_predictor()

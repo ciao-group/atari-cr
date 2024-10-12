@@ -227,10 +227,10 @@ class GazeDataset(Dataset):
 
         train_indices = torch.Tensor(list(df.lazy().filter(
             (pl.col("trial_frame_id") >= 3) & pl.col("train")).select(
-            pl.col("id")).collect().to_series()))
+            pl.col("id")).collect().to_series())).to(torch.int32)
         val_indices = torch.Tensor(list(df.lazy().filter(
             (pl.col("trial_frame_id") >= 3) & ~pl.col("train")).select(
-            pl.col("id")).collect().to_series()))
+            pl.col("id")).collect().to_series())).to(torch.int32)
 
         return GazeDataset(
             frames, saliency, train_indices, val_indices, class_output=class_output)
