@@ -1,14 +1,13 @@
 from active_gym.atari_env import AtariEnv
 import gymnasium as gym
 from gymnasium.spaces import Dict, Discrete, Box
-import cv2
 import torch
 import numpy as np
 import polars as pl
-from typing import Tuple
+from typing import Optional, Tuple
 from torchvision.transforms import Resize
 
-from atari_cr.models import EpisodeInfo, SensoryActionMode, StepInfo
+from atari_cr.models import EpisodeInfo, EpisodeRecord, SensoryActionMode, StepInfo
 from atari_cr.utils import EMMA_fixation_time
 from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE
 
@@ -77,7 +76,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         # Attributes from RecordWrapper class
         self.args = args
-        self.record_buffer = None
+        self.record_buffer: Optional[pl.DataFrame] = None
+        self.prev_episode: Optional[EpisodeRecord] = None
         self.record = args.record
 
         # EMMA
@@ -195,12 +195,12 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         step_info["episode_info"] = self.episode_info.copy()
         step_info["consecutive_pauses"] = self.consecutive_pauses
 
-        # Log the infos of all steps in one record buffer for the
+        # Log the infos of all steps in one record for the
         # entire episode
         self.step_infos.append(step_info)
         if done or truncated:
-            self.trial_frames = np.stack(self.frames)
-            self.record_buffer = pl.DataFrame(self.step_infos).with_columns(
+            # Dataframe containing one StepInfo per row
+            frame_annotations = pl.DataFrame(self.step_infos).with_columns(
                 pl.col("episode_info").struct.rename_fields(
                     [f"cum_{col}" for col in self.episode_info.keys()])
                 ).unnest("episode_info").with_columns([
@@ -216,50 +216,13 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                         lambda a: a[1], pl.Int32).alias("sensory_action_y"),
                 ]).drop(["fov_loc", "sensory_action"])
 
+            self.prev_episode = EpisodeRecord(
+                np.stack(self.frames),
+                frame_annotations,
+                { "fov_size": self.fov_size }
+            )
+
         return fov_state, step_info["reward"], done, truncated, step_info
-
-    def save_record_to_file(self, file_path: str, draw_focus = False,
-                            draw_pauses = False):
-        """ Saves the record_buffer to an mp4 file and a metadata file. """
-        video_path = file_path.replace(".csv", ".mp4")
-        size = self.trial_frames[0].shape[:2][::-1]
-        fps = 30
-        video_writer = cv2.VideoWriter(
-            video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
-
-        # Style settings
-        color = (255, 0, 0)
-        thickness = 1
-
-        if draw_focus:
-            # The fov_loc is set in a 84x84 grid; the video output is 256x256
-            # This scales it down
-            COORD_SCALING = 256 / 84
-            fov_locs = np.stack(self.record_buffer["fov_x"].to_numpy(),
-                                self.record_buffer["fov_y"].to_numpy())
-            fov_locs *= COORD_SCALING
-            fov_size = np.array(self.fov_size) * COORD_SCALING
-
-        for i, frame in enumerate(self.trial_frames):
-
-            if draw_focus:
-                top_left = fov_locs[i]
-                bottom_right = top_left + fov_size
-                frame = cv2.rectangle(
-                    frame, top_left, bottom_right, color, thickness)
-
-            if draw_pauses:
-                text = f"Pauses: {self.record_buffer[i, 'episode_info']['pauses']}"
-                position = (10, 20)
-                font = cv2.FONT_HERSHEY_COMPLEX
-                font_scale = 0.3
-                frame = cv2.putText(
-                    frame, text, position, font, font_scale, color, thickness)
-
-            video_writer.write(frame)
-
-        self.record_buffer.write_csv(file_path)
-        video_writer.release()
 
     def is_pause(self, motor_action: int):
         """

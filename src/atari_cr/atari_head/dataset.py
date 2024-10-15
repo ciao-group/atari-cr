@@ -244,7 +244,8 @@ class GazeDataset(Dataset):
         dfs = []
 
         for video_file, metadata_file in zip(video_files, metadata_files):
-            buffer = RecordBuffer.from_file(metadata_file, video_file)
+            buffer = pl.scan_csv(metadata_file)
+            RecordBuffer.from_file
             # TODO: Make the recordbuffer save multiple fov_locs per frame
             # TODO: Create saliency map
             buffer["fov_loc"]
@@ -322,3 +323,13 @@ class GazeDataset(Dataset):
                 saliency_map = torch.ones(saliency_map.shape)
             saliency_map = saliency_map / saliency_map.sum()
         return saliency_map
+
+if __name__ == "__main__":
+    dataset = GazeDataset.from_game_data(
+        [
+            "tests/assets/ray-10-15/seed0_step1000000_eval00.mp4",
+            "tests/assets/ray-10-15/seed0_step1000000_eval04.mp4"
+        ], [
+            "tests/assets/ray-10-15/seed0_step1000000_eval00.csv",
+            "tests/assets/ray-10-15/seed0_step1000000_eval04.csv"
+        ])

@@ -93,7 +93,7 @@ if __name__ == "__main__":
         {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
     param_space: ConfigParams = {
-        "pause_cost": tune.quniform(0.05, 0.50, 0.025),
+        "pause_cost": tune.quniform(0.00, 0.01, 0.001),
         "no_action_pause_cost": tune.quniform(0., 2.0, 0.1),
         "pvm_stack": tune.randint(5, 30),
         "sensory_action_space_quantization": tune.randint(1, 12),
@@ -106,7 +106,7 @@ if __name__ == "__main__":
         param_space=param_space,
         tune_config=tune.TuneConfig(
             num_samples=num_samples,
-            scheduler=ASHAScheduler(
+            scheduler=None if DEBUG else ASHAScheduler(
                 stop_last_trials=False
             ),
             search_alg=OptunaSearch(),

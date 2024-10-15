@@ -1,4 +1,4 @@
-from typing import Optional, Union, Callable, Tuple, List, Dict
+from typing import Optional, Union, Callable, Tuple, List
 from itertools import product
 import os
 import time
@@ -11,7 +11,6 @@ import torch.nn.functional as F
 from torchvision.transforms import Resize
 
 from ray import train
-import gymnasium as gym
 from gymnasium.vector import VectorEnv
 from gymnasium.spaces import Discrete
 
@@ -31,7 +30,8 @@ class CRDQN:
     def __init__(
             self,
             env: Union[PauseableFixedFovealEnv, FixedFovealEnv],
-            eval_env_generator: Callable[[int], gym.Env],
+            eval_env_generator: Callable[[int], Union[
+                VectorEnv, FixedFovealEnv, PauseableFixedFovealEnv]],
             sugarl_r_scale: float,
             seed = 0,
             fov_size = 50,
@@ -314,8 +314,8 @@ class CRDQN:
         for eval_ep in range(self.n_evals):
             # Create env
             eval_env = self.eval_env_generator(eval_ep)
-            single_eval_env = eval_env.envs[0] if isinstance(eval_env, VectorEnv) \
-                else eval_env
+            single_eval_env: Union[FixedFovealEnv, PauseableFixedFovealEnv] = \
+                eval_env.envs[0] if isinstance(eval_env, VectorEnv) else eval_env
             n_eval_envs = eval_env.num_envs if isinstance(eval_env, VectorEnv) else 1
 
             # Init env
@@ -359,8 +359,11 @@ class CRDQN:
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
             if (self.capture_video) and single_eval_env.record and eval_ep % 4 == 0:
+                save_fn = single_eval_env.save_record_to_file \
+                    if isinstance(single_eval_env, FixedFovealEnv) \
+                    else single_eval_env.prev_record.save
                 self._save_output(
-                    self.video_dir, "csv", single_eval_env.save_record_to_file, eval_ep)
+                    self.video_dir, "", save_fn, eval_ep)
 
             # Safe the model file in the first eval run
             if (not self.no_model_output) and eval_ep == 0:
@@ -412,14 +415,19 @@ class CRDQN:
         current episode
         """
         os.makedirs(output_dir, exist_ok=True)
-        file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}.{file_prefix}"
+        file_name = f"seed{self.seed}_step{self.current_timestep:07d}\
+            _eval{eval_ep:02d}"
         if isinstance(self.env, FixedFovealEnv):
-            file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}_no_pause.{file_prefix}"
+            file_name = f"seed{self.seed}_step{self.current_timestep:07d}\
+                _eval{eval_ep:02d}_no_pause"
+        if file_prefix: file_name += f".{file_prefix}"
+        else: os.makedirs(file_name, exist_ok=True)
         save_fn(os.path.join(output_dir, file_name))
 
-    def _step(self, env: VectorEnv, pvm_buffer: PVMBuffer, motor_actions: np.ndarray, sensory_actions: np.ndarray, eval = False):
+    def _step(self, env: VectorEnv, pvm_buffer: PVMBuffer, motor_actions: np.ndarray,
+              sensory_actions: np.ndarray, eval = False):
         """
-        Given an action, the agent does one step in the environment, 
+        Given an action, the agent does one step in the environment,
         returning the next observation
 
         :param Array[n_envs] motor_actions: Numpy array containing motor action for all
