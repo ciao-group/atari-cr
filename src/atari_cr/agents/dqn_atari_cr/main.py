@@ -61,7 +61,7 @@ class ArgParser(Tap):
     # Pause args
     use_pause_env: bool = False # Whether to use an env that lets the agent pause for only making a sensory action
     pause_cost: float = 0.1 # The cost for the env to only take a sensory step
-    successive_pause_limit: int = 20 # The maximum number of successive pauses before pauses are forbidden. This prevents the agent from halting
+    consecutive_pause_limit: int = 20 # The maximum number of consecutive pauses before pauses are forbidden. This prevents the agent from halting
     no_action_pause_cost: float = 0.1 # The additional cost of pausing without performing a sensory action
     saccade_cost_scale: float = 0.000 # How much the agent is punished for bigger eye movements
     use_emma: bool = False # Whether to use the EMMA model (doi.org/10.1016/S1389-0417(00)00015-2) for saccade cost calculation. If not, the pixel length of the saccade is used.
@@ -99,7 +99,7 @@ def main(args: ArgParser):
             if args.use_pause_env:
                 env = AtariEnv(env_args)
                 env = PauseableFixedFovealEnv(
-                    env, env_args, args.pause_cost, args.successive_pause_limit,
+                    env, env_args, args.pause_cost, args.consecutive_pause_limit,
                     args.no_action_pause_cost, args.saccade_cost_scale, args.use_emma
                 )
             else:

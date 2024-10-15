@@ -1,5 +1,6 @@
 import argparse
-import os, sys
+import os
+import sys
 import os.path as osp
 import random
 import time
@@ -44,7 +45,7 @@ def parse_args():
     # env setting
     parser.add_argument("--env", type=str, default="breakout",
         help="the id of the environment")
-    parser.add_argument("--env-num", type=int, default=1, 
+    parser.add_argument("--env-num", type=int, default=1,
         help="# envs in parallel")
     parser.add_argument("--frame-stack", type=int, default=4,
         help="frame stack #")
@@ -140,7 +141,7 @@ class QNetwork(nn.Module):
         self.sensory_action_head = None
         if sensory_action_space_size is not None:
             self.sensory_action_head = nn.Linear(512, sensory_action_space_size)
-        
+
 
     def forward(self, x):
         x = self.backbone(x)
@@ -162,7 +163,7 @@ class SelfPredictionNetwork(nn.Module):
                 sensory_action_space_size = len(sensory_action_set)
             else:
                 sensory_action_space_size = env.single_action_space["sensory_action"].n
-        
+
         self.backbone = nn.Sequential(
             nn.Conv2d(8, 32, 8, stride=4),
             nn.ReLU(),
@@ -183,7 +184,7 @@ class SelfPredictionNetwork(nn.Module):
 
     def get_loss(self, x, target) -> torch.Tensor:
         return self.loss(x, target)
-        
+
 
     def forward(self, x):
         x = self.backbone(x)
@@ -203,7 +204,7 @@ if __name__ == "__main__":
     run_dir = os.path.join("runs", args.exp_name)
     if not os.path.exists(run_dir):
         os.makedirs(run_dir, exist_ok=True)
-    
+
     writer = SummaryWriter(os.path.join(run_dir, run_name))
     writer.add_text(
         "hyperparameters",
@@ -220,7 +221,7 @@ if __name__ == "__main__":
     envs = []
     for i in range(args.env_num):
         envs.append(make_env(args.env, args.seed+i, frame_stack=args.frame_stack, action_repeat=args.action_repeat,
-                                fov_size=(args.fov_size, args.fov_size), 
+                                fov_size=(args.fov_size, args.fov_size),
                                 fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
                                 sensory_action_mode=args.sensory_action_mode,
                                 sensory_action_space=(-args.sensory_action_space, args.sensory_action_space),
@@ -283,7 +284,7 @@ if __name__ == "__main__":
             sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
 
         # TRY NOT TO MODIFY: execute the game and log data.
-        next_obs, rewards, dones, _, infos = envs.step({"motor_action": motor_actions, 
+        next_obs, rewards, dones, _, infos = envs.step({"motor_action": motor_actions,
                         "sensory_action": [sensory_action_set[a] for a in  sensory_actions] })
         # print (global_step, infos)
 
@@ -310,7 +311,7 @@ if __name__ == "__main__":
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         obs = next_obs
 
-        # INC total transitions 
+        # INC total transitions
         global_transitions += args.env_num
 
         obs_backup = obs # back obs
@@ -348,7 +349,7 @@ if __name__ == "__main__":
                 old_motor_val = old_motor_q_val.gather(1, data.motor_actions).squeeze()
                 old_sensory_val = old_sensory_q_val.gather(1, data.sensory_actions).squeeze()
                 old_val = old_motor_val + old_sensory_val
-                
+
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_transitions % 100 == 0:
@@ -378,12 +379,12 @@ if __name__ == "__main__":
                (global_transitions >= args.total_timesteps):
                 q_network.eval()
                 sfn.eval()
-                
+
                 eval_episodic_returns, eval_episodic_lengths = [], []
 
                 for eval_ep in range(args.eval_num):
-                    eval_env = [make_env(args.env, args.seed+eval_ep, frame_stack=args.frame_stack, action_repeat=args.action_repeat, 
-                            fov_size=(args.fov_size, args.fov_size), 
+                    eval_env = [make_env(args.env, args.seed+eval_ep, frame_stack=args.frame_stack, action_repeat=args.action_repeat,
+                            fov_size=(args.fov_size, args.fov_size),
                             fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
                             sensory_action_mode=args.sensory_action_mode,
                             sensory_action_space=(-args.sensory_action_space, args.sensory_action_space),
@@ -402,7 +403,7 @@ if __name__ == "__main__":
                         motor_q_values, sensory_q_values = q_network(resize(torch.from_numpy(pvm_obs_eval)).to(device))
                         motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
                         sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
-                        next_obs_eval, rewards, dones, _, infos = eval_env.step({"motor_action": motor_actions, 
+                        next_obs_eval, rewards, dones, _, infos = eval_env.step({"motor_action": motor_actions,
                                                                             "sensory_action": [sensory_action_set[a] for a in sensory_actions]})
                         obs_eval = next_obs_eval
                         done = dones[0]
@@ -419,7 +420,7 @@ if __name__ == "__main__":
                                     os.makedirs(model_file_dir, exist_ok=True)
                                     model_fn = f"{args.env}_seed{args.seed}_step{global_transitions:07d}_model.pt"
                                     torch.save({"sfn": sfn.state_dict(), "q": q_network.state_dict()}, os.path.join(model_file_dir, model_fn))
-                                
+
 
                 writer.add_scalar("charts/eval_episodic_return", np.mean(eval_episodic_returns), global_transitions)
                 writer.add_scalar("charts/eval_episodic_return_std", np.std(eval_episodic_returns), global_transitions)
@@ -428,7 +429,7 @@ if __name__ == "__main__":
 
                 q_network.train()
                 sfn.train()
-        
+
         obs = obs_backup # restore obs if eval occurs
 
 

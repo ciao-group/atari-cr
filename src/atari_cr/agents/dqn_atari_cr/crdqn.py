@@ -17,7 +17,7 @@ from gymnasium.spaces import Discrete
 
 from active_gym import FixedFovealEnv
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
-from atari_cr.models import SensoryActionMode
+from atari_cr.models import EpisodeInfo, SensoryActionMode
 from atari_cr.buffers import DoubleActionReplayBuffer
 from atari_cr.pvm_buffer import PVMBuffer
 from atari_cr.utils import linear_schedule
@@ -349,18 +349,18 @@ class CRDQN:
                 done = dones[0]
                 pvm_obs = next_pvm_obs
 
-                # Save a visualization of the pvm buffer in the middle of the episode
-                if (not self.no_pvm_visualization) and infos["ep_len"] == 50:
-                    self._save_output(
-                        self.pvm_dir, "png", eval_pvm_buffer.to_png, eval_ep)
-
             episode_infos.append(infos['final_info'][0])
+
+            # Save a visualization of the pvm buffer at the end of the episode
+            if (not self.no_pvm_visualization):
+                self._save_output(
+                    self.pvm_dir, "png", eval_pvm_buffer.to_png, eval_ep)
 
             # Save results as video and pytorch object
             # Only save 1/4th of the evals as videos
             if (self.capture_video) and single_eval_env.record and eval_ep % 4 == 0:
                 self._save_output(
-                    self.video_dir, "pt", single_eval_env.save_record_to_file, eval_ep)
+                    self.video_dir, "csv", single_eval_env.save_record_to_file, eval_ep)
 
             # Safe the model file in the first eval run
             if (not self.no_model_output) and eval_ep == 0:
@@ -422,7 +422,8 @@ class CRDQN:
         Given an action, the agent does one step in the environment, 
         returning the next observation
 
-        :param Array[n_envs] motor_actions: Numpy array containing motor action for all parallel training envs.
+        :param Array[n_envs] motor_actions: Numpy array containing motor action for all
+            parallel training envs.
         """
         # Take an action in the environment
         next_obs, rewards, dones, _, infos = env.step({
@@ -432,14 +433,17 @@ class CRDQN:
 
         # Log episode returns and handle `terminal_observation`
         if not eval and "final_info" in infos and True in dones:
-            finished_env_index = np.argmax(dones)
-            self._log_episode(finished_env_index, infos)
-            next_obs[finished_env_index] = infos["final_observation"][finished_env_index]
+            finished_env_idx = np.argmax(dones)
+            self._log_episode(infos['final_info'][finished_env_idx])
+            next_obs[finished_env_idx] = infos["final_observation"][finished_env_idx]
 
         # Update the latest observation in the pvm buffer
-        assert len(env.envs) == 1, "Vector env with more than one env not supported for the following code block"
-        if isinstance(env.envs[0], PauseableFixedFovealEnv) and env.envs[0].is_pause(motor_actions[0]):
-            pvm_buffer.buffer[-1] = np.expand_dims(np.max(np.vstack([pvm_buffer.buffer[-1], next_obs]), axis=0), axis=0)
+        assert len(env.envs) == 1, \
+            "Vector env with more than one env not supported for the following code"
+        if isinstance(env.envs[0], PauseableFixedFovealEnv) \
+            and env.envs[0].is_pause(motor_actions[0]):
+            pvm_buffer.buffer[-1] = np.expand_dims(np.max(np.vstack(
+                [pvm_buffer.buffer[-1], next_obs]), axis=0), axis=0)
         else:
             pvm_buffer.append(next_obs)
 
@@ -448,26 +452,29 @@ class CRDQN:
 
         return next_pvm_obs, rewards, dones, infos
 
-    def _log_episode(self, finished_env_index: int, infos):
+    def _log_episode(self, episode_info: EpisodeInfo):
         # Prepare the episode infos for the different supported envs
-        episode_info = infos['final_info'][finished_env_index]
         if isinstance(self.envs[0], FixedFovealEnv):
-            episode_info["n_pauses"], episode_info['pause_cost'] = 0, 0
+            episode_info["pauses"], episode_info['pause_cost'] = 0, 0
             episode_info["no_action_pauses"], episode_info['prevented_pauses'] = 0, 0
             episode_info["raw_reward"] = episode_info["reward"]
             prevented_pause_counts = [0] * len(self.envs)
         elif isinstance(self.envs[0], PauseableFixedFovealEnv):
-            prevented_pause_counts = [env.prevented_pauses for env in self.envs]
+            prevented_pause_counts = [
+                env.episode_info["prevented_pauses"] for env in self.envs]
         else:
             raise ValueError(f"Environment '{self.envs[0]}' not supported")
 
-        prevented_pauses_warning = f"\nWARNING: [Prevented Pauses: {episode_info['prevented_pauses']}]" if episode_info['prevented_pauses'] else ""
+        prevented_pauses_warning = \
+            f"\nWARNING: [Prevented Pauses: {episode_info['prevented_pauses']}]" \
+                if episode_info['prevented_pauses'] else ""
 
         self._log((
             f"[T: {time.time()-self.start_time:.2f}] "
             f"[N: {self.current_timestep:07,d}] "
-            f"[R, Raw R: {episode_info['reward']:.2f}, {episode_info['raw_reward']:.2f}] "
-            f"[Pauses: {episode_info['n_pauses']}] "
+            f"[R, Raw R: {episode_info['reward']:.2f}, "
+            f"{episode_info['raw_reward']:.2f}] "
+            f"[Pauses: {episode_info['pauses']}] "
             f"{prevented_pauses_warning}"
         ))
         # Log the amount of prevented pauses over the entire learning period
@@ -477,10 +484,10 @@ class CRDQN:
         # Tensorboard
         if not self.disable_tensorboard:
             self.writer.add_scalar("charts/episodic_return", episode_info["reward"], self.current_timestep)
-            self.writer.add_scalar("charts/episode_length", episode_info["ep_len"], self.current_timestep)
+            self.writer.add_scalar("charts/episode_length", episode_info["timestep"], self.current_timestep)
             self.writer.add_scalar("charts/epsilon", self.epsilon, self.current_timestep)
             self.writer.add_scalar("charts/raw_episodic_return", episode_info["raw_reward"], self.current_timestep)
-            self.writer.add_scalar("charts/pauses", episode_info['n_pauses'], self.current_timestep)
+            self.writer.add_scalar("charts/pauses", episode_info['pauses'], self.current_timestep)
             self.writer.add_scalar("charts/prevented_pauses", episode_info['prevented_pauses'], self.current_timestep)
             self.writer.add_scalar("charts/no_action_pauses", episode_info["no_action_pauses"], self.current_timestep)
 
@@ -492,7 +499,7 @@ class CRDQN:
         }
         if isinstance(self.envs[0], PauseableFixedFovealEnv):
             ray_info.update({
-                "pauses": episode_info["n_pauses"],
+                "pauses": episode_info["pauses"],
                 "prevented_pauses": episode_info["prevented_pauses"],
                 "no_action_pauses": episode_info["no_action_pauses"],
                 "saccade_cost": episode_info["saccade_cost"],
@@ -500,7 +507,7 @@ class CRDQN:
             })
         train.report(ray_info)
 
-    def _log_eval_episodes(self, episode_infos: List[Dict]):
+    def _log_eval_episodes(self, episode_infos: List[dict]):
         # Unpack episode_infos
         episodic_returns, episode_lengths = [], []
         pause_counts, prevented_pauses = [], []
@@ -509,29 +516,34 @@ class CRDQN:
 
             # Prepare the episode infos for the different supported envs
             if isinstance(self.envs[0], FixedFovealEnv):
-                episode_info["n_pauses"], episode_info['pause_cost'] = 0, 0
-                episode_info["no_action_pauses"], episode_info['prevented_pauses'] = 0, 0
-                episode_info["raw_reward"] = episode_info["reward"]
+                full_info = EpisodeInfo.new()
+                full_info.update(episode_info)
+                episode_info = full_info
+                episode_info["timestep"] = episode_info["ep_len"]
 
             episodic_returns.append(episode_info["reward"])
             raw_episodic_returns.append(episode_info["raw_reward"])
-            episode_lengths.append(episode_info["ep_len"])
-            pause_counts.append(episode_info["n_pauses"])
+            episode_lengths.append(episode_info["timestep"])
+            pause_counts.append(episode_info["pauses"])
             prevented_pauses.append(episode_info["prevented_pauses"])
             no_action_pauses.append(episode_info["no_action_pauses"])
 
-        pause_cost = episode_info["pause_cost"]
+        pause_cost = 0 if isinstance(self.envs[0], FixedFovealEnv) \
+            else self.envs[0].pause_cost
 
         # Log everything
         prevented_pauses_warning = "" if all(n == 0 for n in prevented_pauses) else \
             f"\nWARNING: [Prevented Pauses]: {','.join(map(str, prevented_pauses))}"
         self._log((
             f"[N: {self.current_timestep:07,d}]"
-            f" [Eval Return, Raw Eval Return: {np.mean(episodic_returns):.2f}+/-{np.std(episodic_returns):.2f}"
-                f", {np.mean(raw_episodic_returns):.2f}+/-{np.std(raw_episodic_returns):.2f}]"
+            f" [Eval Return, Raw Eval Return: {np.mean(episodic_returns):.2f}+/-"
+                f"{np.std(episodic_returns):.2f}"
+                f", {np.mean(raw_episodic_returns):.2f}+/-"
+                f"{np.std(raw_episodic_returns):.2f}]"
             f"\n[Returns: {','.join([f'{r:.2f}' for r in episodic_returns])}]"
             f"\n[Episode Lengths: {','.join([f'{r:.2f}' for r in episode_lengths])}]"
-            f"\n[Pauses: {','.join([str(n) for n in pause_counts])} with cost {pause_cost}]{prevented_pauses_warning}"
+            f"\n[Pauses: {','.join([str(n) for n in pause_counts])} with cost "
+            f"{pause_cost}]{prevented_pauses_warning}"
         ))
 
         # Tensorboard

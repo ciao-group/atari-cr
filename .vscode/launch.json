@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "GazePrediction Debug",
+            "name": "Gaze Prediction",
             "type": "debugpy",
             "request": "launch",
             "program": "src/atari_cr/atari_head/gaze_predictor.py",
@@ -18,16 +18,34 @@
                 "--eval_train_data",
                 "--load_saliency"
             ]
+        },{
+            "name": "OG Agent",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/atari_cr/agents/dqn_atari_cr/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--clip_reward",
+                "--capture_video",
+                "--exp_name", "test_og",
+                "--total_timesteps", "5000",
+                "--learning_start", "100",
+                "--eval_num", "3",
+                "--no_pvm_visualization",
+                "--no_model_output",
+                "--disable_tensorboard"
+            ]
         },
         {
-            "name": "Ray Debug",
+            "name": "Ray",
             "type": "debugpy",
             "request": "launch",
             "program": "src/atari_cr/common/hyperparams.py",
             "console": "integratedTerminal",
         },
         {
-            "name": "ViT Debug",
+            "name": "ViT",
             "type": "debugpy",
             "request": "launch",
             "program": "src/atari_cr/atari_head/vit.py",
@@ -39,7 +57,7 @@
             ]
         },
         {
-            "name": "DQN CR Sugarl Debug",
+            "name": "DQN CR Sugarl",
             "type": "debugpy",
             "request": "launch",
             "program": "src/atari_cr/agents/dqn_atari_cr/main.py",
