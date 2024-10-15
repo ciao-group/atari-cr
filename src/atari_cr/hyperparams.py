@@ -67,17 +67,18 @@ def tuning(config: ConfigParams, time_steps: int,
         print("eee", eval_returns)
     else:
         # TODO: Train an agent and evaluate it regularly using gaze predictor
-        dataset = GazeDataset.from_game_data(video_file, metadata_file)
-        agent_loader = dataset.to_loader()
-        # TODO: Eval the gaze predictor on that dataset
-        eval_result = gaze_predictor.eval(agent_loader)
-        result = { "loss": eval_result["kl_div"] }
+        # dataset = GazeDataset.from_game_data(video_file, metadata_file)
+        # agent_loader = dataset.to_loader()
+        # # TODO: Eval the gaze predictor on that dataset
+        # eval_result = gaze_predictor.eval(agent_loader)
+        # result = { "loss": eval_result["kl_div"] }
+        pass
 
     return result
 
 if __name__ == "__main__":
-    SCORE_TARGET = False
-    DEBUG = False
+    SCORE_TARGET = True
+    DEBUG = True
     concurrent_runs = 3 if DEBUG else 4
     num_samples = 1 * concurrent_runs if DEBUG else 50
     time_steps = int(1e6) if DEBUG else int(1e6)
@@ -99,7 +100,7 @@ if __name__ == "__main__":
         "saccade_cost_scale": tune.quniform(0.0001, 0.0020, 0.0001),
     }
 
-    metric, mode = "episode_reward", "max" if SCORE_TARGET else "loss", "min"
+    metric, mode = ("episode_reward", "max") if SCORE_TARGET else ("loss", "min")
     tuner = tune.Tuner(
         trainable,
         param_space=param_space,

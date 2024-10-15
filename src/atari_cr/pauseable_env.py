@@ -78,10 +78,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # Attributes from RecordWrapper class
         self.args = args
         self.record_buffer = None
-        # The record buffer from the previously finished episode is used when saving
-        # episode episode data to the file system. This prevents unfinished episodes
-        # from being saved
-        # self.prev_record_buffer = None
         self.record = args.record
 
         # EMMA
@@ -104,12 +100,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.fov_loc = np.array(self.fov_init_loc, copy=True).astype(np.int32)
 
         fov_obs = self._crop_observation(self.state)
-
-        # if self.record:
-        #     # Save the record buffer of the previous episode and create a new one
-        #     # On the first episode start, there will be no previous record buffer
-        #     self.record_buffer = pl.DataFrame(
-        #         schema=list(StepInfo.__annotations__.keys()))
 
         return fov_obs, info
 
@@ -281,31 +271,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         """ Samples an action that is not a pause. """
         return np.random.randint(len(self.get_wrapper_attr("actions")))
 
-    # def _log_step(self, reward, action, done, truncated, info, raw_reward, saccade_cost):
-    #     self.ep_len += 1
-    #     self.cumulative_reward += reward
-    #     self.cumulative_raw_reward += raw_reward
-    #     self.cumulative_saccade_cost += saccade_cost
-
-    #     if self.record:
-    #         rgb = self.env.render()
-    #         self._save_transition(
-    #             self.state,
-    #             action,
-    #             self.cumulative_reward,
-    #             done,
-    #             truncated,
-    #             info,
-    #             rgb=rgb,
-    #             return_reward=reward,
-    #             episode_pauses=self.n_pauses,
-    #             fov_loc=self.fov_loc,
-    #             raw_reward=raw_reward
-    #         )
-
-    #     if done or truncated:
-    #         pass # TODO: Save the last env render without an accociated action
-
     def _skip_step(self, reward):
         """
         Make a step without actually making a step.
@@ -319,7 +284,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         return self.state, reward, done, truncated, info
 
     def _clip_to_valid_fov(self, loc):
-        return np.rint(np.clip(loc, 0, np.array(self.get_wrapper_attr("obs_size")) - np.array(self.fov_size))).astype(int)
+        return np.rint(np.clip(loc, 0,
+                np.array(self.get_wrapper_attr("obs_size")) - np.array(self.fov_size))
+            ).astype(int)
 
     def _clip_to_valid_sensory_action_space(self, action):
         return np.rint(np.clip(action, *self.sensory_action_space)).astype(int)
@@ -364,40 +331,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         ] = crop
 
         return mask
-
-    # def _reset_record_buffer(self):
-    #     """ Saves self.record_buffer in self.prev_record_buffer and creates a new one"""
-    #     self.prev_record_buffer = copy.deepcopy(self.record_buffer)
-    #     self.record_buffer = RecordBuffer.new()
-
-    # def _save_transition(self):
-    #     """
-    #     Logs the step in self.record_buffer
-
-    #     :param List[Array[2]] fov_loc: List of gazes made on one frame
-    #     """
-    #     if (done is not None) and (not done):
-    #         self.record_buffer["rgb"].append(rgb)
-
-    #     if done is not None and len(self.record_buffer["state"]) > 1:
-    #         self.record_buffer["done"].append(done)
-    #     if info is not None and len(self.record_buffer["state"]) > 1:
-    #         self.record_buffer["info"].append(info)
-
-    #     if action is not None:
-    #         self.record_buffer["action"].append(action)
-    #     if reward is not None:
-    #         self.record_buffer["reward"].append(reward)
-    #     if raw_reward is not None:
-    #         self.record_buffer["raw_reward"].append(raw_reward)
-    #     if truncated is not None:
-    #         self.record_buffer["truncated"].append(truncated)
-    #     if return_reward is not None:
-    #         self.record_buffer["return_reward"].append(return_reward)
-    #     if episode_pauses is not None:
-    #         self.record_buffer["episode_pauses"].append(episode_pauses)
-    #     if fov_loc is not None:
-    #         self.record_buffer["fov_loc"].append(fov_loc)
 
 
 # # OPTIONAL:
