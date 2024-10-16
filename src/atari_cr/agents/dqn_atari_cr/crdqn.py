@@ -334,6 +334,11 @@ class CRDQN:
                 motor_actions, sensory_action_indices \
                     = self.q_network.chose_eval_action(pvm_obs, self.device)
 
+                # Forcefully do a pause some of the time in debug mode
+                if self.debug and np.random.choice([False, True], p=[0.9, 0.1]):
+                    motor_actions = np.full(
+                        motor_actions.shape, single_eval_env.pause_action)
+
                 # Translate the action to an absolute fovea position
                 sensory_actions = np.array(
                     [self.sensory_action_set[i] for i in sensory_action_indices])
@@ -361,7 +366,7 @@ class CRDQN:
             if (self.capture_video) and single_eval_env.record and eval_ep % 4 == 0:
                 save_fn = single_eval_env.save_record_to_file \
                     if isinstance(single_eval_env, FixedFovealEnv) \
-                    else single_eval_env.prev_record.save
+                    else single_eval_env.prev_episode.save
                 self._save_output(
                     self.video_dir, "", save_fn, eval_ep)
 
@@ -415,11 +420,13 @@ class CRDQN:
         current episode
         """
         os.makedirs(output_dir, exist_ok=True)
-        file_name = f"seed{self.seed}_step{self.current_timestep:07d}\
-            _eval{eval_ep:02d}"
+        file_name = ((
+            f"seed{self.seed}_step{self.current_timestep:07d}"
+            f"_eval{eval_ep:02d}"))
         if isinstance(self.env, FixedFovealEnv):
-            file_name = f"seed{self.seed}_step{self.current_timestep:07d}\
-                _eval{eval_ep:02d}_no_pause"
+            file_name = (
+                f"seed{self.seed}_step{self.current_timestep:07d}"
+                f"_eval{eval_ep:02d}_no_pause")
         if file_prefix: file_name += f".{file_prefix}"
         else: os.makedirs(file_name, exist_ok=True)
         save_fn(os.path.join(output_dir, file_name))
@@ -449,7 +456,7 @@ class CRDQN:
         assert len(env.envs) == 1, \
             "Vector env with more than one env not supported for the following code"
         if isinstance(env.envs[0], PauseableFixedFovealEnv) \
-            and env.envs[0].is_pause(motor_actions[0]):
+            and motor_actions[0] == env.envs[0].pause_action:
             pvm_buffer.buffer[-1] = np.expand_dims(np.max(np.vstack(
                 [pvm_buffer.buffer[-1], next_obs]), axis=0), axis=0)
         else:

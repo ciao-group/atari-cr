@@ -1,4 +1,5 @@
 from enum import Enum
+import os
 from typing import List, Optional, OrderedDict, Tuple, TypedDict, Union
 
 import cv2
@@ -85,12 +86,13 @@ class EpisodeRecord():
     @staticmethod
     def _file_paths(save_dir: str):
         """ Returns paths to save the files making up the EpisodeRecord """
+        os.makedirs(save_dir, exist_ok=True)
         video_path = f"{save_dir}/video.mp4"
         annotation_path = f"{save_dir}/annotations.csv"
         args_path = f"{save_dir}/args.toml"
         return video_path, annotation_path, args_path
 
-    def save(self, save_dir: str, draw_focus: False, draw_pauses: False):
+    def save(self, save_dir: str, draw_focus = False, draw_pauses = False):
         """
         Saves the record_buffer to an mp4 file and a metadata file.
 

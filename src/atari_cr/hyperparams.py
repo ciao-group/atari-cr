@@ -5,7 +5,6 @@ from ray.tune.search.optuna import OptunaSearch
 from ray.tune.schedulers import ASHAScheduler
 
 from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
-from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 
 class ConfigParams(TypedDict):
@@ -16,7 +15,7 @@ class ConfigParams(TypedDict):
     saccade_cost_scale: float
 
 def tuning(config: ConfigParams, time_steps: int,
-           gaze_predictor: Optional[GazePredictor] = None):
+           gaze_predictor: Optional[GazePredictor] = None, debug = False):
     # Copy quantization value into the two corresponding values
     if "sensory_action_space_quantization" in config:
         quantization = config.pop("sensory_action_space_quantization")
@@ -34,6 +33,9 @@ def tuning(config: ConfigParams, time_steps: int,
         "use_pause_env": True,
         "env": "ms_pacman"
     })
+
+    # Debug mode
+    if debug: args_dict.update({"debug": True})
 
     # Add already found hyper params
     args_dict.update({
@@ -89,7 +91,7 @@ if __name__ == "__main__":
         "output/atari_head/ms_pacman/models/all_trials/600.pth")
 
     trainable = tune.with_resources(
-        lambda config: tuning(config, time_steps, gaze_predictor),
+        lambda config: tuning(config, time_steps, gaze_predictor, DEBUG),
         {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
     param_space: ConfigParams = {

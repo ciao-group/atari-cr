@@ -103,5 +103,3 @@ if __name__ == "__main__":
 #     if torch.all(output[:,i] == EOS): break
 #     print(output.item(), end=", ")
 # print("")
-
-# # TODO: Training code

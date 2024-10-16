@@ -60,6 +60,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             "sensory_action": Box(low=self.sensory_action_space[0],
                                  high=self.sensory_action_space[1], dtype=int),
         })
+        self.pause_action = self.action_space["motor_action"].n - 1
 
         # How much the agent is punished for large eye movements
         self.saccade_cost_scale = saccade_cost_scale
@@ -111,7 +112,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         step_info["fov_loc"] = self.fov_loc.tolist()
         step_info["motor_action"] = action["motor_action"]
         step_info["sensory_action"] = action["sensory_action"]
-        step_info["pauses"] = int(self.is_pause(action["motor_action"]))
+        step_info["pauses"] = int(action["motor_action"] == self.pause_action)
         self.frames.append(self.unwrapped.render())
 
         # Save the previous fov_loc to calculate the saccade cost
@@ -121,7 +122,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # observation to look at yet and do a random action instead
         if not hasattr(self, "state") and step_info["pauses"]:
             action["motor_action"] = self._sample_no_pause()
-            step_info["pauses"] = self.is_pause(action["motor_action"])
+            step_info["pauses"] = action["motor_action"] == self.pause_action
             assert not step_info["pauses"], \
                 "Pause action should not happen on the first episode step"
 
@@ -132,7 +133,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.consecutive_pauses > self.consecutive_pause_limit) and \
                 step_info["pauses"]:
             action["motor_action"] = self._sample_no_pause()
-            step_info["pauses"] = self.is_pause(action["motor_action"])
+            step_info["pauses"] = action["motor_action"] == self.pause_action
             step_info["prevented_pauses"] = 1
             assert not step_info["pauses"], \
                 "Pause action should not happen after many consecutive pauses"
@@ -223,12 +224,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             )
 
         return fov_state, step_info["reward"], done, truncated, step_info
-
-    def is_pause(self, motor_action: int):
-        """
-        Checks if a given motor action is the pause action
-        """
-        return motor_action == len(self.get_wrapper_attr("actions"))
 
     def _sample_no_pause(self):
         """ Samples an action that is not a pause. """
