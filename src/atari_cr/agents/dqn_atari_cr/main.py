@@ -1,16 +1,13 @@
 import os
-from typing import Literal
 
 import gymnasium as gym
 import torch
-from torch.utils.tensorboard import SummaryWriter
 from tap import Tap
 
 from active_gym.atari_env import AtariEnv, AtariEnvArgs, AtariFixedFovealEnv
 
 from atari_cr.atari_head.gaze_predictor import GazePredictor
-from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari,
-    get_env_attributes)
+from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
 
@@ -68,7 +65,6 @@ class ArgParser(Tap):
 
     # Misc
     ignore_sugarl: bool = False # Whether to ignore the sugarl term for Q network learning
-    disable_tensorboard: bool = False # Whether to disable tensorboard
     no_model_output: bool = False # Whether to disable saving the finished model
     no_pvm_visualization: bool = False # Whether to disable output of visualizations of the content of the PVM buffer
     debug: bool = False # Debug mode for more output
@@ -125,19 +121,6 @@ def main(args: ArgParser):
     # Create one env for each pause cost
     env = make_train_env()
 
-    # Create a tensorboard writer and log the env state
-    if not args.disable_tensorboard:
-        run_identifier = os.path.join(args.exp_name, args.env)
-        run_dir = os.path.join("output/runs", run_identifier)
-        tb_dir = os.path.join(run_dir, "tensorboard")
-        writer = SummaryWriter(os.path.join(tb_dir, f"seed{args.seed}"))
-        hyper_params_table = "\n".join(
-            [f"|{key}|{value}|" for key, value in get_env_attributes(env.envs[0])])
-        writer.add_text(
-            "Env Hyperparameters",
-            f"|param|value|\n|-|-|\n{hyper_params_table}",
-        )
-
     evaluator = GazePredictor.from_save_file(
         "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/models/all_trials/600.pth")
 
@@ -164,7 +147,6 @@ def main(args: ArgParser):
         epsilon_interval=(args.start_e, args.end_e),
         exploration_fraction=args.exploration_fraction,
         ignore_sugarl=args.ignore_sugarl,
-        disable_tensorboard=args.disable_tensorboard,
         no_model_output=args.no_model_output,
         no_pvm_visualization=args.no_pvm_visualization,
         capture_video=args.capture_video,

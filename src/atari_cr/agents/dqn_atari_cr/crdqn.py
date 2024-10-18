@@ -6,7 +6,6 @@ import time
 import numpy as np
 import torch
 from torch.optim import Adam
-from torch.utils.tensorboard import SummaryWriter
 import torch.nn.functional as F
 from torchvision.transforms import Resize
 
@@ -52,8 +51,6 @@ class CRDQN:
             cuda = True,
             n_evals = 10,
             ignore_sugarl = True,
-            writer: Optional[SummaryWriter] = None,
-            disable_tensorboard = False,
             no_model_output = False,
             no_pvm_visualization = False,
             capture_video = True,
@@ -94,8 +91,6 @@ class CRDQN:
         :param int n_evals: Number of eval episodes to be played
         :param bool ignore_sugarl: Whether to ignore the sugarl term in the loss
             calculation
-        :param Optional[SummaryWriter] writer: Tensorboard writer. Creates a new one if
-            None is passed
         :param int agent_id: Identifier for an agent when used together with other
             agents
         :param GazePredictor evaluator: Supervised learning model trained on human data.
@@ -118,8 +113,6 @@ class CRDQN:
         self.pvm_stack = pvm_stack
         self.frame_stack = frame_stack
         self.ignore_sugarl = ignore_sugarl
-        self.writer = writer
-        self.disable_tensorboard = disable_tensorboard
         self.no_model_output = no_model_output
         self.no_pvm_visualization = no_pvm_visualization
         self.capture_video = capture_video
@@ -169,10 +162,6 @@ class CRDQN:
         self.sfn = SelfPredictionNetwork(self.env).to(self.device)
         self.sfn_optimizer = Adam(self.sfn.parameters(), lr=learning_rate)
 
-        # Grokking
-        self.sfn_grads = None
-        self.q_network_grads = None
-
         # Replay Buffer aka. Long Term Memory
         self.rb = DoubleActionReplayBuffer(
             replay_buffer_size,
@@ -189,6 +178,8 @@ class CRDQN:
         self.pvm_buffer = PVMBuffer(
             pvm_stack, (self.n_envs, frame_stack, *self.obs_size))
 
+        self.auc = 0.
+
     def learn(self, n: int, env_name: str, experiment_name: str):
         """
         Acts in the environment and trains the agent for n timesteps
@@ -197,7 +188,6 @@ class CRDQN:
         run_identifier = os.path.join(experiment_name, env_name)
         self.run_dir = os.path.join("output/runs", run_identifier)
         self.log_dir = os.path.join(self.run_dir, "logs")
-        self.tb_dir = os.path.join(self.run_dir, "tensorboard")
         self.video_dir = os.path.join(self.run_dir, "recordings")
         self.pvm_dir = os.path.join(self.run_dir, "pvms")
         self.model_dir = os.path.join(self.run_dir, "trained_models")
@@ -207,19 +197,6 @@ class CRDQN:
         # Init text logging logging
         os.makedirs(self.log_dir, exist_ok=True)
         self.log_file = os.path.join(self.log_dir, f"seed{self.seed}.txt")
-
-        # Init tensorboard logging
-        if not self.disable_tensorboard:
-            os.makedirs(self.tb_dir, exist_ok=True)
-            if not self.writer:
-                self.writer = SummaryWriter(os.path.join(
-                    self.tb_dir, f"seed{self.seed}"))
-            hyper_params_table = "\n".join(
-                [f"|{key}|{value}|" for key, value in self.__dict__.items()])
-            self.writer.add_text(
-                "Agent Hyperparameters",
-                f"|param|value|\n|-|-|\n{hyper_params_table}",
-            )
 
         # Log pause cost
         if isinstance(self.env, PauseableFixedFovealEnv):
@@ -292,8 +269,6 @@ class CRDQN:
                     train.report({"auc": auc})
 
         self.env.close()
-        if not self.disable_tensorboard:
-            self.writer.close()
 
         return eval_returns, out_paths
 
@@ -363,7 +338,6 @@ class CRDQN:
 
             episode_infos.append(infos['final_info'][0])
 
-            auc = torch.Tensor([0])
             if file_output:
                 # Save a visualization of the pvm buffer at the end of the episode
                 if (not self.no_pvm_visualization):
@@ -388,7 +362,7 @@ class CRDQN:
                 and self.evaluator:
                 loader = GazeDataset.from_game_data(
                     [single_eval_env.prev_episode]).to_loader()
-                auc = self.evaluator.eval(loader)["auc"]
+                self.auc = self.evaluator.eval(loader)["auc"]
 
             eval_env.close()
 
@@ -401,7 +375,7 @@ class CRDQN:
 
         eval_returns: List[float] = [
             episode_info["raw_reward"] for episode_info in episode_infos]
-        return eval_returns, out_paths, auc
+        return eval_returns, out_paths, self.auc
 
     def save_checkpoint(self, file_path: str):
         torch.save(
@@ -513,31 +487,22 @@ class CRDQN:
         if not all(prevented_pause_counts) == 0:
             self._log(f"WARNING: [Prevented Pauses: {','.join(map(str, prevented_pause_counts))}]")
 
-        # Tensorboard
-        if not self.disable_tensorboard:
-            self.writer.add_scalar("charts/episodic_return", episode_info["reward"], self.current_timestep)
-            self.writer.add_scalar("charts/episode_length", episode_info["timestep"], self.current_timestep)
-            self.writer.add_scalar("charts/epsilon", self.epsilon, self.current_timestep)
-            self.writer.add_scalar("charts/raw_episodic_return", episode_info["raw_reward"], self.current_timestep)
-            self.writer.add_scalar("charts/pauses", episode_info['pauses'], self.current_timestep)
-            self.writer.add_scalar("charts/prevented_pauses", episode_info['prevented_pauses'], self.current_timestep)
-            self.writer.add_scalar("charts/no_action_pauses", episode_info["no_action_pauses"], self.current_timestep)
-
-        # # Ray logging
-        # ray_info = {
-        #     "episode_reward": episode_info["raw_reward"],
-        #     "sfn_loss": self.sfn_loss.item(),
-        #     "k_timesteps": self.current_timestep / 1000
-        # }
-        # if isinstance(self.envs[0], PauseableFixedFovealEnv):
-        #     ray_info.update({
-        #         "pauses": episode_info["pauses"],
-        #         "prevented_pauses": episode_info["prevented_pauses"],
-        #         "no_action_pauses": episode_info["no_action_pauses"],
-        #         "saccade_cost": episode_info["saccade_cost"],
-        #         "pause_reward": episode_info["reward"],
-        #     })
-        # train.report(ray_info)
+        # Ray logging
+        ray_info = {
+            "episode_reward": episode_info["raw_reward"],
+            "sfn_loss": self.sfn_loss.item(),
+            "k_timesteps": self.current_timestep / 1000
+        }
+        if isinstance(self.envs[0], PauseableFixedFovealEnv):
+            ray_info.update({
+                "pauses": episode_info["pauses"],
+                "prevented_pauses": episode_info["prevented_pauses"],
+                "no_action_pauses": episode_info["no_action_pauses"],
+                "saccade_cost": episode_info["saccade_cost"],
+                "pause_reward": episode_info["reward"],
+                "auc": self.auc
+            })
+        train.report(ray_info)
 
     def _log_eval_episodes(self, episode_infos: List[dict]):
         # Unpack episode_infos
@@ -578,33 +543,6 @@ class CRDQN:
             f"{pause_cost}]{prevented_pauses_warning}"
         ))
 
-        # Tensorboard
-        if not self.disable_tensorboard:
-            self.writer.add_histogram("eval/pause_counts", np.array(pause_counts), self.agent_id)
-            self.writer.add_histogram("eval/episodic_return", np.array(episodic_returns), self.agent_id)
-            self.writer.add_histogram("eval/raw_episodic_return", np.array(raw_episodic_returns), self.agent_id)
-            self.writer.add_histogram("eval/episode_lengths", np.array(episode_lengths), self.agent_id)
-
-            hparams = {
-                "fov_size": self.fov_size,
-                "pvm_stack": self.pvm_stack,
-                "frame_stack": self.frame_stack,
-            }
-            if isinstance(self.envs[0], PauseableFixedFovealEnv):
-                hparams.update({
-                    "pause_cost": self.envs[0].pause_cost,
-                    "no_action_pause_cost": self.envs[0].no_action_pause_cost,
-                })
-            metrics = {
-                "hp/episodic_return": np.mean(episodic_returns),
-                "hp/raw_episodic_returns": np.mean(raw_episodic_returns),
-                "hp/episode_lengths": np.mean(episode_lengths),
-                "hp/pause_counts": np.mean(pause_counts),
-                "hp/prevented_pauses": np.mean(prevented_pauses),
-                "hp/no_action_pauses": np.mean(no_action_pauses)
-            }
-            self.writer.add_hparams(hparams, metrics)
-
     def _train_sfn(self, data):
         # Prediction
         concat_observation = torch.concat([data.next_observations, data.observations], dim=1)
@@ -619,14 +557,6 @@ class CRDQN:
         # Return the probabilites the sfn would have also selected the truely selected action, given the limited observation
         # Higher probabilities suggest better information was provided from the visual input
         observation_quality = F.softmax(pred_motor_actions, dim=0).gather(1, data.motor_actions).squeeze().detach()
-
-        # Tensorboard
-        if not self.disable_tensorboard:
-            if self.current_timestep % 100 == 0:
-                sfn_accuray = (pred_motor_actions.argmax(axis=1) == data.motor_actions.flatten()).sum() / pred_motor_actions.shape[0]
-                self.writer.add_scalar("losses/sfn_loss", self.sfn_loss.item(), self.current_timestep)
-                self.writer.add_scalar("losses/sfn_accuray", sfn_accuray, self.current_timestep)
-                self.writer.add_scalar("losses/observation_quality", observation_quality.mean().item(), self.current_timestep)
 
         return observation_quality
 
@@ -665,17 +595,6 @@ class CRDQN:
         self.optimizer.zero_grad()
         backprop_loss.backward()
         self.optimizer.step()
-
-        # Tensorboard logging
-        if (not self.disable_tensorboard) and self.current_timestep % 100 == 0:
-            self.writer.add_scalar("losses/loss", loss, self.current_timestep)
-            self.writer.add_scalar("losses/loss_without_sugarl", loss, self.current_timestep)
-            self.writer.add_scalar("losses/sugarl_loss", loss - loss_without_sugarl, self.current_timestep)
-            self.writer.add_scalar("losses/q_values", old_val.mean().item(), self.current_timestep)
-            self.writer.add_scalar("losses/motor_q_values", old_motor_val.mean().item(), self.current_timestep)
-            self.writer.add_scalar("losses/sensor_q_values", old_sensory_val.mean().item(), self.current_timestep)
-            # self.writer.add_scalar("losses/original_td_target", original_td_target.mean().item(), self.current_timestep)
-            self.writer.add_scalar("losses/sugarl_r_scaled_td_target", td_target.mean().item(), self.current_timestep)
 
         # Update the target network with self.target_network_frequency
         if (self.current_timestep // self.n_envs) % self.target_network_frequency == 0:

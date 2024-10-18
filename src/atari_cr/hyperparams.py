@@ -83,7 +83,7 @@ def tuning(config: ConfigParams, time_steps: int,
 
 if __name__ == "__main__":
     SCORE_TARGET = False
-    DEBUG = True
+    DEBUG = False
     concurrent_runs = 3 if DEBUG else 4
     num_samples = 1 * concurrent_runs if DEBUG else 50
     time_steps = int(1e6) if DEBUG else int(1e6)

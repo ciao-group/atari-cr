@@ -17,7 +17,6 @@ class TestMain(unittest.TestCase):
             #
             "--no_pvm_visualization",
             "--no_model_output",
-            "--disable_tensorboard"
         ])
 
         args = ArgParser().parse_args(known_only=True)

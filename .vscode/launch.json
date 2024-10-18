@@ -41,7 +41,6 @@
                 "--eval_num", "3",
                 "--no_pvm_visualization",
                 "--no_model_output",
-                "--disable_tensorboard"
             ]
         },
         {

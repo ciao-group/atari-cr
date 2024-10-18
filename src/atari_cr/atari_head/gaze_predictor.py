@@ -135,7 +135,7 @@ class GazePredictor():
     def __init__(self, model: nn.Module):
         self.model = model
 
-        # Loss function, optimizer, compute device and tesorboard writer
+        # Loss function, optimizer, compute device
         self.loss_function = nn.KLDivLoss(reduction="batchmean")
         self.optimizer = optim.Adam(self.model.parameters())
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
