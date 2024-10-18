@@ -6,8 +6,9 @@ import numpy as np
 import polars as pl
 from typing import Optional, Tuple
 from torchvision.transforms import Resize
+from active_gym import AtariEnvArgs
 
-from atari_cr.models import EpisodeInfo, EpisodeRecord, SensoryActionMode, StepInfo
+from atari_cr.models import EpisodeInfo, EpisodeRecord, StepInfo
 from atari_cr.utils import EMMA_fixation_time
 from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE
 
@@ -17,7 +18,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     Environemt making it possible to be paused to only take
     a sensory action without progressing the game.
     """
-    def __init__(self, env: AtariEnv, args, pause_cost = 0.01,
+    def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
             consecutive_pause_limit = 20, no_action_pause_cost = 0.1,
             saccade_cost_scale = 0.001, use_emma = False):
         """
@@ -40,15 +41,12 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 np.array(self.get_wrapper_attr("obs_size"))).all()
 
         # Get sensory action space for the sensory action mode
-        self.sensory_action_mode: SensoryActionMode = args.sensory_action_mode
-        if self.sensory_action_mode == SensoryActionMode.RELATIVE:
+        self.relative_sensory_actions = args.sensory_action_mode == "relative"
+        if self.relative_sensory_actions:
             self.sensory_action_space = np.array(args.sensory_action_space)
-        elif self.sensory_action_mode == SensoryActionMode.ABSOLUTE:
+        else:
             self.sensory_action_space = \
                 np.array(self.get_wrapper_attr("obs_size")) - np.array(self.fov_size)
-        else:
-            raise ValueError(
-                "sensory_action_mode needs to be either 'absolute' or 'relative'")
 
         self.resize: Resize = Resize(self.get_wrapper_attr("obs_size")) \
             if args.resize_to_full else None
@@ -260,7 +258,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             action = np.array(action)
 
         # Move the fovea
-        if self.sensory_action_mode == SensoryActionMode.RELATIVE:
+        if self.relative_sensory_actions:
             action = self._clip_to_valid_sensory_action_space(action)
             action = self.fov_loc + action
         self.fov_loc = self._clip_to_valid_fov(action)

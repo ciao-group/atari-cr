@@ -14,7 +14,6 @@ from tap import Tap
 from atari_cr.module_overrides import tqdm
 
 from atari_cr.atari_head.dataset import GazeDataset
-from atari_cr.utils import gradfilter_ema
 
 class ArgParser(Tap):
     debug: bool = False # Debug mode for less data loading
@@ -142,10 +141,6 @@ class GazePredictor():
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
-        # Init Grokfast
-        self.grokfast = False
-        self.grads = None
-
         # Count the number of trained epochs
         self.epoch = 0
 
@@ -168,8 +163,6 @@ class GazePredictor():
                     outputs = self.model(inputs)
                     loss = self.loss_function(outputs, targets)
                     loss.backward()
-                    if self.grokfast:
-                        self.grads = gradfilter_ema(self.model, self.grads)
                     self.optimizer.step()
 
                     losses.append(loss.item())

@@ -12,7 +12,6 @@ from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari,
     get_env_attributes)
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
-from atari_cr.models import SensoryActionMode
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
 
 # OPTIONAL: Remove normal pause cost in favor of a bigger penalty for 30 pauses in a row
@@ -35,7 +34,7 @@ class ArgParser(Tap):
     # Fovea settings
     fov_size: int = 20 # The size of the fovea
     fov_init_loc: int = 0 # Where to initialize the fovea
-    sensory_action_mode: Literal["absolute", "relative"] = "absolute" # Whether to interprate sensory actions absolutely or relatively
+    relative_sensory_actions: bool = False # Whether to interprate sensory actions absolutely or relatively
     sensory_action_space: int = 10 # Maximum size of pixels to move the fovea in one relative sensory step. Ignored for absolute sensory action mode
     resize_to_full: bool = False # No idea what that is
     sensory_action_x_size: int = 4 # How many smallest sensory steps fit in x direction
@@ -69,7 +68,6 @@ class ArgParser(Tap):
 
     # Misc
     ignore_sugarl: bool = False # Whether to ignore the sugarl term for Q network learning
-    grokfast: bool = False # Whether to use grokfast
     disable_tensorboard: bool = False # Whether to disable tensorboard
     no_model_output: bool = False # Whether to disable saving the finished model
     no_pvm_visualization: bool = False # Whether to disable output of visualizations of the content of the PVM buffer
@@ -77,7 +75,6 @@ class ArgParser(Tap):
     score_target: bool = True # Whether to make ray optimize game score
 
 def main(args: ArgParser):
-    sensory_action_mode = SensoryActionMode.from_string(args.sensory_action_mode)
     seed_everything(args.seed)
 
     def make_env(seed: int, **kwargs):
@@ -90,7 +87,8 @@ def main(args: ArgParser):
                 action_repeat=args.action_repeat,
                 fov_size=(args.fov_size, args.fov_size),
                 fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
-                sensory_action_mode=sensory_action_mode,
+                sensory_action_mode="relative" if args.relative_sensory_actions \
+                    else "absolute",
                 sensory_action_space=(
                     -args.sensory_action_space, args.sensory_action_space),
                 resize_to_full=args.resize_to_full,
@@ -105,7 +103,8 @@ def main(args: ArgParser):
                     args.no_action_pause_cost, args.saccade_cost_scale, args.use_emma
                 )
             else:
-                env_args.sensory_action_mode = str(sensory_action_mode)
+                env_args.sensory_action_mode = "relative" \
+                    if args.relative_sensory_actions else "absolute"
                 env = AtariFixedFovealEnv(env_args)
             env.get_wrapper_attr("ale").setFloat(
                 'repeat_action_probability', args.sticky_action_probability)
@@ -165,8 +164,6 @@ def main(args: ArgParser):
         epsilon_interval=(args.start_e, args.end_e),
         exploration_fraction=args.exploration_fraction,
         ignore_sugarl=args.ignore_sugarl,
-        grokfast=args.grokfast,
-        sensory_action_mode=args.sensory_action_mode,
         disable_tensorboard=args.disable_tensorboard,
         no_model_output=args.no_model_output,
         no_pvm_visualization=args.no_pvm_visualization,

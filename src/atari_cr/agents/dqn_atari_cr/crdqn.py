@@ -18,12 +18,11 @@ from active_gym import FixedFovealEnv
 from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
-from atari_cr.models import EpisodeInfo, SensoryActionMode
+from atari_cr.models import EpisodeInfo
 from atari_cr.buffers import DoubleActionReplayBuffer
 from atari_cr.pvm_buffer import PVMBuffer
 from atari_cr.utils import linear_schedule
 from atari_cr.agents.dqn_atari_cr.networks import QNetwork, SelfPredictionNetwork
-from atari_cr.utils import gradfilter_ema
 
 class CRDQN:
     """
@@ -53,8 +52,6 @@ class CRDQN:
             cuda = True,
             n_evals = 10,
             ignore_sugarl = True,
-            grokfast = False,
-            sensory_action_mode = SensoryActionMode.ABSOLUTE,
             writer: Optional[SummaryWriter] = None,
             disable_tensorboard = False,
             no_model_output = False,
@@ -63,7 +60,7 @@ class CRDQN:
             agent_id = 0,
             debug = False,
             score_target = True,
-            evaluator: Optional[GazePredictor] = None
+            evaluator: Optional[GazePredictor] = None,
         ):
         """
         :param env `gymnasium.Env`:
@@ -97,7 +94,6 @@ class CRDQN:
         :param int n_evals: Number of eval episodes to be played
         :param bool ignore_sugarl: Whether to ignore the sugarl term in the loss
             calculation
-        :param bool grokfast: Whether to use grokfast (https://doi.org/10.48550/arXiv.2405.20233)
         :param Optional[SummaryWriter] writer: Tensorboard writer. Creates a new one if
             None is passed
         :param int agent_id: Identifier for an agent when used together with other
@@ -122,8 +118,6 @@ class CRDQN:
         self.pvm_stack = pvm_stack
         self.frame_stack = frame_stack
         self.ignore_sugarl = ignore_sugarl
-        self.sensory_action_mode = sensory_action_mode
-        self.grokfast = grokfast
         self.writer = writer
         self.disable_tensorboard = disable_tensorboard
         self.no_model_output = no_model_output
@@ -595,8 +589,6 @@ class CRDQN:
                 "fov_size": self.fov_size,
                 "pvm_stack": self.pvm_stack,
                 "frame_stack": self.frame_stack,
-                "sensory_action_mode": self.sensory_action_mode,
-                "grokfast": self.grokfast,
             }
             if isinstance(self.envs[0], PauseableFixedFovealEnv):
                 hparams.update({
@@ -622,8 +614,6 @@ class CRDQN:
         # Back propagation
         self.sfn_optimizer.zero_grad()
         self.sfn_loss.backward()
-        if self.grokfast:
-            self.sfn_grads = gradfilter_ema(self.sfn, grads=self.sfn_grads)
         self.sfn_optimizer.step()
 
         # Return the probabilites the sfn would have also selected the truely selected action, given the limited observation
@@ -674,8 +664,6 @@ class CRDQN:
         backprop_loss = loss_without_sugarl if self.ignore_sugarl else loss
         self.optimizer.zero_grad()
         backprop_loss.backward()
-        if self.grokfast:
-            self.q_network_grads = gradfilter_ema(self.q_network, grads=self.q_network_grads)
         self.optimizer.step()
 
         # Tensorboard logging

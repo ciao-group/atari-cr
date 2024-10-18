@@ -2,10 +2,12 @@
 Borrow from stable-baselines3
 Due to dependencies incompability, we cherry-pick codes here
 """
-import os, random, re
+import os
+import random
+import re
 from datetime import datetime
 import warnings
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -224,8 +226,8 @@ def get_timestr() -> str:
 
 
 def get_spatial_emb_indices(loc: np.ndarray,
-                            full_img_size=(4, 84, 84), 
-                            img_size=(4, 21, 21), 
+                            full_img_size=(4, 84, 84),
+                            img_size=(4, 21, 21),
                             patch_size=(7, 7)) -> np.ndarray:
     # loc (2,)
     _, H, W = full_img_size
@@ -246,11 +248,11 @@ def get_spatial_emb_indices(loc: np.ndarray,
 
     return indicies
 
-def get_spatial_emb_mask(loc, 
+def get_spatial_emb_mask(loc,
                          mask,
-                         full_img_size=(4, 84, 84), 
-                         img_size=(4, 21, 21), 
-                         patch_size=(7, 7), 
+                         full_img_size=(4, 84, 84),
+                         img_size=(4, 21, 21),
+                         patch_size=(7, 7),
                          latent_dim=144) -> np.ndarray:
     B, T, _ = loc.size()
     # return torch.randn_like()
@@ -291,7 +293,7 @@ def soft_update_params(net, target_net, tau):
     for param, target_param in zip(net.parameters(), target_net.parameters()):
         target_param.data.copy_(tau * param.data +
                                 (1 - tau) * target_param.data)
-        
+
 class TruncatedNormal(pyd.Normal):
     def __init__(self, loc, scale, low=-1.0, high=1.0, eps=1e-6):
         super().__init__(loc, scale, validate_args=False)
@@ -314,7 +316,7 @@ class TruncatedNormal(pyd.Normal):
             eps = torch.clamp(eps, -clip, clip)
         x = self.loc + eps
         return self._clamp(x)
-    
+
 
 def schedule_drq(schdl, step):
     try:
@@ -367,7 +369,7 @@ def get_sugarl_reward_scale_dmc(domain_name, task_name) -> float:
         sugarl_reward_scale = 290/500
     else:
         return 1.
-    
+
     return sugarl_reward_scale
 
 def get_sugarl_reward_scale_atari(game) -> float:
@@ -408,7 +410,7 @@ def grid_image2(images: Union[np.ndarray, torch.Tensor]):
 
     # Convert torch tensor to numpy array
     if isinstance(images, torch.Tensor): images = images.numpy()
-    
+
     # Convert to float32
     if isinstance(images, np.uint8): images = images.astype(np.float32) / 256
 
@@ -436,17 +438,17 @@ def grid_image(array: Union[np.ndarray, torch.Tensor], line_color=[255, 0, 0], l
 
     # Convert torch tensor to numpy array
     if isinstance(array, torch.Tensor): array = array.numpy()
-    
+
     # Convert greyscale to RGB
     if len(array.shape) == 4:
         array = np.broadcast_to(array[:,:,:,:,np.newaxis], [*array.shape, 3])
     if array.shape[-1] == 1:
         array = np.broadcast_to(array, [*array.shape[:-1], 3])
-    n_rows, n_cols, y, x, n_channels = array.shape 
+    n_rows, n_cols, y, x, n_channels = array.shape
 
     # Convert to uint8
     if not array.flags["WRITEABLE"]: array = array.copy()
-    if array.dtype == np.float32: 
+    if array.dtype == np.float32:
         for i in range(len(array)):
             for j in range(len(array[i])):
                 if array[i,j].min() == array[i,j].max():
@@ -485,7 +487,7 @@ def debug_array(array: Union[np.ndarray, torch.Tensor, List[torch.Tensor]]):
     Saves a 2D, 3D or 4D greyscale array as an image under 'debug.png'.
     """
     # Turn a list of arrays or tensors into one array
-    if isinstance(array, List): 
+    if isinstance(array, List):
         for i in range(len(array)):
             array[i] = array[i].detach().cpu() if isinstance(array[i], torch.Tensor) else array[i]
         array = np.stack(array)
@@ -505,38 +507,19 @@ def debug_array(array: Union[np.ndarray, torch.Tensor, List[torch.Tensor]]):
 def get_env_attributes(env) -> List[Tuple[str, Any]]:
     """ Returns a list of env attributes together with wrapped env attributes. """
     attributes = []
-    
+
     def extract_attributes(obj, prefix=''):
         for key, value in obj.__dict__.items():
             attributes.append((f"{prefix}{key}", value))
-            
+
         if hasattr(obj, 'env'):
             extract_attributes(obj.env, f"{prefix}env.")
-    
+
     extract_attributes(env)
     return attributes
 
-def gradfilter_ema(
-    m: nn.Module,
-    grads: Optional[Dict[str, torch.Tensor]] = None,
-    alpha: float = 0.98,
-    lamb: float = 2.0,
-) -> Dict[str, torch.Tensor]:
-    """
-    Applies grokfast (https://doi.org/10.48550/arXiv.2405.20233) to a model's gradients.
-    """
-    if grads is None:
-        grads = {n: p.grad.data.detach() for n, p in m.named_parameters() if p.requires_grad and p.grad is not None}
-
-    for n, p in m.named_parameters():
-        if p.requires_grad and p.grad is not None:
-            grads[n] = grads[n] * alpha + p.grad.data.detach() * (1 - alpha)
-            p.grad.data = p.grad.data + grads[n] * lamb
-
-    return grads
-
 def EMMA_fixation_time(
-        dist: float, 
+        dist: float,
         freq = 0.1,
         execution_time = 0.07,
         K = 0.006,
@@ -559,7 +542,7 @@ def EMMA_fixation_time(
     :return EMMA_breakdown: tuple containing (preparation_time, execution_time, remaining_encoding_time).
     :return total_time: Total eye movement time in seconds.
     :return moved: true if encoding time > preparation time. false otherwise.
-    """    
+    """
     # visual encoding time
     t_enc = K * -np.log(freq) * np.exp(k * dist)
 
