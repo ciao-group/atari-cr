@@ -8,6 +8,7 @@ from tap import Tap
 
 from active_gym.atari_env import AtariEnv, AtariEnvArgs, AtariFixedFovealEnv
 
+from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari,
     get_env_attributes)
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
@@ -73,6 +74,7 @@ class ArgParser(Tap):
     no_model_output: bool = False # Whether to disable saving the finished model
     no_pvm_visualization: bool = False # Whether to disable output of visualizations of the content of the PVM buffer
     debug: bool = False # Debug mode for more output
+    score_target: bool = True # Whether to make ray optimize game score
 
 def main(args: ArgParser):
     sensory_action_mode = SensoryActionMode.from_string(args.sensory_action_mode)
@@ -137,6 +139,9 @@ def main(args: ArgParser):
             f"|param|value|\n|-|-|\n{hyper_params_table}",
         )
 
+    evaluator = GazePredictor.from_save_file(
+        "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/models/all_trials/600.pth")
+
     agent = CRDQN(
         env=env,
         sugarl_r_scale=get_sugarl_reward_scale_atari(args.env),
@@ -167,14 +172,16 @@ def main(args: ArgParser):
         no_pvm_visualization=args.no_pvm_visualization,
         capture_video=args.capture_video,
         debug=args.debug,
+        score_target=args.score_target,
+        evaluator=evaluator
     )
-    eval_returns = agent.learn(
+    eval_returns, out_paths = agent.learn(
         n=args.total_timesteps,
         env_name=args.env,
         experiment_name=args.exp_name
     )
 
-    return eval_returns
+    return eval_returns, out_paths
 
 if __name__ == "__main__":
     # Use bfloat16 to speed up matrix computation

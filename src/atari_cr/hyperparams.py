@@ -5,6 +5,7 @@ from ray.tune.search.optuna import OptunaSearch
 from ray.tune.schedulers import ASHAScheduler
 
 from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
+from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 
 class ConfigParams(TypedDict):
@@ -15,7 +16,8 @@ class ConfigParams(TypedDict):
     saccade_cost_scale: float
 
 def tuning(config: ConfigParams, time_steps: int,
-           gaze_predictor: Optional[GazePredictor] = None, debug = False):
+           gaze_predictor: Optional[GazePredictor] = None, debug = False, 
+           score_target = True):
     # Copy quantization value into the two corresponding values
     if "sensory_action_space_quantization" in config:
         quantization = config.pop("sensory_action_space_quantization")
@@ -34,8 +36,8 @@ def tuning(config: ConfigParams, time_steps: int,
         "env": "ms_pacman"
     })
 
-    # Debug mode
-    if debug: args_dict.update({"debug": True})
+    # Other args
+    args_dict.update({"debug": debug, "score_target": score_target})
 
     # Add already found hyper params
     args_dict.update({
@@ -60,26 +62,27 @@ def tuning(config: ConfigParams, time_steps: int,
     args_dict.update(config)
     args_dict["exp_name"] = "tuning"
 
-    if gaze_predictor is None:
-        args = ArgParser().from_dict(args_dict)
-        eval_returns = main(args)
+    # Run the experiment
+    args = ArgParser().from_dict(args_dict)
+    eval_returns, out_paths = main(args)
 
+    # Evaluate it
+    if gaze_predictor is None:
         # Send the current training result back to Tune
         result = {"episode_reward": sum(eval_returns) / len(eval_returns)}
         print("eee", eval_returns)
     else:
-        # TODO: Train an agent and evaluate it regularly using gaze predictor
-        # dataset = GazeDataset.from_game_data(video_file, metadata_file)
-        # agent_loader = dataset.to_loader()
-        # # TODO: Eval the gaze predictor on that dataset
-        # eval_result = gaze_predictor.eval(agent_loader)
-        # result = { "loss": eval_result["kl_div"] }
-        pass
+        # Train an agent and evaluate it regularly using gaze predictor
+        dataset = GazeDataset.from_game_data(out_paths)
+        agent_loader = dataset.to_loader()
+        # Eval the gaze predictor on that dataset
+        eval_result = gaze_predictor.eval(agent_loader)
+        result = { "auc": eval_result["auc"] }
 
     return result
 
 if __name__ == "__main__":
-    SCORE_TARGET = True
+    SCORE_TARGET = False
     DEBUG = True
     concurrent_runs = 3 if DEBUG else 4
     num_samples = 1 * concurrent_runs if DEBUG else 50
@@ -88,10 +91,10 @@ if __name__ == "__main__":
     # Model checkpoint after 600 iterations is used because that is when eval
     # performance started to degrade
     gaze_predictor = None if SCORE_TARGET else GazePredictor.from_save_file(
-        "output/atari_head/ms_pacman/models/all_trials/600.pth")
+        "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/models/all_trials/600.pth")
 
     trainable = tune.with_resources(
-        lambda config: tuning(config, time_steps, gaze_predictor, DEBUG),
+        lambda config: tuning(config, time_steps, gaze_predictor, DEBUG, SCORE_TARGET),
         {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
     param_space: ConfigParams = {
@@ -102,7 +105,7 @@ if __name__ == "__main__":
         "saccade_cost_scale": tune.quniform(0.0001, 0.0020, 0.0001),
     }
 
-    metric, mode = ("episode_reward", "max") if SCORE_TARGET else ("loss", "min")
+    metric, mode = ("episode_reward", "max") if SCORE_TARGET else ("auc", "max")
     tuner = tune.Tuner(
         trainable,
         param_space=param_space,

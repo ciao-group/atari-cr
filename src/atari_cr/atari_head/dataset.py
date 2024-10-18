@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 import polars as pl
 
-from atari_cr.models import RecordBuffer
+from atari_cr.models import EpisodeRecord
 from atari_cr.module_overrides import tqdm
 from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE, preprocess
 
@@ -20,9 +20,9 @@ class GazeDataset(Dataset):
     Dataset object for the Atari-HEAD dataset
 
     :param Tensor[N,W,H] frames: Greyscale game images
-    :param Tensor[N,W,H] saliency: Saliency maps belonging the frames
-    :param Tensor[N] train_indcies: Indices of frames used for training
-    :param Tensor[N] val_indcies: Inidcies of frames used for validation
+    :param Tensor[N,W,H] saliency: Saliency maps belonging to the frames
+    :param Tensor[N] train_indcies: Indices of frame stacks used for training
+    :param Tensor[N] val_indcies: Inidcies of frame stacks used for validation
     :param bool class_output: Whether to output the gaze positions as 1D
         discrete class labels
     """
@@ -57,22 +57,18 @@ class GazeDataset(Dataset):
 
     def to_loader(self, batch_size=512):
         """ Get the entire dataset as a single dataloader """
-        stack_indices = list(self.data.lazy().filter(
-            (pl.col("trial_frame_id") >= 3)).select(
-            pl.col("id")).collect().to_series())
-
-        return DataLoader(self, batch_size, sampler=SubsetRandomSampler(stack_indices))
+        return DataLoader(self, batch_size, sampler=SubsetRandomSampler(
+                torch.cat([self.train_indices, self.val_indices])))
 
     def __len__(self):
-        return (self.data["stack_id"] >= 0).sum()
+        return len(self.train_indices) + len(self.val_indices)
 
     def __getitem__(self, idx: torch.Tensor):
         """
         Loads the images from paths specified in self.data and creates a
         saliency map from the gaze_positions.
 
-        :returns Tuple[Array, Array, Array]: frame_stack, saliency_map and
-            gazes
+        :returns Tuple[Array, Array]: frame_stack and saliency_map
         """
         # Input
         item = (self.frames[idx - 3:idx + 1], )
@@ -236,22 +232,47 @@ class GazeDataset(Dataset):
             frames, saliency, train_indices, val_indices, class_output=class_output)
 
     @staticmethod
-    def from_game_data(video_files: List[str], metadata_files: List[str]):
+    def from_game_data(records: List[EpisodeRecord], test_split = 0.2):
         """ Create a dataset from an agent's recorded game """
-        assert len(video_files) == len(metadata_files), \
-            "video_files and metadata_files have to be of same length"
+        frames, saliency, train_indices, val_indices = [], [], [], []
 
-        dfs = []
+        for record in records:
+            # Get the saliency maps
+            gaze_lists, gazes = [], [] # List of gazes for all rows, list for one frame
+            pause_indices = []
+            for i, (x, y, pauses) in enumerate(record.annotations[
+                "sensory_action_x", "sensory_action_y", "pauses"].iter_rows()):
+                gazes.append([x, y])
+                if pauses == 0:
+                    gaze_lists.append(gazes)
+                    gazes = []
+                else:
+                    pause_indices.append(i)
+            saliency.extend([GazeDataset.create_saliency_map(torch.Tensor(gazes))
+                 for gazes in gaze_lists])
 
-        for video_file, metadata_file in zip(video_files, metadata_files):
-            buffer = pl.scan_csv(metadata_file)
-            RecordBuffer.from_file
-            # TODO: Make the recordbuffer save multiple fov_locs per frame
-            # TODO: Create saliency map
-            buffer["fov_loc"]
+            # Drop frames with a pause
+            mask = np.ones(record.frames.shape[0], dtype=bool)
+            mask[pause_indices] = False
+            record.frames = record.frames[mask]
 
-        # TODO: Create a dataset from list of frames and list of saliency maps
-        return GazeDataset()
+            # Get train and val indices
+            episode_train_indices, episode_val_indices = \
+                GazeDataset._split_episode(len(record.frames), len(frames), test_split)
+            train_indices.extend(episode_train_indices)
+            val_indices.extend(episode_val_indices)
+
+            # Append preprocessed frames to the list of frames
+            frames.extend([preprocess(frame) for frame in record.frames])
+
+        train_indices = torch.Tensor(train_indices).to(torch.int32)
+        val_indices = torch.Tensor(val_indices).to(torch.int32)
+        frames = torch.Tensor(np.stack(frames))
+        saliency = torch.stack(saliency)
+        assert len(train_indices) + len(val_indices) + 3 * len(records) \
+            == len(frames)
+
+        return GazeDataset(frames, saliency, train_indices, val_indices)
 
     @staticmethod
     def create_saliency_map(gaze_positions: torch.Tensor):
@@ -324,12 +345,23 @@ class GazeDataset(Dataset):
             saliency_map = saliency_map / saliency_map.sum()
         return saliency_map
 
+    @staticmethod
+    def _split_episode(frame_count: int, start_idx: int,
+                       test_split = 0.2) -> tuple[list[int], list[int]]:
+        """
+        Return train and val indices for one game episode
+
+        :param int frame_count:
+        :param int start_idx: Number of frames that have already been indexed
+        """
+        indices = np.arange(3, frame_count) + start_idx
+        split_idx = int(len(indices) * (1 - test_split))
+        return indices[:split_idx].tolist(), indices[split_idx:].tolist()
+
 if __name__ == "__main__":
+    episode_dirs = [
+        "tests/assets/ray-10-16/" + dir for dir in os.listdir("tests/assets/ray-10-16")]
     dataset = GazeDataset.from_game_data(
-        [
-            "tests/assets/ray-10-15/seed0_step1000000_eval00.mp4",
-            "tests/assets/ray-10-15/seed0_step1000000_eval04.mp4"
-        ], [
-            "tests/assets/ray-10-15/seed0_step1000000_eval00.csv",
-            "tests/assets/ray-10-15/seed0_step1000000_eval04.csv"
-        ])
+            [EpisodeRecord.load(dir) for dir in episode_dirs])
+    loader = dataset.to_loader()
+    print(dataset)

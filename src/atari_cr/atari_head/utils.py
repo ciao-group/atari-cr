@@ -3,10 +3,6 @@ import cv2
 import numpy as np
 import polars as pl
 import torch
-from PIL import Image
-
-from atari_cr.models import RecordBuffer
-from atari_cr.utils import grid_image
 
 # Screen Size in visual degrees: 44,6 x 28,5
 # Visual Degrees per Pixel with 84 x 84 pixels: 0,5310 x 0,3393
@@ -71,41 +67,6 @@ def open_mp4_as_frame_list(path: str):
 
     video.release()
     return frames
-
-def debug_recording(recordings_path: str):
-    """
-    :param str recordings_path: Path to the agent's eval data,
-        containing images and associated gaze positions
-    """
-    # Get the recording data of the first recording as a dict
-    file = list(filter(lambda x: x.endswith(".pt"), os.listdir(recordings_path)))[0]
-    data: RecordBuffer = torch.load(
-        os.path.join(recordings_path, file), weights_only=False)
-
-    # Extract a list of frames and a list of gazes
-    frames = open_mp4_as_frame_list(data["rgb"])
-    actions = data["action"]
-    assert len(frames) == len(actions)
-
-    for frame, action in zip(frames, actions):
-
-        boxing_pause_action = 18
-        if action == boxing_pause_action:
-            # Write "pause" on the frame
-            text = "pause"
-            position = (10, 20)
-            font = cv2.FONT_HERSHEY_COMPLEX
-            font_scale = 0.3
-            color = (255, 0, 0)
-            thickness = 1
-            frame = cv2.putText(
-                frame, text, position, font, font_scale, color, thickness)
-
-    # Display images in a grid
-    grid = np.array(frames[:16])
-    grid = grid.reshape([4, 4, *grid.shape[1:]])
-    grid = grid_image(grid)
-    Image.fromarray(grid).save("debug.png")
 
 def preprocess(frame: np.ndarray):
     """

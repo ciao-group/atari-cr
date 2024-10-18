@@ -48,7 +48,7 @@
             "name": "Ray",
             "type": "debugpy",
             "request": "launch",
-            "program": "src/atari_cr/common/hyperparams.py",
+            "program": "src/atari_cr/hyperparams.py",
             "console": "integratedTerminal",
         },
         {

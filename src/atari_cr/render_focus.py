@@ -9,7 +9,7 @@ if __name__ == "__main__":
     parser.add_argument("output_file")
     args = parser.parse_args()
 
-    record_buffer = torch.load(args.input_file)
+    record_buffer = torch.load(args.input_file, weights_only=False)
     video = cv2.VideoCapture(record_buffer["rgb"])
     width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))

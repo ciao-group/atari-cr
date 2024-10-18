@@ -15,6 +15,8 @@ from gymnasium.vector import VectorEnv
 from gymnasium.spaces import Discrete
 
 from active_gym import FixedFovealEnv
+from atari_cr.atari_head.dataset import GazeDataset
+from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.models import EpisodeInfo, SensoryActionMode
 from atari_cr.buffers import DoubleActionReplayBuffer
@@ -59,7 +61,9 @@ class CRDQN:
             no_pvm_visualization = False,
             capture_video = True,
             agent_id = 0,
-            debug = False
+            debug = False,
+            score_target = True,
+            evaluator: Optional[GazePredictor] = None
         ):
         """
         :param env `gymnasium.Env`:
@@ -98,6 +102,8 @@ class CRDQN:
             None is passed
         :param int agent_id: Identifier for an agent when used together with other
             agents
+        :param GazePredictor evaluator: Supervised learning model trained on human data.
+            Reference for how human plausible the models' gazes are
         """
         self.env = env
         self.sugarl_r_scale = sugarl_r_scale
@@ -125,6 +131,8 @@ class CRDQN:
         self.capture_video = capture_video
         self.agent_id = agent_id
         self.debug = debug
+        self.score_target = score_target
+        self.evaluator = evaluator
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.current_timestep = 0
@@ -282,13 +290,18 @@ class CRDQN:
                 # Evaluation
                 if (self.current_timestep % self.eval_frequency == 0 and
                     self.eval_frequency > 0) or (self.current_timestep >= n):
-                    eval_returns = self.evaluate()
+                    eval_returns, out_paths, auc = self.evaluate()
+
+                # Test against Atari-HEAD gaze predictor
+                if not self.score_target and self.current_timestep % 1000 == 0:
+                    eval_returns, out_paths, auc = self.evaluate(file_output=False)
+                    train.report({"auc": auc})
 
         self.env.close()
         if not self.disable_tensorboard:
             self.writer.close()
 
-        return eval_returns
+        return eval_returns, out_paths
 
     def train(self):
         """
@@ -305,12 +318,12 @@ class CRDQN:
         if self.current_timestep > self.learning_start:
             self._train_dqn(data, observation_quality)
 
-    def evaluate(self):
+    def evaluate(self, file_output = True):
         # Set networks to eval mode
         self.q_network.eval()
         self.sfn.eval()
 
-        episode_infos = []
+        episode_infos, out_paths = [], []
         for eval_ep in range(self.n_evals):
             # Create env
             eval_env = self.eval_env_generator(eval_ep)
@@ -356,29 +369,37 @@ class CRDQN:
 
             episode_infos.append(infos['final_info'][0])
 
-            # Save a visualization of the pvm buffer at the end of the episode
-            if (not self.no_pvm_visualization):
-                self._save_output(
-                    self.pvm_dir, "png", eval_pvm_buffer.to_png, eval_ep)
+            auc = torch.Tensor([0])
+            if file_output:
+                # Save a visualization of the pvm buffer at the end of the episode
+                if (not self.no_pvm_visualization):
+                    self._save_output(
+                        self.pvm_dir, "png", eval_pvm_buffer.to_png, eval_ep)
 
-            # Save results as video and pytorch object
-            # Only save 1/4th of the evals as videos
-            if (self.capture_video) and single_eval_env.record and eval_ep % 4 == 0:
-                save_fn = single_eval_env.save_record_to_file \
-                    if isinstance(single_eval_env, FixedFovealEnv) \
-                    else single_eval_env.prev_episode.save
-                self._save_output(
-                    self.video_dir, "", save_fn, eval_ep)
+                # Save results as video and csv file
+                # Only save 1/4th of the evals as videos
+                if (self.capture_video) and single_eval_env.record and eval_ep % 4 == 0:
+                    save_fn = single_eval_env.save_record_to_file \
+                        if isinstance(single_eval_env, FixedFovealEnv) \
+                        else single_eval_env.prev_episode.save
+                    out_paths.append(self._save_output(
+                        self.video_dir, "", save_fn, eval_ep))
 
-            # Safe the model file in the first eval run
-            if (not self.no_model_output) and eval_ep == 0:
-                self._save_output(self.model_dir, "pt", self.save_checkpoint, eval_ep)
+                # Safe the model file in the first eval run
+                if (not self.no_model_output) and eval_ep == 0:
+                    self._save_output(
+                        self.model_dir, "pt", self.save_checkpoint, eval_ep)
+
+            elif isinstance(single_eval_env, PauseableFixedFovealEnv) \
+                and self.evaluator:
+                loader = GazeDataset.from_game_data(
+                    [single_eval_env.prev_episode]).to_loader()
+                auc = self.evaluator.eval(loader)["auc"]
 
             eval_env.close()
 
         # Log results
         self._log_eval_episodes(episode_infos)
-        if self.debug: self.pvm_buffer.to_png()
 
         # Set the networks back to training mode
         self.q_network.train()
@@ -386,7 +407,7 @@ class CRDQN:
 
         eval_returns: List[float] = [
             episode_info["raw_reward"] for episode_info in episode_infos]
-        return eval_returns
+        return eval_returns, out_paths, auc
 
     def save_checkpoint(self, file_path: str):
         torch.save(
@@ -429,7 +450,9 @@ class CRDQN:
                 f"_eval{eval_ep:02d}_no_pause")
         if file_prefix: file_name += f".{file_prefix}"
         else: os.makedirs(file_name, exist_ok=True)
-        save_fn(os.path.join(output_dir, file_name))
+        out_path = os.path.join(output_dir, file_name)
+        save_fn(out_path)
+        return out_path
 
     def _step(self, env: VectorEnv, pvm_buffer: PVMBuffer, motor_actions: np.ndarray,
               sensory_actions: np.ndarray, eval = False):
@@ -506,21 +529,21 @@ class CRDQN:
             self.writer.add_scalar("charts/prevented_pauses", episode_info['prevented_pauses'], self.current_timestep)
             self.writer.add_scalar("charts/no_action_pauses", episode_info["no_action_pauses"], self.current_timestep)
 
-        # Ray logging
-        ray_info = {
-            "episode_reward": episode_info["raw_reward"],
-            "sfn_loss": self.sfn_loss.item(),
-            "k_timesteps": self.current_timestep / 1000
-        }
-        if isinstance(self.envs[0], PauseableFixedFovealEnv):
-            ray_info.update({
-                "pauses": episode_info["pauses"],
-                "prevented_pauses": episode_info["prevented_pauses"],
-                "no_action_pauses": episode_info["no_action_pauses"],
-                "saccade_cost": episode_info["saccade_cost"],
-                "pause_reward": episode_info["reward"],
-            })
-        train.report(ray_info)
+        # # Ray logging
+        # ray_info = {
+        #     "episode_reward": episode_info["raw_reward"],
+        #     "sfn_loss": self.sfn_loss.item(),
+        #     "k_timesteps": self.current_timestep / 1000
+        # }
+        # if isinstance(self.envs[0], PauseableFixedFovealEnv):
+        #     ray_info.update({
+        #         "pauses": episode_info["pauses"],
+        #         "prevented_pauses": episode_info["prevented_pauses"],
+        #         "no_action_pauses": episode_info["no_action_pauses"],
+        #         "saccade_cost": episode_info["saccade_cost"],
+        #         "pause_reward": episode_info["reward"],
+        #     })
+        # train.report(ray_info)
 
     def _log_eval_episodes(self, episode_infos: List[dict]):
         # Unpack episode_infos

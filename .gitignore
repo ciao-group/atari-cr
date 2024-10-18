@@ -18,6 +18,7 @@ ray_results
 *.svg
 **/*.pt
 *.csv
+tests/assets/*
 
 # Old dir structure
 runs
