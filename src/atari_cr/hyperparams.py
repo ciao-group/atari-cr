@@ -16,7 +16,7 @@ class ConfigParams(TypedDict):
     saccade_cost_scale: float
 
 def tuning(config: ConfigParams, time_steps: int,
-           gaze_predictor: Optional[GazePredictor] = None, debug = False, 
+           gaze_predictor: Optional[GazePredictor] = None, debug = False,
            score_target = True):
     # Copy quantization value into the two corresponding values
     if "sensory_action_space_quantization" in config:
