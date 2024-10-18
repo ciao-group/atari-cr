@@ -485,7 +485,8 @@ class CRDQN:
         ))
         # Log the amount of prevented pauses over the entire learning period
         if not all(prevented_pause_counts) == 0:
-            self._log(f"WARNING: [Prevented Pauses: {','.join(map(str, prevented_pause_counts))}]")
+            prev_pauses = ",".join(map(str, prevented_pause_counts))
+            self._log(f"WARNING: [Prevented Pauses: {prev_pauses}]")
 
         # Ray logging
         ray_info = {
@@ -545,45 +546,58 @@ class CRDQN:
 
     def _train_sfn(self, data):
         # Prediction
-        concat_observation = torch.concat([data.next_observations, data.observations], dim=1)
+        concat_observation = torch.concat(
+            [data.next_observations, data.observations], dim=1)
         pred_motor_actions = self.sfn(Resize(self.obs_size)(concat_observation))
-        self.sfn_loss = self.sfn.get_loss(pred_motor_actions, data.motor_actions.flatten())
+        self.sfn_loss = self.sfn.get_loss(
+            pred_motor_actions, data.motor_actions.flatten())
 
         # Back propagation
         self.sfn_optimizer.zero_grad()
         self.sfn_loss.backward()
         self.sfn_optimizer.step()
 
-        # Return the probabilites the sfn would have also selected the truely selected action, given the limited observation
-        # Higher probabilities suggest better information was provided from the visual input
-        observation_quality = F.softmax(pred_motor_actions, dim=0).gather(1, data.motor_actions).squeeze().detach()
+        # Return the probabilites the sfn would have also selected the truely selected
+        # action, given the limited observation. Higher probabilities suggest
+        # better information was provided from the visual input
+        observation_quality = F.softmax(pred_motor_actions, dim=0).gather(
+            1, data.motor_actions).squeeze().detach()
 
         return observation_quality
 
     def _train_dqn(self, data, observation_quality):
         """
-        Trains the behavior q network and copies it to the target q network with self.target_network_frequency.
+        Trains the behavior q network and copies it to the target q network with
+        self.target_network_frequency.
 
         :param NDArray data: A sample from the replay buffer
-        :param NDArray[Shape[self.batch_size], Float] observation_quality: A batch of probabilities of the SFN predicting the action that the agent selected  
+        :param NDArray[Shape[self.batch_size], Float] observation_quality: A batch of
+            probabilities of the SFN predicting the action that the agent selected
         """
         # Target network prediction
         with torch.no_grad():
             # Assign a value to every possible action in the next state for one batch
             # motor_target.shape: [32, 19]
-            motor_target, sensory_target = self.target_network(Resize(self.obs_size)(data.next_observations))
+            motor_target, sensory_target = self.target_network(
+                Resize(self.obs_size)(data.next_observations))
             # Get the maximum action value for one batch
             # motor_target_max.shape: [32]
             motor_target_max, _ = motor_target.max(dim=1)
             sensory_target_max, _ = sensory_target.max(dim=1)
             # Scale step-wise reward with observation_quality
             observation_quality_adjusted = observation_quality.clone()
-            observation_quality_adjusted[data.rewards.flatten() > 0] = 1 - observation_quality_adjusted[data.rewards.flatten() > 0]
-            td_target = data.rewards.flatten() - (1 - observation_quality) * self.sugarl_r_scale + self.gamma * (motor_target_max + sensory_target_max) * (1 - data.dones.flatten())
-            original_td_target = data.rewards.flatten() + self.gamma * (motor_target_max + sensory_target_max) * (1 - data.dones.flatten())
+            observation_quality_adjusted[data.rewards.flatten() > 0] = \
+                1 - observation_quality_adjusted[data.rewards.flatten() > 0]
+            td_target = data.rewards.flatten() \
+                - (1 - observation_quality) * self.sugarl_r_scale \
+                + self.gamma * (motor_target_max + sensory_target_max) * (
+                    1 - data.dones.flatten())
+            original_td_target = data.rewards.flatten() + self.gamma * (
+                motor_target_max + sensory_target_max) * (1 - data.dones.flatten())
 
         # Q network prediction
-        old_motor_q_val, old_sensory_q_val = self.q_network(Resize(self.obs_size)(data.observations))
+        old_motor_q_val, old_sensory_q_val = self.q_network(
+            Resize(self.obs_size)(data.observations))
         old_motor_val = old_motor_q_val.gather(1, data.motor_actions).squeeze()
         old_sensory_val = old_sensory_q_val.gather(1, data.sensory_actions).squeeze()
         old_val = old_motor_val + old_sensory_val
@@ -604,4 +618,5 @@ class CRDQN:
         """
         Maps the current number of timesteps to a value of epsilon.
         """
-        return linear_schedule(*self.epsilon_interval, self.exploration_fraction * total_timesteps, self.current_timestep)
+        return linear_schedule(*self.epsilon_interval,
+            self.exploration_fraction * total_timesteps, self.current_timestep)
