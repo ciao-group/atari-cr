@@ -11,6 +11,7 @@ import torch.optim as optim
 import numpy as np
 import h5py
 from tap import Tap
+from atari_cr.atari_head.unet import UNet
 from atari_cr.module_overrides import tqdm
 
 from atari_cr.atari_head.dataset import GazeDataset
@@ -21,6 +22,8 @@ class ArgParser(Tap):
     n: int = 100 # Number of training iterations
     eval_train_data: bool = False # Whether to make an evaluation on the train data too
     load_saliency: bool = False # Whether to load existing saliency maps.
+    unet: bool = False # Whether to use a unet instead of the conv deconv net
+    model_name: Optional[str] = None # Name of the model for saving
 
 class EvalResult(TypedDict):
     min: float
@@ -32,7 +35,7 @@ class EvalResult(TypedDict):
 
 class GazePredictionNetwork(nn.Module):
     """
-    Neural network predicting a saliency map for a given stack of
+    Conv deconv network predicting a saliency map for a given stack of
     4 greyscale atari game images.
     """
     def __init__(self):
@@ -406,7 +409,7 @@ def train_predictor():
     # Create dataset and data loader
     env_name = "ms_pacman"
     single_run = "52_RZ_2394668_Aug-10-14-52-42" if args.debug else ""
-    model_name = single_run or "all_trials"
+    model_name = args.model_name or single_run or "all_trials"
     dataset = GazeDataset.from_atari_head_files(
         root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=single_run,
         load_saliency=args.load_saliency)
@@ -419,14 +422,15 @@ def train_predictor():
 
     # Load an existing Atari HEAD model
     model_files = os.listdir(model_dir)
+    net = (lambda: UNet(4,1)) if args.unet else GazePredictionNetwork
     if (args.load_model) and len(model_files) > 0:
         latest_epoch = sorted([int(file) for file in model_files])[-1]
         save_path = os.path.join(model_dir, str(latest_epoch), "checkpoint.pth")
         print(f"Loading existing gaze predictor from {save_path}")
-        gaze_predictor = GazePredictor.from_save_file(save_path, output_dir)
+        gaze_predictor = GazePredictor.from_save_file(save_path, net)
     else:
-        print("Creating new gaze model from hdfs5 weights")
-        model = GazePredictionNetwork.from_h5(
+        print("Creating new gaze model")
+        model = UNet(4,1) if args.unet else GazePredictionNetwork.from_h5(
             f"data/h5_gaze_predictors/{env_name}.hdf5")
         gaze_predictor = GazePredictor(model)
 

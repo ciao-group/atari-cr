@@ -8,14 +8,16 @@ import torch.nn.functional as F
 
 
 class DoubleConv(nn.Module):
-    def __init__(self, in_channels, out_channels, mid_channels=None):
+    def __init__(self, in_channels, out_channels, mid_channels=None, dropout=0.5):
         super().__init__()
         if not mid_channels:
             mid_channels = out_channels
         self.double_conv = nn.Sequential(
+            nn.Dropout(dropout),
             nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(mid_channels),
             nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
             nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
@@ -27,11 +29,11 @@ class DoubleConv(nn.Module):
 class Down(nn.Module):
     """Downscaling with maxpool then double conv"""
 
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, dropout=0.5):
         super().__init__()
         self.maxpool_conv = nn.Sequential(
             nn.MaxPool2d(2),
-            DoubleConv(in_channels, out_channels)
+            DoubleConv(in_channels, out_channels, dropout=dropout)
         )
 
     def forward(self, x):
@@ -40,12 +42,12 @@ class Down(nn.Module):
 class Up(nn.Module):
     """Upscaling then double conv"""
 
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, dropout=0.5):
         super().__init__()
 
         self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2,
                                      stride=2)
-        self.conv = DoubleConv(in_channels, out_channels)
+        self.conv = DoubleConv(in_channels, out_channels, dropout=dropout)
 
     def forward(self, x1, x2):
         x1 = self.up(x1)
@@ -61,30 +63,23 @@ class Up(nn.Module):
         x = torch.cat([x2, x1], dim=1)
         return self.conv(x)
 
-class OutConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(OutConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-
-    def forward(self, x):
-        return self.conv(x)
-
 class UNet(nn.Module):
-    def __init__(self, n_channels, n_classes):
+    def __init__(self, n_channels, n_classes, scale=8, dropout=0.5):
         super(UNet, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes
 
-        self.inc = DoubleConv(n_channels, 16)
-        self.down1 = Down(16, 32)
-        self.down2 = Down(32, 64)
-        self.down3 = Down(64, 128)
-        self.down4 = Down(128, 256)
-        self.up1 = Up(256, 128)
-        self.up2 = Up(128, 64)
-        self.up3 = Up(64, 32)
-        self.up4 = Up(32, 16)
-        self.outc = OutConv(16, n_classes)
+        self.inc = DoubleConv(n_channels, scale, dropout=dropout)
+        self.down1 = Down(scale, scale * 2, dropout)
+        self.down2 = Down(scale * 2, scale * 4, dropout)
+        self.down3 = Down(scale * 4, scale * 8, dropout)
+        self.down4 = Down(scale * 8, scale * 16, dropout)
+        self.up1 = Up(scale * 16, scale * 8, dropout)
+        self.up2 = Up(scale * 8, scale * 4, dropout)
+        self.up3 = Up(scale * 4, scale * 2, dropout)
+        self.up4 = Up(scale * 2, scale, dropout)
+        self.outc = nn.Conv2d(scale, n_classes, kernel_size=1)
+        self.log_softmax = nn.LogSoftmax(dim=1)
 
     def forward(self, x):
         x1 = self.inc(x)
@@ -96,8 +91,14 @@ class UNet(nn.Module):
         x = self.up2(x, x3)
         x = self.up3(x, x2)
         x = self.up4(x, x1)
-        logits = self.outc(x)
-        return logits
+        x = self.outc(x)
+
+        # Reshape and apply softmax
+        x = x.view(x.size(0), -1)
+        x = self.log_softmax(x)
+        x = x.view(x.size(0), 84, 84)
+
+        return x
 
 if __name__ == "__main__":
     net = UNet(4, 1)
