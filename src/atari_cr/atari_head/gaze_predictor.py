@@ -3,7 +3,6 @@ import os
 from typing import Callable, Optional, TypedDict
 import cv2
 import polars as pl
-import ray
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,6 +14,7 @@ from tap import Tap
 from ray import tune, train
 from ray.tune.search.optuna import OptunaSearch
 from ray.tune.schedulers import ASHAScheduler
+import yaml
 
 from atari_cr.atari_head.unet import UNet
 from atari_cr.module_overrides import tqdm
@@ -45,7 +45,7 @@ class GazePredictionNetwork(nn.Module):
     Conv deconv network predicting a saliency map for a given stack of
     4 greyscale atari game images.
     """
-    def __init__(self):
+    def __init__(self, dropout = 0.5):
         super(GazePredictionNetwork, self).__init__()
 
         # Convolutional layers
@@ -65,7 +65,7 @@ class GazePredictionNetwork(nn.Module):
 
         # Softmax layer; Uses log softmax to conform to the KLDiv expected input
         self.log_softmax = nn.LogSoftmax(dim=1)
-        self.dropout = nn.Dropout(0.75)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         # Convolutional layers
@@ -101,10 +101,10 @@ class GazePredictionNetwork(nn.Module):
         return x
 
     @staticmethod
-    def from_h5(save_path: str):
+    def from_h5(save_path: str, dropout=0.5):
         f = h5py.File(save_path, 'r')
 
-        model = GazePredictionNetwork()
+        model = GazePredictionNetwork(dropout)
         state_dict = model.state_dict()
 
         h5_weights = {}
@@ -155,9 +155,12 @@ class GazePredictor():
         self.epoch = 0
 
     def train(self, n_epochs: int, train_loader: DataLoader, val_loader: DataLoader,
-              output_dir: str, save_interval=100, eval_interval=10):
+              output_dir: str, save_interval: Optional[int] = None):
         if n_epochs == 0: return
         self.model.train()
+
+        # Default args
+        if not save_interval: save_interval = n_epochs // 10
 
         final_epoch = self.epoch + n_epochs
         losses = deque(maxlen=100)
@@ -177,19 +180,14 @@ class GazePredictor():
                     losses.append(loss.item())
                     t.set_postfix(loss=f"{np.mean(losses):6.3f}")
 
-            # Regularly save the model
-            if self.epoch % save_interval == save_interval - 1:
-                self.save(output_dir)
-                self.ray_eval(train_loader, val_loader)
-            # Regularly report to ray
-            elif self.epoch % eval_interval == eval_interval - 1:
-                self.ray_eval(train_loader, val_loader)
+            # Regularly eval and save the model
+            if self.epoch % save_interval == save_interval - 1 \
+                or self.epoch == n_epochs - 1:
+                eval = self.ray_eval(train_loader, val_loader)
+                self.save(output_dir, eval)
 
         self.model.eval()
         print('Training finished')
-
-        # Save the trained model
-        self.save(output_dir)
 
     def eval(self, loader: DataLoader,
              external_model: Callable[[torch.Tensor], torch.Tensor] = None, gt=False):
@@ -311,19 +309,28 @@ class GazePredictor():
             "Eval KLDiv": _eval["kl_div"],
             "Eval AUC": _eval["auc"],
         })
-        formatted_report = {k: f"{v:.4f}" for k, v in report}
+        formatted_report = {k: f"{v:.3f}" for k, v in report.items()}
         print(f"Ray report:\n{formatted_report}")
         train.report(report)
+        return formatted_report
 
-    def save(self, output_dir: str):
-        save_path = "checkpoint.pth"
-        save_dir = os.path.join(output_dir, str(self.epoch + 1))
-        os.makedirs(save_dir, exist_ok=True)
+    def save(self, output_dir: str, eval: Optional[dict] = None):
+        """
+        Saves the model checkpoint by its epoch as name
+
+        :param dict eval: Eval data to save as yml next to the checkpoint
+        """
+        checkpoint_dir = os.path.join(output_dir, str(self.epoch + 1))
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        weights_path = os.path.join(checkpoint_dir, "checkpoint.pth")
+        eval_path = os.path.join(checkpoint_dir, "eval.yml")
         torch.save(
             self.model.state_dict(),
-            os.path.join(save_dir, save_path)
+            weights_path
         )
-        print(f"Saved model to {save_path}")
+        if eval:
+            with open(eval_path, "w") as f: yaml.safe_dump(eval, f)
+        print(f"Saved model checkpoint to {checkpoint_dir}")
 
     @staticmethod
     def from_save_file(save_path: str, model_class=GazePredictionNetwork):
@@ -331,9 +338,7 @@ class GazePredictor():
         model.load_state_dict(torch.load(save_path, weights_only=False))
 
         predictor = GazePredictor(model)
-        predictor.epoch = int(save_path.split("/")[-1][:-4]) \
-            if isinstance(model, GazePredictionNetwork) \
-                else int(save_path.split("/")[-2])
+        predictor.epoch = int(save_path.split("/")[-2])
 
         return predictor
 
@@ -440,8 +445,8 @@ def train_predictor(args: ArgParser, dataset: Optional[GazeDataset] = None):
 
     # Load an existing Atari HEAD model
     model_files = os.listdir(model_dir)
-    net = (lambda: UNet(4,1, args.unet_scale, dropout=args.dropout)) \
-        if args.unet else GazePredictionNetwork
+    net = (lambda: UNet(4,1, args.unet_scale, args.dropout)) \
+        if args.unet else (lambda: GazePredictionNetwork(args.dropout))
     if (args.load_model) and len(model_files) > 0:
         latest_epoch = sorted([int(file) for file in model_files])[-1]
         save_path = os.path.join(model_dir, str(latest_epoch), "checkpoint.pth")
@@ -472,6 +477,7 @@ def tune_predictor(config, dataset: GazeDataset):
         "model_name": f"unet_{config['unet_scale']}",
         "dropout": config["dropout"],
     })
+    print(dataset)
     train_predictor(args, dataset)
 
 if __name__ == "__main__":
@@ -479,8 +485,6 @@ if __name__ == "__main__":
     if args.ray:
         concurrent_runs = 2
         num_samples = 1 * concurrent_runs if args.debug else 50
-
-        ray.init()
 
         # Load the same dataset for all runs
         env_name = "ms_pacman"

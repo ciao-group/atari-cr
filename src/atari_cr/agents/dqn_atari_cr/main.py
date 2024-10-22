@@ -71,6 +71,7 @@ class ArgParser(Tap):
     no_pvm_visualization: bool = False # Whether to disable output of PVM visualizations
     debug: bool = False # Debug mode for more output
     score_target: bool = True # Whether to make ray optimize game score
+    evaluator: str = "" # Path to gaze predictor weights for evaluation
 
 def main(args: ArgParser):
     # Use bfloat16 to speed up matrix computation
@@ -126,8 +127,8 @@ def main(args: ArgParser):
     # Create one env for each pause cost
     env = make_train_env()
 
-    evaluator = GazePredictor.from_save_file(
-        "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/models/all_trials/600.pth")
+    # Gaze predictor for evaluation of the agent's human-plausibility
+    evaluator = GazePredictor.from_save_file(args.evaluator) if args.evaluator else None
 
     agent = CRDQN(
         env=env,

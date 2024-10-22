@@ -87,10 +87,8 @@ if __name__ == "__main__":
     num_samples = 1 * concurrent_runs if DEBUG else 50
     time_steps = int(1e6) if DEBUG else int(1e6)
 
-    # Model checkpoint after 600 iterations is used because that is when eval
-    # performance started to degrade
     gaze_predictor = None if SCORE_TARGET else GazePredictor.from_save_file(
-        "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/models/all_trials/600.pth")
+        "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/100/checkpoint.pth")
 
     trainable = tune.with_resources(
         lambda config: tuning(config, time_steps, gaze_predictor, DEBUG, SCORE_TARGET),
