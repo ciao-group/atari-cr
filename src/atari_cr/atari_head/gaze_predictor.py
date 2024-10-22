@@ -175,7 +175,7 @@ class GazePredictor():
                     self.optimizer.step()
 
                     losses.append(loss.item())
-                    t.set_postfix(loss=f"{np.mean(losses):6.4f}")
+                    t.set_postfix(loss=f"{np.mean(losses):6.3f}")
 
             # Regularly save the model
             if self.epoch % save_interval == save_interval - 1:
@@ -502,11 +502,11 @@ if __name__ == "__main__":
             trainable,
             param_space=param_space,
             tune_config=tune.TuneConfig(
-                # num_samples=num_samples,
-                # scheduler=None if args.debug else ASHAScheduler(
-                #     stop_last_trials=True
-                # ),
-                # search_alg=OptunaSearch(),
+                num_samples=num_samples,
+                scheduler=None if args.debug else ASHAScheduler(
+                    stop_last_trials=True
+                ),
+                search_alg=OptunaSearch(),
                 metric=metric,
                 mode=mode
             ),
