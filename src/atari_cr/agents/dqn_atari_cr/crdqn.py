@@ -409,16 +409,12 @@ class CRDQN:
         current episode
         """
         os.makedirs(output_dir, exist_ok=True)
-        file_name = ((
-            f"seed{self.seed}_step{self.current_timestep:07d}"
-            f"_eval{eval_ep:02d}"))
+        file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}"
         if isinstance(self.env, FixedFovealEnv):
-            file_name = (
-                f"seed{self.seed}_step{self.current_timestep:07d}"
-                f"_eval{eval_ep:02d}_no_pause")
+            file_name += "_no_pause"
         if file_prefix: file_name += f".{file_prefix}"
-        else: os.makedirs(file_name, exist_ok=True)
         out_path = os.path.join(output_dir, file_name)
+        if not file_prefix: os.makedirs(file_name, exist_ok=True)
         save_fn(out_path)
         return out_path
 
