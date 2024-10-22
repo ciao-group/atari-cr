@@ -64,7 +64,7 @@ class Up(nn.Module):
         return self.conv(x)
 
 class UNet(nn.Module):
-    def __init__(self, n_channels, n_classes, scale=8, dropout=0.5):
+    def __init__(self, n_channels, n_classes, scale=2, dropout=0.2):
         super(UNet, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes

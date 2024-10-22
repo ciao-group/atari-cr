@@ -23,7 +23,8 @@
                 "--load_model",
                 "--n", "1",
                 "--eval_train_data",
-                "--load_saliency"
+                "--load_saliency",
+                "--unet"
             ]
         },{
             "name": "OG Agent",

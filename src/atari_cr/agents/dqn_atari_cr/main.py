@@ -71,6 +71,9 @@ class ArgParser(Tap):
     score_target: bool = True # Whether to make ray optimize game score
 
 def main(args: ArgParser):
+    # Use bfloat16 to speed up matrix computation
+    torch.set_float32_matmul_precision("medium")
+
     seed_everything(args.seed)
 
     def make_env(seed: int, **kwargs):
@@ -163,8 +166,5 @@ def main(args: ArgParser):
     return eval_returns, out_paths
 
 if __name__ == "__main__":
-    # Use bfloat16 to speed up matrix computation
-    torch.set_float32_matmul_precision("medium")
-
     args = ArgParser().parse_args()
     main(args)

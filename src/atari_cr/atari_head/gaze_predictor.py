@@ -3,6 +3,7 @@ import os
 from typing import Callable, Optional, TypedDict
 import cv2
 import polars as pl
+import ray
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,9 +12,12 @@ import torch.optim as optim
 import numpy as np
 import h5py
 from tap import Tap
+from ray import tune, train
+from ray.tune.search.optuna import OptunaSearch
+from ray.tune.schedulers import ASHAScheduler
+
 from atari_cr.atari_head.unet import UNet
 from atari_cr.module_overrides import tqdm
-
 from atari_cr.atari_head.dataset import GazeDataset
 
 class ArgParser(Tap):
@@ -23,7 +27,10 @@ class ArgParser(Tap):
     eval_train_data: bool = False # Whether to make an evaluation on the train data too
     load_saliency: bool = False # Whether to load existing saliency maps.
     unet: bool = False # Whether to use a unet instead of the conv deconv net
+    unet_scale: int = 8 # Scaling factor for the size of the unet layers
     model_name: Optional[str] = None # Name of the model for saving
+    dropout: float = 0.3 # Dropout rate for unet training
+    ray: bool = False # Whether to use ray for multiple training runs
 
 class EvalResult(TypedDict):
     min: float
@@ -148,13 +155,12 @@ class GazePredictor():
         self.epoch = 0
 
     def train(self, n_epochs: int, train_loader: DataLoader, val_loader: DataLoader,
-              output_dir: str, save_interval=100):
+              output_dir: str, save_interval=100, eval_interval=10):
         if n_epochs == 0: return
         self.model.train()
 
         final_epoch = self.epoch + n_epochs
         losses = deque(maxlen=100)
-        eval_kl_divs, train_kl_divs = [], []
         for self.epoch in range(self.epoch, final_epoch):
 
             print(f"Epoch {self.epoch + 1} / {final_epoch}")
@@ -171,17 +177,13 @@ class GazePredictor():
                     losses.append(loss.item())
                     t.set_postfix(loss=f"{np.mean(losses):6.4f}")
 
+            # Regularly save the model
             if self.epoch % save_interval == save_interval - 1:
                 self.save(output_dir)
-
-                _eval = self.eval(val_loader)
-                eval_kl_divs.append(_eval["kl_div"])
-                print(f"Eval KLDivs: {[f'{x:5.3f}' for x in eval_kl_divs]}")
-                print(f"Eval AUC: {_eval['auc']}")
-                _eval = self.eval(train_loader)
-                train_kl_divs.append(_eval["kl_div"])
-                print(f"Train KLDivs: {[f'{x:5.3f}' for x in train_kl_divs]}")
-                print(f"Tain AUC: {_eval['auc']}")
+                self.ray_eval(train_loader, val_loader)
+            # Regularly report to ray
+            elif self.epoch % eval_interval == eval_interval - 1:
+                self.ray_eval(train_loader, val_loader)
 
         self.model.eval()
         print('Training finished')
@@ -297,6 +299,20 @@ class GazePredictor():
                             how="horizontal")
         return evals
 
+    def ray_eval(self, train_loader: DataLoader, val_loader: DataLoader):
+        """ Evaluate the model on train and validation data and log the result to ray"""
+        _eval = self.eval(train_loader)
+        report = {
+            "Train KLDiv": _eval["kl_div"],
+            "Train AUC": _eval["auc"],
+        }
+        _eval = self.eval(val_loader)
+        report.update({
+            "Eval KLDiv": _eval["kl_div"],
+            "Eval AUC": _eval["auc"],
+        })
+        train.report(report)
+
     def save(self, output_dir: str):
         save_path = "checkpoint.pth"
         save_dir = os.path.join(output_dir, str(self.epoch + 1))
@@ -313,7 +329,9 @@ class GazePredictor():
         model.load_state_dict(torch.load(save_path, weights_only=False))
 
         predictor = GazePredictor(model)
-        predictor.epoch = int(save_path.split("/")[-1][:-4])
+        predictor.epoch = int(save_path.split("/")[-1][:-4]) \
+            if isinstance(model, GazePredictionNetwork) \
+                else int(save_path.split("/")[-2])
 
         return predictor
 
@@ -397,9 +415,7 @@ def norm_entropy(t: torch.Tensor, dim: Optional[int] = None):
     return entropy(t, dim) / \
         entropy(torch.full(t.shape, new_numel/t.numel()).to(t.device), dim)
 
-def train_predictor():
-    args = ArgParser().parse_args()
-
+def train_predictor(args: ArgParser, dataset: Optional[GazeDataset] = None):
     # Use bfloat16 to speed up matrix computation
     torch.set_float32_matmul_precision("medium")
     torch.manual_seed(42)
@@ -410,7 +426,7 @@ def train_predictor():
     env_name = "ms_pacman"
     single_run = "52_RZ_2394668_Aug-10-14-52-42" if args.debug else ""
     model_name = args.model_name or single_run or "all_trials"
-    dataset = GazeDataset.from_atari_head_files(
+    dataset = dataset or GazeDataset.from_atari_head_files(
         root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=single_run,
         load_saliency=args.load_saliency)
     train_loader, val_loader = dataset.split()
@@ -422,7 +438,8 @@ def train_predictor():
 
     # Load an existing Atari HEAD model
     model_files = os.listdir(model_dir)
-    net = (lambda: UNet(4,1)) if args.unet else GazePredictionNetwork
+    net = (lambda: UNet(4,1, args.unet_scale, dropout=args.dropout)) \
+        if args.unet else GazePredictionNetwork
     if (args.load_model) and len(model_files) > 0:
         latest_epoch = sorted([int(file) for file in model_files])[-1]
         save_path = os.path.join(model_dir, str(latest_epoch), "checkpoint.pth")
@@ -430,7 +447,7 @@ def train_predictor():
         gaze_predictor = GazePredictor.from_save_file(save_path, net)
     else:
         print("Creating new gaze model")
-        model = UNet(4,1) if args.unet else GazePredictionNetwork.from_h5(
+        model = net() if args.unet else GazePredictionNetwork.from_h5(
             f"data/h5_gaze_predictors/{env_name}.hdf5")
         gaze_predictor = GazePredictor(model)
 
@@ -441,5 +458,63 @@ def train_predictor():
     print(evals)
     evals.write_csv(os.path.join(model_dir, str(gaze_predictor.epoch + 1), "eval.csv"))
 
+def tune_predictor(config, dataset: GazeDataset):
+    args = ArgParser().from_dict({
+        "debug": False,
+        "load_model": False,
+        "n": 1000,
+        "eval_train_data": True,
+        "load_saliency": True,
+        "unet": True,
+        "unet_scale": config["unet_scale"],
+        "model_name": f"unet_{config['unet_scale']}",
+        "dropout": config["dropout"],
+    })
+    train_predictor(args, dataset)
+
 if __name__ == "__main__":
-    train_predictor()
+    args = ArgParser().parse_args()
+    if args.ray:
+        concurrent_runs = 2
+        num_samples = 1 * concurrent_runs if args.debug else 50
+
+        ray.init()
+
+        # Load the same dataset for all runs
+        env_name = "ms_pacman"
+        single_run = "52_RZ_2394668_Aug-10-14-52-42" if True else ""
+        dataset = GazeDataset.from_atari_head_files(
+            root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=single_run,
+            load_saliency=True)
+
+        trainable = tune_predictor
+        trainable = tune.with_parameters(trainable, dataset=dataset)
+        trainable = tune.with_resources( trainable,
+                {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
+
+        param_space = {
+            "unet_scale": tune.grid_search([2]),
+            "dropout": tune.grid_search([0.2])
+        }
+
+        metric, mode = ("Eval AUC", "max")
+        tuner = tune.Tuner(
+            trainable,
+            param_space=param_space,
+            tune_config=tune.TuneConfig(
+                # num_samples=num_samples,
+                # scheduler=None if args.debug else ASHAScheduler(
+                #     stop_last_trials=True
+                # ),
+                # search_alg=OptunaSearch(),
+                metric=metric,
+                mode=mode
+            ),
+            run_config=train.RunConfig(
+                storage_path="/home/niko/Repos/atari-cr/output/ray_results",
+            )
+        )
+        results = tuner.fit()
+        print("Best result:\n", results.get_best_result().config)
+    else:
+        train_predictor(args)
