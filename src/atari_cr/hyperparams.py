@@ -70,7 +70,6 @@ def tuning(config: ConfigParams, time_steps: int,
     if gaze_predictor is None:
         # Send the current training result back to Tune
         result = {"episode_reward": sum(eval_returns) / len(eval_returns)}
-        print("eee", eval_returns)
     else:
         # Train an agent and evaluate it regularly using gaze predictor
         dataset = GazeDataset.from_game_data(out_paths)

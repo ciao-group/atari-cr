@@ -26,13 +26,13 @@ class ArgParser(Tap):
     frame_stack: int = 4 # The number of frames making up one observation
     action_repeat: int = 4 # The number of times an action is repeated
     clip_reward: bool = False # Whether to clip rewards
-    sticky_action_probability: float = 0.0 # Probability that an action is repeated on the next timestep
+    sticky_action_prob: float = 0.0 # Probability an action is repeated next timestep
 
     # Fovea settings
     fov_size: int = 20 # The size of the fovea
     fov_init_loc: int = 0 # Where to initialize the fovea
-    relative_sensory_actions: bool = False # Whether to interprate sensory actions absolutely or relatively
-    sensory_action_space: int = 10 # Maximum size of pixels to move the fovea in one relative sensory step. Ignored for absolute sensory action mode
+    relative_sensory_actions: bool = False # Relative or absolute sensory actions
+    sensory_action_space: int = 10 # Maximum distance in one sensory step
     resize_to_full: bool = False # No idea what that is
     sensory_action_x_size: int = 4 # How many smallest sensory steps fit in x direction
     sensory_action_y_size: int = 4 # How many smallest sensory steps fit in y direction
@@ -43,30 +43,32 @@ class ArgParser(Tap):
     learning_rate: float = 1e-4 # The learning rate
     buffer_size: int = 100000 # The size of the replay buffer
     gamma: float = 0.99 # The discount factor gamma
-    target_network_frequency: int = 1000 # How many timesteps to wait before updating the target Q network
+    target_network_frequency: int = 1000 # Timesteps between Q network updates
     batch_size: int = 32 # The batch size during training
     start_e: float = 1.0 # The starting value for the exploration probability epsilon
     end_e: float = 0.01 # The final value for the exploration probability epsilon
-    exploration_fraction: float = 0.10 # The fraction of `total-timesteps` it takes from until the final value of the exploration probability epsilon
-    learning_start: int = 80000 # How many timesteps to wait before training starts on the replay buffer
-    train_frequency: int = 4 # How many steps to take in the env before a new training iteration
+    exploration_fraction: float = 0.10 # Fraction of timesteps to reach the max epsilon
+    learning_start: int = 80000 # Timesteps before training starts on the replay buffer
+    train_frequency: int = 4 # Steps to take in the env before a new training iteration
 
     # Eval args
     eval_frequency: int = -1 # How many steps to take in the env before a new evaluation
     eval_num: int = 10 # How envs are created for evaluation
 
     # Pause args
-    use_pause_env: bool = False # Whether to use an env that lets the agent pause for only making a sensory action
+    use_pause_env: bool = False # Whether to allow pauses for more observations per step
     pause_cost: float = 0.1 # The cost for the env to only take a sensory step
-    consecutive_pause_limit: int = 20 # The maximum number of consecutive pauses before pauses are forbidden. This prevents the agent from halting
-    no_action_pause_cost: float = 0.1 # The additional cost of pausing without performing a sensory action
-    saccade_cost_scale: float = 0.000 # How much the agent is punished for bigger eye movements
-    use_emma: bool = False # Whether to use the EMMA model (doi.org/10.1016/S1389-0417(00)00015-2) for saccade cost calculation. If not, the pixel length of the saccade is used.
+    consecutive_pause_limit: int = 20 # Maximum allowed number of consecutive pauses
+    no_action_pause_cost: float = 0.1 # Penalty for pasues without a sensory action
+    saccade_cost_scale: float = 0.000 # How much to penalize bigger eye movements
+    # EMMA reference: doi.org/10.1016/S1389-0417(00)00015-2
+    # If disabled, the pixel length of the saccade is used as saccade cost
+    use_emma: bool = False # Whether to use the EMMA model for saccade cost calculation
 
     # Misc
-    ignore_sugarl: bool = False # Whether to ignore the sugarl term for Q network learning
+    ignore_sugarl: bool = False # Whether to ignore the sugarl term for Q net learning
     no_model_output: bool = False # Whether to disable saving the finished model
-    no_pvm_visualization: bool = False # Whether to disable output of visualizations of the content of the PVM buffer
+    no_pvm_visualization: bool = False # Whether to disable output of PVM visualizations
     debug: bool = False # Debug mode for more output
     score_target: bool = True # Whether to make ray optimize game score
 
@@ -106,7 +108,7 @@ def main(args: ArgParser):
                     if args.relative_sensory_actions else "absolute"
                 env = AtariFixedFovealEnv(env_args)
             env.get_wrapper_attr("ale").setFloat(
-                'repeat_action_probability', args.sticky_action_probability)
+                'repeat_action_probability', args.sticky_action_prob)
             env.action_space.seed(seed)
             env.observation_space.seed(seed)
             return env

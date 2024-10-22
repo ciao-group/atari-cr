@@ -311,6 +311,8 @@ class GazePredictor():
             "Eval KLDiv": _eval["kl_div"],
             "Eval AUC": _eval["auc"],
         })
+        formatted_report = {k: f"{v:.4f}" for k, v in report}
+        print(f"Ray report:\n{formatted_report}")
         train.report(report)
 
     def save(self, output_dir: str):
