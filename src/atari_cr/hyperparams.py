@@ -88,7 +88,7 @@ if __name__ == "__main__":
     time_steps = int(1e6) if DEBUG else int(1e6)
 
     gaze_predictor = None if SCORE_TARGET else GazePredictor.from_save_file(
-        "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/100/checkpoint.pth")
+        "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth")
 
     trainable = tune.with_resources(
         lambda config: tuning(config, time_steps, gaze_predictor, DEBUG, SCORE_TARGET),

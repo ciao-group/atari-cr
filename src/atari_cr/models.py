@@ -146,3 +146,11 @@ class EpisodeRecord():
             args = yaml.safe_load(f)
 
         return EpisodeRecord(frames, annotations, args)
+
+class EvalResult(TypedDict):
+    min: float
+    max: float
+    sum: float
+    kl_div: float
+    auc: float
+    entropy: float

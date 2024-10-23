@@ -1,6 +1,6 @@
 from collections import deque
 import os
-from typing import Callable, Optional, TypedDict
+from typing import Callable, Optional
 import cv2
 import polars as pl
 import torch
@@ -14,11 +14,11 @@ from tap import Tap
 from ray import tune, train
 from ray.tune.search.optuna import OptunaSearch
 from ray.tune.schedulers import ASHAScheduler
-import yaml
 
 from atari_cr.atari_head.unet import UNet
 from atari_cr.module_overrides import tqdm
 from atari_cr.atari_head.dataset import GazeDataset
+from atari_cr.models import EvalResult
 
 class ArgParser(Tap):
     debug: bool = False # Debug mode for less data loading
@@ -31,14 +31,6 @@ class ArgParser(Tap):
     model_name: Optional[str] = None # Name of the model for saving
     dropout: float = 0.3 # Dropout rate for unet training
     ray: bool = False # Whether to use ray for multiple training runs
-
-class EvalResult(TypedDict):
-    min: float
-    max: float
-    sum: float
-    kl_div: float
-    auc: float
-    entropy: float
 
 class GazePredictionNetwork(nn.Module):
     """
@@ -181,10 +173,16 @@ class GazePredictor():
                     t.set_postfix(loss=f"{np.mean(losses):6.3f}")
 
             # Regularly eval and save the model
-            if self.epoch % save_interval == save_interval - 1 \
-                or self.epoch == n_epochs - 1:
-                eval = self.ray_eval(train_loader, val_loader)
-                self.save(output_dir, eval)
+            if self.epoch == final_epoch - 1 \
+                or self.epoch % save_interval == save_interval:
+
+                if self.epoch == final_epoch - 1:
+                    eval_df = self.baseline_eval(val_loader, train_loader)
+                else:
+                    eval = self.ray_eval(val_loader, train_loader)
+                    eval_df = self._eval_df(eval)
+                self.save(output_dir, eval_df)
+                print(eval_df)
 
         self.model.eval()
         print('Training finished')
@@ -247,16 +245,13 @@ class GazePredictor():
         Evluates the model against some baselines and returns a result dataframe.
         """
         print("Evaluating...")
-        with tqdm(total=4 if train_loader is None else 5) as pbar:
+        with tqdm(total=4) as pbar:
             evals = {}
             evals["Ground Truth"] = self.eval(val_loader, gt=True)
             pbar.update(1)
 
-            if train_loader is not None:
-                evals["Gaze Predictor (Train)"] = self.eval(train_loader)
-                pbar.update(1)
-
-            evals["Gaze Predictor"] = self.eval(val_loader)
+            # Model evaluation
+            evals.update(self.ray_eval(val_loader, train_loader))
             pbar.update(1)
 
             # Baseline evaluation
@@ -292,44 +287,49 @@ class GazePredictor():
             evals["Random"] = self.eval(val_loader, external_model=random_pred)
             pbar.update(1)
 
-            model_names = pl.Series("model", list(evals.keys())).to_frame()
-            evals = pl.concat([model_names, pl.from_dicts(list(evals.values()))],
-                            how="horizontal")
-        return evals
+        return self._eval_df(evals)
 
-    def ray_eval(self, train_loader: DataLoader, val_loader: DataLoader):
-        """ Evaluate the model on train and validation data and log the result to ray"""
-        _eval = self.eval(train_loader)
+    def ray_eval(self, val_loader: DataLoader,
+                 train_loader: Optional[DataLoader] = None):
+        """
+        Evaluate the model on train and validation data and log the result to ray
+
+        :returns dict[str, EvalResult]: Dict matching model name to EvalResult
+        """
+        val_eval = self.eval(val_loader)
         report = {
-            "Train KLDiv": _eval["kl_div"],
-            "Train AUC": _eval["auc"],
+            "Eval KLDiv": val_eval["kl_div"],
+            "Eval AUC": val_eval["auc"],
         }
-        _eval = self.eval(val_loader)
-        report.update({
-            "Eval KLDiv": _eval["kl_div"],
-            "Eval AUC": _eval["auc"],
-        })
-        formatted_report = {k: f"{v:.3f}" for k, v in report.items()}
-        print(f"Ray report:\n{formatted_report}")
+        if train_loader:
+            train_eval = self.eval(train_loader)
+            report.update({
+                "Train KLDiv": train_eval["kl_div"],
+                "Train AUC": train_eval["auc"],
+            })
+        else: train_eval = None
         train.report(report)
-        return formatted_report
+        return { "Gaze Predictor (Train)": train_eval, "Gaze Predictor": val_eval }
 
-    def save(self, output_dir: str, eval: Optional[dict] = None):
+    def save(self, output_dir: str, eval: Optional[pl.DataFrame] = None):
         """
         Saves the model checkpoint by its epoch as name
 
         :param dict eval: Eval data to save as yml next to the checkpoint
         """
+        # Create output dir and paths
         checkpoint_dir = os.path.join(output_dir, str(self.epoch + 1))
         os.makedirs(checkpoint_dir, exist_ok=True)
         weights_path = os.path.join(checkpoint_dir, "checkpoint.pth")
-        eval_path = os.path.join(checkpoint_dir, "eval.yml")
+        eval_path = os.path.join(checkpoint_dir, "eval.csv")
+
+        # Save the checkpoint
         torch.save(
             self.model.state_dict(),
             weights_path
         )
-        if eval:
-            with open(eval_path, "w") as f: yaml.safe_dump(eval, f)
+        if eval is not None:
+            eval.write_csv(eval_path)
         print(f"Saved model checkpoint to {checkpoint_dir}")
 
     @staticmethod
@@ -341,6 +341,15 @@ class GazePredictor():
         predictor.epoch = int(save_path.split("/")[-2])
 
         return predictor
+
+    @staticmethod
+    def _eval_df(eval_results: dict[str, EvalResult]):
+        """ Creates a Dataframe from a dict of EvalResults"""
+        model_names = pl.Series("model", list(eval_results.keys())).to_frame()
+        return pl.concat([
+                model_names,
+                pl.from_dicts(list(eval_results.values()))],
+            how="horizontal")
 
     @staticmethod
     def saliency_auc(gt_saliency: torch.Tensor, pred_saliency: torch.Tensor,
@@ -460,10 +469,6 @@ def train_predictor(args: ArgParser, dataset: Optional[GazeDataset] = None):
 
     # Train the model
     gaze_predictor.train(args.n, train_loader, val_loader, model_dir)
-    evals = gaze_predictor.baseline_eval(
-        val_loader, train_loader if args.eval_train_data else None)
-    print(evals)
-    evals.write_csv(os.path.join(model_dir, str(gaze_predictor.epoch + 1), "eval.csv"))
 
 def tune_predictor(config, dataset: GazeDataset):
     args = ArgParser().from_dict({

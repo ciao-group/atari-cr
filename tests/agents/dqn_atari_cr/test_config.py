@@ -17,7 +17,7 @@ class TestMain(unittest.TestCase):
                 "--use_pause_env",
                 "--action_repeat", "5",
                 "--evaluator",
-                "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/100/checkpoint.pth"
+                "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth"
         ])
 
         args = ArgParser().parse_args(known_only=True)
