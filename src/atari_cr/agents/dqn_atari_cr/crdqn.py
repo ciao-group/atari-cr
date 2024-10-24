@@ -1,3 +1,4 @@
+from collections import deque
 from typing import Optional, Union, Callable, Tuple, List
 from itertools import product
 import os
@@ -56,7 +57,7 @@ class CRDQN:
             capture_video = True,
             agent_id = 0,
             debug = False,
-            score_target = True,
+            gaze_target = False,
             evaluator: Optional[GazePredictor] = None,
         ):
         """
@@ -118,7 +119,7 @@ class CRDQN:
         self.capture_video = capture_video
         self.agent_id = agent_id
         self.debug = debug
-        self.score_target = score_target
+        self.gaze_target = gaze_target
         self.evaluator = evaluator
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
@@ -178,7 +179,9 @@ class CRDQN:
         self.pvm_buffer = PVMBuffer(
             pvm_stack, (self.n_envs, frame_stack, *self.obs_size))
 
-        self.auc = 0.
+        self.auc = 0.5
+        self.auc_window = deque(maxlen=10)
+        self.windowed_auc = self.auc
 
     def learn(self, n: int, env_name: str, experiment_name: str):
         """
@@ -248,25 +251,25 @@ class CRDQN:
 
             # Only train if a full batch is available
             self.current_timestep += self.n_envs
-            if self.current_timestep > self.batch_size:
+            if self.current_timestep < self.batch_size:
+                continue
 
-                # Save the model every 1M timesteps
-                if (not self.no_model_output) and self.current_timestep % 1000000 == 0:
-                    self._save_output(self.model_dir, "pt", self.save_checkpoint)
+            # Save the model every 1M timesteps
+            if (not self.no_model_output) and self.current_timestep % 1000000 == 0:
+                self._save_output(self.model_dir, "pt", self.save_checkpoint)
 
-                # Training
-                if self.current_timestep % self.train_frequency == 0:
-                    self.train()
+            # Training
+            if self.current_timestep % self.train_frequency == 0:
+                self.train()
 
-                # Evaluation
-                if (self.current_timestep % self.eval_frequency == 0 and
-                    self.eval_frequency > 0) or (self.current_timestep >= n):
-                    eval_returns, out_paths, auc = self.evaluate()
+            # Evaluation
+            if (self.current_timestep % self.eval_frequency == 0 and
+                self.eval_frequency > 0) or (self.current_timestep >= n):
+                eval_returns, out_paths = self.evaluate()
 
-                # Test against Atari-HEAD gaze predictor
-                if not self.score_target and self.current_timestep % 1000 == 0:
-                    eval_returns, out_paths, auc = self.evaluate(file_output=False)
-                    train.report({"auc": auc})
+            # Test against Atari-HEAD gaze predictor
+            if self.gaze_target and self.current_timestep % 10000 == 0:
+                eval_returns, out_paths = self.evaluate(file_output=False)
 
         self.env.close()
 
@@ -292,7 +295,7 @@ class CRDQN:
         self.q_network.eval()
         self.sfn.eval()
 
-        episode_infos, out_paths = [], []
+        episode_infos, out_paths, aucs = [], [], []
         for eval_ep in range(self.n_evals):
             # Create env
             eval_env = self.eval_env_generator(eval_ep)
@@ -338,6 +341,7 @@ class CRDQN:
 
             episode_infos.append(infos['final_info'][0])
 
+            # At the end of every eval episode:
             if file_output:
                 # Save a visualization of the pvm buffer at the end of the episode
                 if (not self.no_pvm_visualization):
@@ -358,16 +362,22 @@ class CRDQN:
                     self._save_output(
                         self.model_dir, "pt", self.save_checkpoint, eval_ep)
 
-            elif isinstance(single_eval_env, PauseableFixedFovealEnv) \
+            # AUC calculation
+            if isinstance(single_eval_env, PauseableFixedFovealEnv) \
                 and self.evaluator:
                 loader = GazeDataset.from_game_data(
                     [single_eval_env.prev_episode]).to_loader()
-                self.auc = self.evaluator.eval(loader)["auc"]
+                aucs.append(self.evaluator.eval(loader)["auc"])
 
             eval_env.close()
 
         # Log results
         self._log_eval_episodes(episode_infos)
+
+        # AUC and windowed AUC
+        self.auc = sum(aucs) / len(aucs)
+        self.auc_window.append(self.auc)
+        self.windowed_auc = sum(self.auc_window) / len(self.auc_window)
 
         # Set the networks back to training mode
         self.q_network.train()
@@ -375,7 +385,7 @@ class CRDQN:
 
         eval_returns: List[float] = [
             episode_info["raw_reward"] for episode_info in episode_infos]
-        return eval_returns, out_paths, self.auc
+        return eval_returns, out_paths
 
     def save_checkpoint(self, file_path: str):
         torch.save(
@@ -414,7 +424,7 @@ class CRDQN:
             file_name += "_no_pause"
         if file_prefix: file_name += f".{file_prefix}"
         out_path = os.path.join(output_dir, file_name)
-        if not file_prefix: os.makedirs(file_name, exist_ok=True)
+        if not file_prefix: os.makedirs(out_path, exist_ok=True)
         save_fn(out_path)
         return out_path
 
@@ -497,7 +507,8 @@ class CRDQN:
                 "no_action_pauses": episode_info["no_action_pauses"],
                 "saccade_cost": episode_info["saccade_cost"],
                 "pause_reward": episode_info["reward"],
-                "auc": self.auc
+                "auc": self.auc,
+                "windowed_auc": self.windowed_auc
             })
         train.report(ray_info)
 

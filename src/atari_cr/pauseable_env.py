@@ -120,7 +120,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # observation to look at yet and do a random action instead
         if not hasattr(self, "state") and step_info["pauses"]:
             action["motor_action"] = self._sample_no_pause()
-            step_info["pauses"] = action["motor_action"] == self.pause_action
+            step_info["pauses"] = int(action["motor_action"] == self.pause_action)
             assert not step_info["pauses"], \
                 "Pause action should not happen on the first episode step"
 
@@ -131,7 +131,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.consecutive_pauses > self.consecutive_pause_limit) and \
                 step_info["pauses"]:
             action["motor_action"] = self._sample_no_pause()
-            step_info["pauses"] = action["motor_action"] == self.pause_action
+            step_info["pauses"] = int(action["motor_action"] == self.pause_action)
             step_info["prevented_pauses"] = 1
             assert not step_info["pauses"], \
                 "Pause action should not happen after many consecutive pauses"

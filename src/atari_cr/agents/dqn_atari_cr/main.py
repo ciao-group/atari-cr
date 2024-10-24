@@ -70,7 +70,7 @@ class ArgParser(Tap):
     no_model_output: bool = False # Whether to disable saving the finished model
     no_pvm_visualization: bool = False # Whether to disable output of PVM visualizations
     debug: bool = False # Debug mode for more output
-    score_target: bool = True # Whether to make ray optimize game score
+    gaze_target: bool = False # Whether to make ray optimize game score
     evaluator: str = "" # Path to gaze predictor weights for evaluation
 
 def main(args: ArgParser):
@@ -157,7 +157,7 @@ def main(args: ArgParser):
         no_pvm_visualization=args.no_pvm_visualization,
         capture_video=args.capture_video,
         debug=args.debug,
-        score_target=args.score_target,
+        gaze_target=args.gaze_target,
         evaluator=evaluator
     )
     eval_returns, out_paths = agent.learn(

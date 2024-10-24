@@ -15,9 +15,8 @@ class ConfigParams(TypedDict):
     sensory_action_space_quantization: int
     saccade_cost_scale: float
 
-def tuning(config: ConfigParams, time_steps: int,
-           gaze_predictor: Optional[GazePredictor] = None, debug = False,
-           score_target = True):
+def tuning(config: ConfigParams, time_steps: int, debug = False,
+           gaze_target = True):
     # Copy quantization value into the two corresponding values
     if "sensory_action_space_quantization" in config:
         quantization = config.pop("sensory_action_space_quantization")
@@ -37,7 +36,11 @@ def tuning(config: ConfigParams, time_steps: int,
     })
 
     # Other args
-    args_dict.update({"debug": debug, "score_target": score_target})
+    args_dict.update({
+        "debug": debug,
+        "gaze_target": gaze_target,
+        "evaluator":
+            "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth"})
 
     # Add already found hyper params
     args_dict.update({
@@ -46,7 +49,7 @@ def tuning(config: ConfigParams, time_steps: int,
         "sensory_action_space_quantization": 4, # from 9-16
         "pvm_stack": 16, # from 9-16
         "saccade_cost_scale": 0.0015, # from 9-16
-        "no_action_pause_cost": 2.0, # from 9-16
+        "no_action_pause_cost": 1.2, # from 10-23
         "pause_cost": 0.2, # from 9-16
     })
 
@@ -66,43 +69,40 @@ def tuning(config: ConfigParams, time_steps: int,
     args = ArgParser().from_dict(args_dict)
     eval_returns, out_paths = main(args)
 
-    # Evaluate it
-    if gaze_predictor is None:
-        # Send the current training result back to Tune
-        result = {"episode_reward": sum(eval_returns) / len(eval_returns)}
-    else:
-        # Train an agent and evaluate it regularly using gaze predictor
-        dataset = GazeDataset.from_game_data(out_paths)
-        agent_loader = dataset.to_loader()
-        # Eval the gaze predictor on that dataset
-        eval_result = gaze_predictor.eval(agent_loader)
-        result = { "auc": eval_result["auc"] }
+    # # Evaluate it
+    # if gaze_predictor is None:
+    #     # Send the current training result back to Tune
+    #     result = {"episode_reward": sum(eval_returns) / len(eval_returns)}
+    # else:
+    #     # Train an agent and evaluate it regularly using gaze predictor
+    #     dataset = GazeDataset.from_game_data(out_paths)
+    #     agent_loader = dataset.to_loader()
+    #     # Eval the gaze predictor on that dataset
+    #     eval_result = gaze_predictor.eval(agent_loader)
+    #     result = { "auc": eval_result["auc"] }
 
-    return result
+    # return result
 
 if __name__ == "__main__":
-    SCORE_TARGET = False
+    GAZE_TARGET = True
     DEBUG = False
     concurrent_runs = 3 if DEBUG else 4
-    num_samples = 1 * concurrent_runs if DEBUG else 50
+    num_samples = 1 * concurrent_runs if DEBUG else 100
     time_steps = int(1e6) if DEBUG else int(1e6)
 
-    gaze_predictor = None if SCORE_TARGET else GazePredictor.from_save_file(
-        "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth")
-
     trainable = tune.with_resources(
-        lambda config: tuning(config, time_steps, gaze_predictor, DEBUG, SCORE_TARGET),
+        lambda config: tuning(config, time_steps, DEBUG, GAZE_TARGET),
         {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
     param_space: ConfigParams = {
-        "pause_cost": tune.quniform(0.00, 0.01, 0.001),
-        "no_action_pause_cost": tune.quniform(0., 2.0, 0.1),
-        "pvm_stack": tune.randint(5, 30),
-        "sensory_action_space_quantization": tune.randint(1, 12),
-        "saccade_cost_scale": tune.quniform(0.0001, 0.0020, 0.0001),
+        "pause_cost": tune.quniform(0.00, 0.03, 0.002),
+        # "no_action_pause_cost": tune.quniform(0., 2.0, 0.1),
+        "pvm_stack": tune.randint(1, 20),
+        "sensory_action_space_quantization": tune.randint(1, 84),
+        "saccade_cost_scale": tune.quniform(0.0000, 0.0050, 0.0005),
     }
 
-    metric, mode = ("episode_reward", "max") if SCORE_TARGET else ("auc", "max")
+    metric, mode = ("windowed_auc", "max") if GAZE_TARGET else ("episode_reward", "max")
     tuner = tune.Tuner(
         trainable,
         param_space=param_space,
