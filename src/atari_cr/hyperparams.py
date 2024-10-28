@@ -1,12 +1,10 @@
 from ray import train, tune
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 from ray.tune.search.optuna import OptunaSearch
 from ray.tune.schedulers import ASHAScheduler
 
 from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
-from atari_cr.atari_head.dataset import GazeDataset
-from atari_cr.atari_head.gaze_predictor import GazePredictor
 
 class ConfigParams(TypedDict):
     no_action_pause_cost: float
@@ -69,19 +67,6 @@ def tuning(config: ConfigParams, time_steps: int, debug = False,
     args = ArgParser().from_dict(args_dict)
     eval_returns, out_paths = main(args)
 
-    # # Evaluate it
-    # if gaze_predictor is None:
-    #     # Send the current training result back to Tune
-    #     result = {"episode_reward": sum(eval_returns) / len(eval_returns)}
-    # else:
-    #     # Train an agent and evaluate it regularly using gaze predictor
-    #     dataset = GazeDataset.from_game_data(out_paths)
-    #     agent_loader = dataset.to_loader()
-    #     # Eval the gaze predictor on that dataset
-    #     eval_result = gaze_predictor.eval(agent_loader)
-    #     result = { "auc": eval_result["auc"] }
-
-    # return result
 
 if __name__ == "__main__":
     GAZE_TARGET = True

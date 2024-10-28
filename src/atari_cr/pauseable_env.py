@@ -157,7 +157,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             # Set prev pause action for next step
             self.prev_pause_action = step_info["pauses"]
 
-
         else:
             self.consecutive_pauses = 0
             # Normal step, the state is saved for the next pause step

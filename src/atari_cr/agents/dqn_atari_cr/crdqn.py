@@ -18,7 +18,7 @@ from active_gym import FixedFovealEnv
 from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
-from atari_cr.models import EpisodeInfo
+from atari_cr.models import EpisodeInfo, StepInfo
 from atari_cr.buffers import DoubleActionReplayBuffer
 from atari_cr.pvm_buffer import PVMBuffer
 from atari_cr.utils import linear_schedule
@@ -180,7 +180,7 @@ class CRDQN:
             pvm_stack, (self.n_envs, frame_stack, *self.obs_size))
 
         self.auc = 0.5
-        self.auc_window = deque(maxlen=10)
+        self.auc_window = deque(maxlen=100)
         self.windowed_auc = self.auc
 
     def learn(self, n: int, env_name: str, experiment_name: str):
@@ -464,14 +464,14 @@ class CRDQN:
 
         return next_pvm_obs, rewards, dones, infos
 
-    def _log_episode(self, episode_info: EpisodeInfo):
+    def _log_episode(self, step_info: StepInfo):
         # Prepare the episode infos for the different supported envs
         if isinstance(self.envs[0], FixedFovealEnv):
-            episode_info["pauses"], episode_info['pause_cost'] = 0, 0
-            episode_info["no_action_pauses"], episode_info['prevented_pauses'] = 0, 0
-            episode_info["raw_reward"] = episode_info["reward"]
+            episode_info = EpisodeInfo.new()
+            episode_info.update(step_info)
             prevented_pause_counts = [0] * len(self.envs)
         elif isinstance(self.envs[0], PauseableFixedFovealEnv):
+            episode_info = step_info["episode_info"]
             prevented_pause_counts = [
                 env.episode_info["prevented_pauses"] for env in self.envs]
         else:
@@ -496,7 +496,7 @@ class CRDQN:
 
         # Ray logging
         ray_info = {
-            "episode_reward": episode_info["raw_reward"],
+            "raw_reward": episode_info["raw_reward"],
             "sfn_loss": self.sfn_loss.item(),
             "k_timesteps": self.current_timestep / 1000
         }
@@ -506,7 +506,7 @@ class CRDQN:
                 "prevented_pauses": episode_info["prevented_pauses"],
                 "no_action_pauses": episode_info["no_action_pauses"],
                 "saccade_cost": episode_info["saccade_cost"],
-                "pause_reward": episode_info["reward"],
+                "reward": episode_info["reward"],
                 "auc": self.auc,
                 "windowed_auc": self.windowed_auc
             })
