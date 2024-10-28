@@ -268,7 +268,7 @@ class CRDQN:
                 eval_returns, out_paths = self.evaluate()
 
             # Test against Atari-HEAD gaze predictor
-            if self.gaze_target and self.current_timestep % 10000 == 0:
+            if self.gaze_target and self.current_timestep % 100_000 == 0:
                 eval_returns, out_paths = self.evaluate(file_output=False)
 
         self.env.close()
