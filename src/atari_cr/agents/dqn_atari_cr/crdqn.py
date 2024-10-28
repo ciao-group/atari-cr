@@ -180,7 +180,7 @@ class CRDQN:
             pvm_stack, (self.n_envs, frame_stack, *self.obs_size))
 
         self.auc = 0.5
-        self.auc_window = deque(maxlen=100)
+        self.auc_window = deque(maxlen=10)
         self.windowed_auc = self.auc
 
     def learn(self, n: int, env_name: str, experiment_name: str):
