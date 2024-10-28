@@ -51,12 +51,9 @@ def tuning(config: ConfigParams, time_steps: int, debug = False,
         "pause_cost": 0.2, # from 9-16
     })
 
-    # Add vaguely found hyperparameters
+    # Set pause cost to 0
     args_dict.update({
-        "no_action_pause_cost": 1.4,
-        "pause_cost": 0.3,
-        "pvm_stack": 13,
-        "saccade_cost_scale": 0.0015,
+        "pause_cost": 0.
     })
 
     # Add hyperparameter config
@@ -73,14 +70,14 @@ if __name__ == "__main__":
     DEBUG = False
     concurrent_runs = 3 if DEBUG else 4
     num_samples = 1 * concurrent_runs if DEBUG else 100
-    time_steps = 2_000_000
+    time_steps = 3_000_000
 
     trainable = tune.with_resources(
         lambda config: tuning(config, time_steps, DEBUG, GAZE_TARGET),
         {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
     param_space: ConfigParams = {
-        "pause_cost": tune.quniform(0.00, 0.03, 0.002),
+        # "pause_cost": tune.quniform(0.00, 0.03, 0.002),
         # "no_action_pause_cost": tune.quniform(0., 2.0, 0.1),
         "pvm_stack": tune.randint(1, 20),
         "sensory_action_space_quantization": tune.randint(1, 21), # from 10-21
