@@ -180,7 +180,7 @@ class CRDQN:
             pvm_stack, (self.n_envs, frame_stack, *self.obs_size))
 
         self.auc = 0.5
-        self.auc_window = deque(maxlen=10)
+        self.auc_window = deque(maxlen=5)
         self.windowed_auc = self.auc
 
     def learn(self, n: int, env_name: str, experiment_name: str):
@@ -221,7 +221,7 @@ class CRDQN:
         self.start_time = time.time()
         obs, infos = self.env.reset()
         self.pvm_buffer.append(obs)
-        pvm_obs = self.pvm_buffer.get_obs(mode="stack_max")
+        pvm_obs = self.pvm_buffer.get_obs(mode="stack_max") # -> [1,4,84,84]
 
         # Init return value
         eval_returns = []
@@ -313,6 +313,10 @@ class CRDQN:
             eval_pvm_buffer.append(obs)
             pvm_obs = eval_pvm_buffer.get_obs(mode="stack_max")
 
+            # Add the observation to the env's EpisodeRecord
+            for i, o in enumerate(pvm_obs):
+                eval_env.envs[i].add_obs(o)
+
             # One episode in the environment
             while not done:
                 # Chose an action from the Q network
@@ -323,13 +327,15 @@ class CRDQN:
                 if self.debug and np.random.choice([False, True], p=[0.9, 0.1]):
                     motor_actions = np.full(
                         motor_actions.shape, single_eval_env.pause_action)
+                    # Also change the sensory_action
+                    sensory_action_indices += 1
 
                 # Translate the action to an absolute fovea position
                 sensory_actions = np.array(
                     [self.sensory_action_set[i] for i in sensory_action_indices])
 
                 # Perform the action in the environment
-                next_pvm_obs, rewards, dones, infos = self._step(
+                pvm_obs, rewards, dones, infos = self._step(
                     eval_env,
                     eval_pvm_buffer,
                     motor_actions,
@@ -337,7 +343,10 @@ class CRDQN:
                     eval=True
                 )
                 done = dones[0]
-                pvm_obs = next_pvm_obs
+
+                # Add the observation to the env's EpisodeRecord
+                for i, o in enumerate(pvm_obs):
+                    eval_env.envs[i].add_obs(o)
 
             episode_infos.append(infos['final_info'][0])
 
@@ -353,7 +362,8 @@ class CRDQN:
                 if (self.capture_video) and single_eval_env.record and eval_ep % 4 == 0:
                     save_fn = single_eval_env.save_record_to_file \
                         if isinstance(single_eval_env, FixedFovealEnv) \
-                        else single_eval_env.prev_episode.save
+                        else lambda s: single_eval_env.prev_episode.save(
+                            s, with_obs=True)
                     out_paths.append(self._save_output(
                         self.video_dir, "", save_fn, eval_ep))
 

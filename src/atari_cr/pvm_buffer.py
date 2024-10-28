@@ -44,9 +44,11 @@ class PVMBuffer:
 
     def get_obs(self, mode="stack_max") -> np.ndarray:
         if mode == "stack_max":
-            return np.amax(np.stack(self.buffer, axis=1), axis=1) # leading dim is batch dim [B, 1, C, H, W]
+            # [B, 1, C, H, W]
+            return np.amax(np.stack(self.buffer, axis=1), axis=1)
         elif mode == "stack_mean":
-            return np.mean(np.stack(self.buffer, axis=1), axis=1, keepdims=True) # leading dim is batch dim [B, 1, C, H, W]
+            # [B, 1, C, H, W]
+            return np.mean(np.stack(self.buffer, axis=1), axis=1, keepdims=True)
         elif mode == "stack":
             # [B, T, C, H, W]
             return np.stack(self.buffer, axis=1) 

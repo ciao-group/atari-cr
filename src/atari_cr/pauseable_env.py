@@ -92,6 +92,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         assert self.state.dtype == np.float64
 
         self.frames = []
+        self.obs = []
         self.step_infos = []
         self.episode_info = EpisodeInfo.new()
         self.timestep = -1
@@ -192,6 +193,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.episode_info[key] += step_info[key]
         step_info["episode_info"] = self.episode_info.copy()
         step_info["consecutive_pauses"] = self.consecutive_pauses
+        # self.obs.append(fov_state[-1])
 
         # Log the infos of all steps in one record for the
         # entire episode
@@ -217,10 +219,15 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.prev_episode = EpisodeRecord(
                 np.stack(self.frames),
                 frame_annotations,
-                { "fov_size": self.fov_size }
+                { "fov_size": self.fov_size },
+                np.stack(self.obs) if self.obs else None
             )
 
         return fov_state, step_info["reward"], done, truncated, step_info
+
+    def add_obs(self, obs: np.ndarray):
+        """ :param Array[4,84,84] obs: Frame stack, only last frame is saved """
+        self.obs.append(obs[-1])
 
     def _sample_no_pause(self):
         """ Samples an action that is not a pause. """
@@ -250,6 +257,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         """
         Changes self.fov_loc by the given action and returns a version of the full
         state that is cropped to where the new self.fov_loc is
+
+        :returns Array[4,84,84]:
         """
         if type(action) is torch.Tensor:
             action = action.detach().cpu().numpy()
