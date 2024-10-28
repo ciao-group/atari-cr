@@ -73,7 +73,7 @@ if __name__ == "__main__":
     DEBUG = False
     concurrent_runs = 3 if DEBUG else 4
     num_samples = 1 * concurrent_runs if DEBUG else 100
-    time_steps = int(1e6) if DEBUG else int(1e6)
+    time_steps = 2_000_000
 
     trainable = tune.with_resources(
         lambda config: tuning(config, time_steps, DEBUG, GAZE_TARGET),
@@ -83,7 +83,7 @@ if __name__ == "__main__":
         "pause_cost": tune.quniform(0.00, 0.03, 0.002),
         # "no_action_pause_cost": tune.quniform(0., 2.0, 0.1),
         "pvm_stack": tune.randint(1, 20),
-        "sensory_action_space_quantization": tune.randint(1, 84),
+        "sensory_action_space_quantization": tune.randint(1, 21), # from 10-21
         "saccade_cost_scale": tune.quniform(0.0000, 0.0050, 0.0005),
     }
 
