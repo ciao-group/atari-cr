@@ -13,16 +13,14 @@ class NormedConv(nn.Module):
                  stride: int = 1, dropout=0.):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride)
-        self.activation = nn.PReLU()
-        # GroupNorm with 8 channels per group
-        assert out_channels & 8 == 0, "out_channels needs to be divisible by 8"
-        self.norm = nn.GroupNorm(out_channels // 8, out_channels)
+        self.activation = nn.ReLU()
+        self.norm = nn.BatchNorm2d(out_channels)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         x = self.conv(x)
         x = self.activation(x)
-        x = self.norm(x)
+        # x = self.norm(x)
         x = self.dropout(x)
         return x
 
@@ -42,8 +40,8 @@ class QNetwork(nn.Module):
             NormedConv(64, 64, 3, stride=1), # -> [64,7,7]
             nn.Flatten(),
             nn.Linear(3136, 512),
-            nn.PReLU(),
-            nn.GroupNorm(32, 512)
+            nn.ReLU(),
+            # nn.GroupNorm(32, 512)
         )
 
         self.motor_action_head = nn.Linear(512, self.motor_action_space_size)

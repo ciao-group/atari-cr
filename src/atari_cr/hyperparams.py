@@ -1,6 +1,5 @@
 from ray import train, tune
 from typing import TypedDict
-import sys
 
 from ray.tune.search.optuna import OptunaSearch
 from ray.tune.schedulers import ASHAScheduler
@@ -54,8 +53,9 @@ def tuning(config: ConfigParams, time_steps: int, debug = False,
 
     # Set fixed params
     args_dict.update({
-        "pause_cost": 0.,
-        "no_action_pause_cost": 1e9
+        "pause_cost": 0., # make only saccade costs matter
+        "no_action_pause_cost": 1e9, # mask out action by a high cost
+        # "pvm_stack": 3 # from sugarl code
     })
 
     # Add hyperparameter config
@@ -83,7 +83,7 @@ if __name__ == "__main__":
         # "no_action_pause_cost": tune.quniform(0., 2.0, 0.1),
         "pvm_stack": tune.randint(1, 20),
         "sensory_action_space_quantization": tune.randint(1, 21), # from 10-21
-        "saccade_cost_scale": tune.quniform(0.0000, 0.0050, 0.0005),
+        "saccade_cost_scale": tune.quniform(0.0000, 0.0100, 0.0005),
     }
 
     metric, mode = ("windowed_auc", "max") if GAZE_TARGET else ("episode_reward", "max")
@@ -101,7 +101,6 @@ if __name__ == "__main__":
         ),
         run_config=train.RunConfig(
             storage_path="/home/niko/Repos/atari-cr/output/ray_results",
-            # stop={"training_iteration": 5000}
         )
     )
     results = tuner.fit()

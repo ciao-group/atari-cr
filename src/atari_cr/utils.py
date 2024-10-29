@@ -102,7 +102,7 @@ def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
 
-def grid_image2(images: Union[np.ndarray, torch.Tensor]):
+def grid_image2(images: np.ndarray, out_file: str = "debug.png"):
     """
     Save a grid of rgb images seperated by colored lines under 'debug.png'
 
@@ -110,9 +110,6 @@ def grid_image2(images: Union[np.ndarray, torch.Tensor]):
     """
     assert len(images.shape) in [4, 5], ("Only works for images of shape [n_rows,"
         "n_cols, x, y, n_channels] or [n_rows, n_cols, x, y]")
-
-    # Convert torch tensor to numpy array
-    if isinstance(images, torch.Tensor): images = images.numpy()
 
     # Convert to float32
     if isinstance(images, np.uint8): images = images.astype(np.float32) / 256
@@ -129,29 +126,10 @@ def grid_image2(images: Union[np.ndarray, torch.Tensor]):
         ax.axis('off')
 
     plt.tight_layout()
-    plt.savefig("debug.png")
+    plt.savefig(out_file)
 
-def grid_image(array: Union[np.ndarray, torch.Tensor], line_color=[249, 171, 0],
-               line_width=1):
-    """
-    Display a grid of rgb images seperated by colored lines
-
-    :param Array[n_rows, n_cols, width, height, 3] array: Structured array of images
-    """
-    assert len(array.shape) in [4, 5], "Only works for array of shape \
-        [n_rows, n_cols, x, y, n_channels] or [n_rows, n_cols, x, y]"
-
-    # Convert torch tensor to numpy array
-    if isinstance(array, torch.Tensor): array = array.numpy()
-
-    # Convert greyscale to RGB
-    if len(array.shape) == 4:
-        array = np.broadcast_to(array[:,:,:,:,np.newaxis], [*array.shape, 3])
-    if array.shape[-1] == 1:
-        array = np.broadcast_to(array, [*array.shape[:-1], 3])
-    n_rows, n_cols, y, x, n_channels = array.shape
-
-    # Convert to uint8
+def to_uint8(array: np.ndarray):
+    """ Scales and converts a float32 array image to uint8 """
     if not array.flags["WRITEABLE"]: array = array.copy()
     if array.dtype == np.float32:
         for i in range(len(array)):
@@ -167,6 +145,26 @@ def grid_image(array: Union[np.ndarray, torch.Tensor], line_color=[249, 171, 0],
                 # Scale to be between 0 and 255
                 array[i,j] *= 255
         array = array.astype(np.uint8)
+    return array
+
+def grid_image(array: np.ndarray, line_color=[249, 171, 0], line_width=1):
+    """
+    Turn an array of images into one 2D image separated by colored lines.
+
+    :param Array[n_rows, n_cols, width, height, 3] array: Structured array of images
+    """
+    assert len(array.shape) in [4, 5], "Only works for array of shape \
+        [n_rows, n_cols, x, y, n_channels] or [n_rows, n_cols, x, y]"
+
+    # Convert greyscale to RGB
+    if len(array.shape) == 4:
+        array = np.broadcast_to(array[:,:,:,:,np.newaxis], [*array.shape, 3])
+    if array.shape[-1] == 1:
+        array = np.broadcast_to(array, [*array.shape[:-1], 3])
+    n_rows, n_cols, y, x, n_channels = array.shape
+
+    # Convert to uint8
+    array = to_uint8(array)
 
     # Create a new RGB array to hold the grid with separating lines
     grid_size = (y * n_rows + line_width * (n_rows - 1),
@@ -188,7 +186,8 @@ def grid_image(array: Union[np.ndarray, torch.Tensor], line_color=[249, 171, 0],
 
     return grid
 
-def debug_array(array: Union[np.ndarray, torch.Tensor, List[torch.Tensor]]):
+def debug_array(array: Union[np.ndarray, torch.Tensor, List[torch.Tensor]],
+                out_path = "debug.png"):
     """
     Saves a 2D, 3D or 4D greyscale array as an image under 'debug.png'.
     """
@@ -200,16 +199,18 @@ def debug_array(array: Union[np.ndarray, torch.Tensor, List[torch.Tensor]]):
         array = np.stack(array)
     # Turn a single tensor into an array
     if isinstance(array, torch.Tensor): array = array.detach().cpu().numpy()
+
     # Handle different dtypes
     if array.dtype == np.float64: array = array.astype(np.float32)
     if array.dtype == np.bool: array = array.astype(np.float32)
+
     # Turn 2D and 3D into 4D
     match len(array.shape):
         case 4: image_array = grid_image(array)
         case 3: image_array = grid_image(array[np.newaxis])
         case 2: image_array = grid_image(array[np.newaxis][np.newaxis])
 
-    Image.fromarray(image_array, "RGB").save("debug.png")
+    Image.fromarray(image_array, "RGB").save(out_path)
 
 def get_env_attributes(env) -> List[Tuple[str, Any]]:
     """ Returns a list of env attributes together with wrapped env attributes. """

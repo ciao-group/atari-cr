@@ -174,7 +174,7 @@ class GazePredictor():
 
             # Regularly eval and save the model
             if self.epoch == final_epoch - 1 \
-                or self.epoch % save_interval == save_interval:
+                or self.epoch % save_interval == save_interval - 1:
 
                 if self.epoch == final_epoch - 1:
                     eval_df = self.baseline_eval(val_loader, train_loader)
