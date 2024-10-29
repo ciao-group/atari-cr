@@ -19,17 +19,17 @@ class QNetwork(nn.Module):
 
         self.backbone = nn.Sequential( # -> [4,84,84]
             nn.Conv2d(4, 32, 8, stride=4), # -> [32,20,20]
-            nn.PReLU(),
-            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            # nn.BatchNorm2d(32),
             nn.Conv2d(32, 64, 4, stride=2), # -> [64,9,9]
-            nn.PReLU(),
-            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            # nn.BatchNorm2d(64),
             nn.Conv2d(64, 64, 3, stride=1), # -> [64,7,7]
-            nn.PReLU(),
-            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            # nn.BatchNorm2d(64),
             nn.Flatten(),
             nn.Linear(3136, 512),
-            nn.PReLU(),
+            nn.ReLU(),
         )
 
         self.motor_action_head = nn.Linear(512, self.motor_action_space_size)

@@ -20,7 +20,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     """
     def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
             consecutive_pause_limit = 20, no_action_pause_cost = 0.1,
-            saccade_cost_scale = 0.001, use_emma = False):
+            saccade_cost_scale = 0.001, use_emma = False, gaussian_fov = False):
         """
         :param float pause_cost: Negative reward for the agent whenever they chose to
             not take an action in the environment to only look; prevents abuse of
@@ -36,6 +36,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         """
         super().__init__(env)
         self.fov_size: Tuple[int, int] = args.fov_size
+        self.gaussian_fov = gaussian_fov
         self.fov_init_loc: Tuple[int, int] = args.fov_init_loc
         assert (np.array(self.fov_size) <
                 np.array(self.get_wrapper_attr("obs_size"))).all()
@@ -44,6 +45,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.relative_sensory_actions = args.sensory_action_mode == "relative"
         if self.relative_sensory_actions:
             self.sensory_action_space = np.array(args.sensory_action_space)
+        elif self.gaussian_fov:
+            self.sensory_action_space = np.array(self.get_wrapper_attr("obs_size"))
         else:
             self.sensory_action_space = \
                 np.array(self.get_wrapper_attr("obs_size")) - np.array(self.fov_size)
@@ -245,13 +248,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         info = { "raw_reward": reward }
         return self.state, reward, done, truncated, info
 
-    def _clip_to_valid_fov(self, loc):
-        return np.rint(np.clip(loc, 0,
-                np.array(self.get_wrapper_attr("obs_size")) - np.array(self.fov_size))
-            ).astype(int)
-
-    def _clip_to_valid_sensory_action_space(self, action):
-        return np.rint(np.clip(action, *self.sensory_action_space)).astype(int)
+    def _clip_to_valid_fov(self, loc: np.ndarray):
+        """ :param Array[W,H] loc: """
+        return np.clip(loc, [0,0], self.sensory_action_space).astype(int)
 
     def _fov_step(self, full_state, action):
         """
@@ -267,7 +266,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         # Move the fovea
         if self.relative_sensory_actions:
-            action = self._clip_to_valid_sensory_action_space(action)
+            action = self._clip_to_valid_fov(action)
             action = self.fov_loc + action
         self.fov_loc = self._clip_to_valid_fov(action)
 
@@ -277,24 +276,39 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
     def _crop_observation(self, full_state: np.ndarray):
         """
-        Get a version of the full_state that is cropped the foveas around fov_loc
+        Get a version of the full_state that is cropped to the fovea around fov_loc. If
+        gaussian_fov is set, a gaussian mask around fov_loc will be applied instead.
 
         :param Array[4,84,84] full_state: Stack of four greyscale images of type float64
         """
-        # Make this work with a list of fov_locs
-        crop = full_state[...,
-            self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
-            self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
-        ]
+        masked_state = np.zeros_like(full_state)
+        if self.gaussian_fov:
+            x = np.arange(full_state.shape[-2])
+            y = np.arange(full_state.shape[-1])
+            mesh = np.stack(np.meshgrid(x, y, indexing="xy")) # -> [2,84,84]
+            fov_loc = np.broadcast_to(np.array(
+                self.fov_loc)[..., np.newaxis, np.newaxis], [2,*full_state.shape[-2:]])
+                # -> [2,84,84]
+            # Half the fov_size is sigma for a comparable size
+            sigma = self.fov_size[0] / 2
+            gaussian = np.exp(-np.sum(
+                ((mesh - fov_loc) ** 2) / (2 * sigma**2),
+                axis=0)) # -> [84,84]
+            gaussian /= gaussian.max()
+            masked_state = full_state * gaussian
+        else:
+            # Make this work with a list of fov_locs
+            crop = full_state[...,
+                self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
+                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
+            ]
+            # Fill the area outside the crop with zeros
+            masked_state[...,
+                self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
+                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
+            ] = crop
 
-        # Fill the area outside the crop with zeros
-        mask = np.zeros_like(full_state)
-        mask[...,
-            self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
-            self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
-        ] = crop
-
-        return mask
+        return masked_state
 
 
 # # OPTIONAL:

@@ -84,6 +84,7 @@ if __name__ == "__main__":
         "pvm_stack": tune.randint(1, 20),
         "sensory_action_space_quantization": tune.randint(1, 21), # from 10-21
         "saccade_cost_scale": tune.quniform(0.0000, 0.0100, 0.0005),
+        "gaussian_fov": tune.choice([True, False])
     }
 
     metric, mode = ("windowed_auc", "max") if GAZE_TARGET else ("episode_reward", "max")

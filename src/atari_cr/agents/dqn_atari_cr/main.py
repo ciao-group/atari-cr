@@ -72,6 +72,7 @@ class ArgParser(Tap):
     debug: bool = False # Debug mode for more output
     gaze_target: bool = False # Whether to make ray optimize game score
     evaluator: str = "" # Path to gaze predictor weights for evaluation
+    gaussian_fov: bool = False # Whether to use a gaussian fovea or a window
 
 def main(args: ArgParser):
     # Use bfloat16 to speed up matrix computation
@@ -102,7 +103,8 @@ def main(args: ArgParser):
                 env = AtariEnv(env_args)
                 env = PauseableFixedFovealEnv(
                     env, env_args, args.pause_cost, args.consecutive_pause_limit,
-                    args.no_action_pause_cost, args.saccade_cost_scale, args.use_emma
+                    args.no_action_pause_cost, args.saccade_cost_scale, args.use_emma,
+                    args.gaussian_fov
                 )
             else:
                 env_args.sensory_action_mode = "relative" \
@@ -158,7 +160,7 @@ def main(args: ArgParser):
         capture_video=args.capture_video,
         debug=args.debug,
         gaze_target=args.gaze_target,
-        evaluator=evaluator
+        evaluator=evaluator,
     )
     eval_returns, out_paths = agent.learn(
         n=args.total_timesteps,
