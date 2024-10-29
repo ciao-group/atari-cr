@@ -7,24 +7,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
-class NormedConv(nn.Module):
-    """ Conv Layer with activation, normalization and dropout """
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int,
-                 stride: int = 1, dropout=0.):
-        super().__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride)
-        self.activation = nn.ReLU()
-        self.norm = nn.BatchNorm2d(out_channels)
-        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.activation(x)
-        # x = self.norm(x)
-        x = self.dropout(x)
-        return x
-
-# @torch.compile()
 class QNetwork(nn.Module):
     def __init__(self, env, sensory_action_set):
         super().__init__()
@@ -35,13 +18,18 @@ class QNetwork(nn.Module):
         self.sensory_action_space_size = len(sensory_action_set)
 
         self.backbone = nn.Sequential( # -> [4,84,84]
-            NormedConv(4, 32, 8, stride=4), # -> [32,20,20]
-            NormedConv(32, 64, 4, stride=2), # -> [64,9,9]
-            NormedConv(64, 64, 3, stride=1), # -> [64,7,7]
+            nn.Conv2d(4, 32, 8, stride=4), # -> [32,20,20]
+            nn.PReLU(),
+            nn.BatchNorm2d(32),
+            nn.Conv2d(32, 64, 4, stride=2), # -> [64,9,9]
+            nn.PReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 64, 3, stride=1), # -> [64,7,7]
+            nn.PReLU(),
+            nn.BatchNorm2d(64),
             nn.Flatten(),
             nn.Linear(3136, 512),
-            nn.ReLU(),
-            # nn.GroupNorm(32, 512)
+            nn.PReLU(),
         )
 
         self.motor_action_head = nn.Linear(512, self.motor_action_space_size)
