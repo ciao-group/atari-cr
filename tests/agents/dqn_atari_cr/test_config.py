@@ -9,7 +9,7 @@ class TestMain(unittest.TestCase):
             "--clip_reward",
                 "--capture_video",
                 "--env", "ms_pacman",
-                "--exp_name", "dqn_cr_debug",
+                "--exp_name", "test_config",
                 "--total_timesteps", "10000",
                 "--learning_start", "1000",
                 "--debug",
