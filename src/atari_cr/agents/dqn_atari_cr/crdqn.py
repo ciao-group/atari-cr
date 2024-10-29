@@ -324,11 +324,13 @@ class CRDQN:
                     = self.q_network.chose_eval_action(pvm_obs, self.device)
 
                 # Forcefully do a pause some of the time in debug mode
-                if self.debug and np.random.choice([False, True], p=[0.9, 0.1]):
+                if self.debug and np.random.choice([False, True], p=[0.5, 0.5]):
                     motor_actions = np.full(
                         motor_actions.shape, single_eval_env.pause_action)
                     # Also change the sensory_action
-                    sensory_action_indices += 1
+                    sensory_action_indices = np.full(
+                        sensory_action_indices.shape,
+                        np.random.randint(len(self.sensory_action_set)))
 
                 # Translate the action to an absolute fovea position
                 sensory_actions = np.array(
