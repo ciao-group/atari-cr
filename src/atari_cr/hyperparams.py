@@ -1,5 +1,6 @@
 from ray import train, tune
 from typing import TypedDict
+import sys
 
 from ray.tune.search.optuna import OptunaSearch
 from ray.tune.schedulers import ASHAScheduler
@@ -51,9 +52,10 @@ def tuning(config: ConfigParams, time_steps: int, debug = False,
         "pause_cost": 0.2, # from 9-16
     })
 
-    # Set pause cost to 0
+    # Set fixed params
     args_dict.update({
-        "pause_cost": 0.
+        "pause_cost": 0.,
+        "no_action_pause_cost": 1e9
     })
 
     # Add hyperparameter config
