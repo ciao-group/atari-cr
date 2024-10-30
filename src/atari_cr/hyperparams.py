@@ -72,8 +72,8 @@ if __name__ == "__main__":
     GAZE_TARGET = False
     DEBUG = False
     concurrent_runs = 3 if DEBUG else 4
-    num_samples = 1 * concurrent_runs if DEBUG else 100
-    time_steps = 130_000
+    num_samples = 1 * concurrent_runs if DEBUG else 24
+    time_steps = 300_000
 
     trainable = tune.with_resources(
         lambda config: tuning(config, time_steps, DEBUG, GAZE_TARGET),
@@ -88,6 +88,7 @@ if __name__ == "__main__":
         # "gaussian_fov": tune.choice([True, False])
         "prelu": tune.grid_search([True, False]),
         "norm": tune.grid_search(["", "batch", "layer", "group"]),
+        "seed": tune.grid_search([0,1,2])
     }
 
     metric, mode = ("windowed_auc", "max") if GAZE_TARGET else ("raw_reward", "max")
