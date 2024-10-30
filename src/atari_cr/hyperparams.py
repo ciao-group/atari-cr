@@ -87,7 +87,7 @@ if __name__ == "__main__":
         "gaussian_fov": tune.choice([True, False])
     }
 
-    metric, mode = ("windowed_auc", "max") if GAZE_TARGET else ("episode_reward", "max")
+    metric, mode = ("windowed_auc", "max") if GAZE_TARGET else ("raw_reward", "max")
     tuner = tune.Tuner(
         trainable,
         param_space=param_space,
