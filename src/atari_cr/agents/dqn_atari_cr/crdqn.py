@@ -3,6 +3,7 @@ from typing import Optional, Union, Callable, Tuple, List
 from itertools import product
 import os
 import time
+import polars as pl
 
 import numpy as np
 import torch
@@ -190,28 +191,17 @@ class CRDQN:
         # Define output paths
         run_identifier = os.path.join(experiment_name, env_name)
         self.run_dir = os.path.join("output/runs", run_identifier)
-        self.log_dir = os.path.join(self.run_dir, "logs")
         self.video_dir = os.path.join(self.run_dir, "recordings")
         self.pvm_dir = os.path.join(self.run_dir, "pvms")
         self.model_dir = os.path.join(self.run_dir, "trained_models")
         if isinstance(self.envs[0], FixedFovealEnv):
             self.model_dir = os.path.join(self.model_dir, "no_pause")
 
-        # Init text logging logging
-        os.makedirs(self.log_dir, exist_ok=True)
-        self.log_file = os.path.join(self.log_dir, f"seed{self.seed}.txt")
-
-        # Log pause cost
-        if isinstance(self.env, PauseableFixedFovealEnv):
-            self._log("---\nTraining start with pause costs" + \
-                str([env.pause_cost for env in self.envs]))
-
         # Load existing run if there is one
         if os.path.exists(self.model_dir):
             seeded_models = list(filter(
                 lambda s: f"seed{self.seed}" in s, os.listdir(self.model_dir)))
             if len(seeded_models) > 0:
-                self._log("Loading existing checkpoint")
                 timesteps = [int(model.split("_")[1][4:]) for model in seeded_models]
                 latest_model = seeded_models[np.argmax(timesteps)]
                 self.load_checkpoint(f"{self.model_dir}/{latest_model}")
@@ -350,7 +340,7 @@ class CRDQN:
                 for i, o in enumerate(pvm_obs):
                     eval_env.envs[i].add_obs(o)
 
-            episode_infos.append(infos['final_info'][0])
+            episode_infos.append(infos['final_info'][0]["episode_info"])
 
             # At the end of every eval episode:
             if file_output:
@@ -384,7 +374,8 @@ class CRDQN:
             eval_env.close()
 
         # Log results
-        self._log_eval_episodes(episode_infos)
+        mean_episode_info = pl.DataFrame(episode_infos).mean().row(0, named=True)
+        self._log_episode(mean_episode_info)
 
         # AUC and windowed AUC
         self.auc = sum(aucs) / len(aucs)
@@ -414,15 +405,6 @@ class CRDQN:
         self.sfn.load_state_dict(checkpoint["sfn"])
         self.q_network.load_state_dict(checkpoint["q"])
         self.current_timestep = checkpoint["training_steps"]
-
-    def _log(self, s: str):
-        """
-        Own print function. logging module does not work with the current gymnasium
-        installation for some reason.
-        """
-        assert self.log_file, "self._log needs self.log_file to bet set"
-        with open(self.log_file, "a") as f:
-            f.write(f"\n{s}")
 
     def _save_output(self, output_dir: str, file_prefix: str,
                      save_fn: Callable[[str], None], eval_ep: int = 0):
@@ -458,7 +440,7 @@ class CRDQN:
         # Log episode returns and handle `terminal_observation`
         if not eval and "final_info" in infos and True in dones:
             finished_env_idx = np.argmax(dones)
-            self._log_episode(infos['final_info'][finished_env_idx])
+            self._log_episode(infos['final_info'][finished_env_idx]["episode_info"])
             next_obs[finished_env_idx] = infos["final_observation"][finished_env_idx]
 
         # Update the latest observation in the pvm buffer
@@ -476,35 +458,11 @@ class CRDQN:
 
         return next_pvm_obs, rewards, dones, infos
 
-    def _log_episode(self, step_info: StepInfo):
+    def _log_episode(self, episode_info: EpisodeInfo):
         # Prepare the episode infos for the different supported envs
         if isinstance(self.envs[0], FixedFovealEnv):
             episode_info = EpisodeInfo.new()
-            episode_info.update(step_info)
-            prevented_pause_counts = [0] * len(self.envs)
-        elif isinstance(self.envs[0], PauseableFixedFovealEnv):
-            episode_info = step_info["episode_info"]
-            prevented_pause_counts = [
-                env.episode_info["prevented_pauses"] for env in self.envs]
-        else:
-            raise ValueError(f"Environment '{self.envs[0]}' not supported")
-
-        prevented_pauses_warning = \
-            f"\nWARNING: [Prevented Pauses: {episode_info['prevented_pauses']}]" \
-                if episode_info['prevented_pauses'] else ""
-
-        self._log((
-            f"[T: {time.time()-self.start_time:.2f}] "
-            f"[N: {self.current_timestep:07,d}] "
-            f"[R, Raw R: {episode_info['reward']:.2f}, "
-            f"{episode_info['raw_reward']:.2f}] "
-            f"[Pauses: {episode_info['pauses']}] "
-            f"{prevented_pauses_warning}"
-        ))
-        # Log the amount of prevented pauses over the entire learning period
-        if not all(prevented_pause_counts) == 0:
-            prev_pauses = ",".join(map(str, prevented_pause_counts))
-            self._log(f"WARNING: [Prevented Pauses: {prev_pauses}]")
+            episode_info.update(episode_info)
 
         # Ray logging
         ray_info = {
@@ -523,45 +481,6 @@ class CRDQN:
                 "windowed_auc": self.windowed_auc
             })
         train.report(ray_info)
-
-    def _log_eval_episodes(self, episode_infos: List[dict]):
-        # Unpack episode_infos
-        episodic_returns, episode_lengths = [], []
-        pause_counts, prevented_pauses = [], []
-        no_action_pauses, raw_episodic_returns = [], []
-        for episode_info in episode_infos:
-
-            # Prepare the episode infos for the different supported envs
-            if isinstance(self.envs[0], FixedFovealEnv):
-                full_info = EpisodeInfo.new()
-                full_info.update(episode_info)
-                episode_info = full_info
-                episode_info["timestep"] = episode_info["ep_len"]
-
-            episodic_returns.append(episode_info["reward"])
-            raw_episodic_returns.append(episode_info["raw_reward"])
-            episode_lengths.append(episode_info["timestep"])
-            pause_counts.append(episode_info["pauses"])
-            prevented_pauses.append(episode_info["prevented_pauses"])
-            no_action_pauses.append(episode_info["no_action_pauses"])
-
-        pause_cost = 0 if isinstance(self.envs[0], FixedFovealEnv) \
-            else self.envs[0].pause_cost
-
-        # Log everything
-        prevented_pauses_warning = "" if all(n == 0 for n in prevented_pauses) else \
-            f"\nWARNING: [Prevented Pauses]: {','.join(map(str, prevented_pauses))}"
-        self._log((
-            f"[N: {self.current_timestep:07,d}]"
-            f" [Eval Return, Raw Eval Return: {np.mean(episodic_returns):.2f}+/-"
-                f"{np.std(episodic_returns):.2f}"
-                f", {np.mean(raw_episodic_returns):.2f}+/-"
-                f"{np.std(raw_episodic_returns):.2f}]"
-            f"\n[Returns: {','.join([f'{r:.2f}' for r in episodic_returns])}]"
-            f"\n[Episode Lengths: {','.join([f'{r:.2f}' for r in episode_lengths])}]"
-            f"\n[Pauses: {','.join([str(n) for n in pause_counts])} with cost "
-            f"{pause_cost}]{prevented_pauses_warning}"
-        ))
 
     def _train_sfn(self, data):
         # Prediction
