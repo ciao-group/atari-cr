@@ -96,9 +96,9 @@ if __name__ == "__main__":
         param_space=param_space,
         tune_config=tune.TuneConfig(
             num_samples=num_samples,
-            scheduler=None if DEBUG else ASHAScheduler(
-                stop_last_trials=False
-            ),
+            # scheduler=None if DEBUG else ASHAScheduler(
+            #     stop_last_trials=False
+            # ),
             search_alg=OptunaSearch(),
             metric=metric,
             mode=mode
