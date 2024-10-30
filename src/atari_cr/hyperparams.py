@@ -86,8 +86,8 @@ if __name__ == "__main__":
         # "sensory_action_space_quantization": tune.randint(1, 21), # from 10-21
         # "saccade_cost_scale": tune.quniform(0.0000, 0.0100, 0.0005),
         # "gaussian_fov": tune.choice([True, False])
-        "prelu": tune.choice([True, False]),
-        "norm": tune.choice(["", "batch", "layer", "group"]),
+        "prelu": tune.grid_search([True, False]),
+        "norm": tune.grid_search(["", "batch", "layer", "group"]),
     }
 
     metric, mode = ("windowed_auc", "max") if GAZE_TARGET else ("raw_reward", "max")
@@ -99,7 +99,7 @@ if __name__ == "__main__":
             # scheduler=None if DEBUG else ASHAScheduler(
             #     stop_last_trials=False
             # ),
-            search_alg=OptunaSearch(),
+            # search_alg=OptunaSearch(),
             metric=metric,
             mode=mode
         ),

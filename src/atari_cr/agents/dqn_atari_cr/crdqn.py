@@ -158,7 +158,8 @@ class CRDQN:
             f"Set up cuda to run. Current device: {self.device.type}"
 
         # Q networks
-        self.q_network = QNetwork(self.env, self.sensory_action_set, prelu, norm).to(self.device)
+        self.q_network = QNetwork(
+            self.env, self.sensory_action_set, prelu, norm).to(self.device)
         self.optimizer = Adam(self.q_network.parameters(), lr=learning_rate)
         self.target_network = QNetwork(
             self.env, self.sensory_action_set, prelu, norm).to(self.device)
