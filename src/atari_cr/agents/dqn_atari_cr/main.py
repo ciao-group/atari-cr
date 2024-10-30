@@ -1,4 +1,5 @@
 import os
+from typing import Literal
 
 import gymnasium as gym
 import torch
@@ -73,6 +74,8 @@ class ArgParser(Tap):
     gaze_target: bool = False # Whether to make ray optimize game score
     evaluator: str = "" # Path to gaze predictor weights for evaluation
     gaussian_fov: bool = False # Whether to use a gaussian fovea or a window
+    prelu: bool = False
+    norm: Literal["", "batch", "layer", "group"] = ""
 
 def main(args: ArgParser):
     # Use bfloat16 to speed up matrix computation
@@ -161,6 +164,8 @@ def main(args: ArgParser):
         debug=args.debug,
         gaze_target=args.gaze_target,
         evaluator=evaluator,
+        prelu=args.prelu,
+        norm=args.norm,
     )
     eval_returns, out_paths = agent.learn(
         n=args.total_timesteps,

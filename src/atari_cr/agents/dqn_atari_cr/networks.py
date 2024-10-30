@@ -1,4 +1,5 @@
 import random
+from typing import Literal
 
 import torch
 from torch import nn
@@ -9,7 +10,8 @@ from gymnasium import spaces
 
 
 class QNetwork(nn.Module):
-    def __init__(self, env, sensory_action_set):
+    def __init__(self, env, sensory_action_set, prelu = False,
+                 norm: Literal["", "batch", "group", "layer"] = ""):
         super().__init__()
 
         # Get the size of the different network heads
@@ -17,19 +19,33 @@ class QNetwork(nn.Module):
         self.motor_action_space_size = env.single_action_space["motor_action"].n
         self.sensory_action_space_size = len(sensory_action_set)
 
+        activation = nn.PReLU if prelu else nn.ReLU
+        def _norm(c, w):
+            match norm:
+                case "":
+                    return nn.Identity()
+                case "batch":
+                    return nn.BatchNorm2d(c)
+                case "group":
+                    return nn.GroupNorm(c // 8, c)
+                case "layer":
+                    return nn.LayerNorm([c, w, w])
+                case other:
+                    raise ValueError("INvalid norm")
+
         self.backbone = nn.Sequential( # -> [4,84,84]
             nn.Conv2d(4, 32, 8, stride=4), # -> [32,20,20]
-            nn.ReLU(),
-            # nn.BatchNorm2d(32),
+            activation(),
+            _norm(32, 20),
             nn.Conv2d(32, 64, 4, stride=2), # -> [64,9,9]
-            nn.ReLU(),
-            # nn.BatchNorm2d(64),
+            activation(),
+            _norm(64, 9),
             nn.Conv2d(64, 64, 3, stride=1), # -> [64,7,7]
-            nn.ReLU(),
-            # nn.BatchNorm2d(64),
+            activation(),
+            _norm(64, 7),
             nn.Flatten(),
             nn.Linear(3136, 512),
-            nn.ReLU(),
+            activation(),
         )
 
         self.motor_action_head = nn.Linear(512, self.motor_action_space_size)

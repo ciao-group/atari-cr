@@ -89,8 +89,9 @@
                 "--gaze_target",
                 "--evaluator", 
                 "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth",
-                "--gaussian_fov"
-                // "--fov_size", "20"
+                "--gaussian_fov",
+                "--prelu", 
+                "--norm", "layer"
             ],
             "justMyCode": false
         },

@@ -60,6 +60,8 @@ class CRDQN:
             debug = False,
             gaze_target = False,
             evaluator: Optional[GazePredictor] = None,
+            prelu = False,
+            norm = ""
         ):
         """
         :param env `gymnasium.Env`:
@@ -122,6 +124,8 @@ class CRDQN:
         self.debug = debug
         self.gaze_target = gaze_target
         self.evaluator = evaluator
+        self.prelu = prelu
+        self.norm = norm
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.current_timestep = 0
@@ -154,10 +158,10 @@ class CRDQN:
             f"Set up cuda to run. Current device: {self.device.type}"
 
         # Q networks
-        self.q_network = QNetwork(self.env, self.sensory_action_set).to(self.device)
+        self.q_network = QNetwork(self.env, self.sensory_action_set, prelu, norm).to(self.device)
         self.optimizer = Adam(self.q_network.parameters(), lr=learning_rate)
         self.target_network = QNetwork(
-            self.env, self.sensory_action_set).to(self.device)
+            self.env, self.sensory_action_set, prelu, norm).to(self.device)
         self.target_network.load_state_dict(self.q_network.state_dict())
 
         # Self Prediction Networks; used to judge the quality of sensory actions
