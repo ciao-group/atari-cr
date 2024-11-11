@@ -277,8 +277,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
     def _crop_observation(self, full_state: np.ndarray):
         """
-        Get a version of the full_state that is cropped to the fovea around fov_loc if fov is set to 'window'.
-        Otherwise get a mask over the output
+        Get a version of the full_state that is cropped to the fovea around fov_loc if
+        fov is set to 'window'. Otherwise get a mask over the output
 
         :param Array[4,84,84] full_state: Stack of four greyscale images of type float64
         """
@@ -329,40 +329,3 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         fov_loc = np.broadcast_to(np.array(
             fov_loc)[..., np.newaxis, np.newaxis], [2,*screen_size])
         return mesh - fov_loc # -> [2,84,84]
-
-
-# # OPTIONAL:
-# class SlowableFixedFovealEnv(PauseableFixedFovealEnv):
-#     """
-#     Environemt making it possible to be paused to only take
-#     a sensory action without progressing the game.
-#     Additionally, the game can be run at 1/3 of the original
-#     speed as it was done with the Atari-HEAD dataset
-#     (http://arxiv.org/abs/1903.06754)
-#     """
-#     def __init__(self, env: gym.Env, args, pause_cost = 0.01, consecutive_pause_limit = 20,
-#                  no_action_pause_cost = 0.1, saccade_cost_scale = 0.001):
-#         super().__init__(env, args, pause_cost, consecutive_pause_limit, no_action_pause_cost, saccade_cost_scale)
-#         self.ms_since_motor_step = 0
-
-#     def step(self, action):
-#         pause_action = action["motor_action"] == len(self.get_wrapper_attribute("actions"))
-#         if pause_action and (self.state is not None):
-#             # If it has been more than 50ms (results in 20 Hz) since the last motor action
-#             # NOOP will be chosen as a motor action instead of continuing the pause
-#             SLOWED_FRAME_RATE = 20
-#             if self.ms_since_motor_step >= 1000/SLOWED_FRAME_RATE:
-#                 action["motor_action"] = np.int64(0)
-#                 self.ms_since_motor_step = 0
-#                 return self.step(action)
-#         else:
-#             self.ms_since_motor_step = 0
-
-#         fov_state, reward, done, truncated, info = super().step(action)
-
-#         # Progress the time because a vision step has happened
-#         # depending on how big the sensory action was
-#         # Time for a saccade is fixed to 20 ms for now
-#         self.ms_since_motor_step += 20
-
-#         return fov_state, reward, done, truncated, info
