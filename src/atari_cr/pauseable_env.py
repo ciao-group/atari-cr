@@ -11,6 +11,7 @@ from active_gym import AtariEnvArgs
 from atari_cr.models import EpisodeInfo, EpisodeRecord, StepInfo, FovType
 from atari_cr.utils import EMMA_fixation_time
 from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE
+from atari_cr.atari_head.dataset import SCREEN_SIZE
 from atari_cr.graphs.eccentricity import A, B, C
 
 
@@ -304,10 +305,14 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
             ] = crop
         elif self.fov == "exponential":
-            distances_from_fov = self._pixel_eccentricities(
+            pixel_eccentricities = self._pixel_eccentricities(
                 full_state.shape[-2:], self.fov_loc)
-            # absolute 1D distances
-            abs_distances = np.sqrt(np.square(distances_from_fov).sum(axis=0))
+            # Convert from pixels to visual degrees
+            eccentricities = (pixel_eccentricities.transpose([1,2,0]) *\
+                (np.array(VISUAL_DEGREE_SCREEN_SIZE) / np.array(SCREEN_SIZE))
+                ).transpose(2,0,1)
+            # Absolute 1D distances
+            abs_distances = np.sqrt(np.square(eccentricities).sum(axis=0))
 
             mask = A * np.exp(B * abs_distances) + C
             mask /= mask.max()

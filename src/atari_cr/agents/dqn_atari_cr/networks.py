@@ -33,6 +33,8 @@ class QNetwork(nn.Module):
         )
 
         self.motor_action_head = nn.Linear(512, self.motor_action_space_size)
+        # OPTIONAL: Make sensory_action_head a conv layer with every pixel being a
+        # possible sensory action
         self.sensory_action_head = nn.Linear(512, self.sensory_action_space_size)
 
     def forward(self, x):

@@ -19,7 +19,7 @@ from active_gym import FixedFovealEnv
 from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
-from atari_cr.models import EpisodeInfo, StepInfo
+from atari_cr.models import EpisodeInfo
 from atari_cr.buffers import DoubleActionReplayBuffer
 from atari_cr.pvm_buffer import PVMBuffer
 from atari_cr.utils import linear_schedule
