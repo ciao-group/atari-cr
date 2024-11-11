@@ -1,10 +1,11 @@
 from ray import train, tune
-from typing import TypedDict
+from typing import TypedDict, get_args
 
 from ray.tune.search.optuna import OptunaSearch
 from ray.tune.schedulers import ASHAScheduler
 
 from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
+from atari_cr.models import FovType
 
 class ConfigParams(TypedDict):
     no_action_pause_cost: float
@@ -82,9 +83,9 @@ if __name__ == "__main__":
         # "pause_cost": tune.quniform(0.00, 0.03, 0.002),
         # "no_action_pause_cost": tune.quniform(0., 2.0, 0.1),
         "pvm_stack": tune.randint(1, 20),
-        "sensory_action_space_quantization": tune.randint(1, 21), # from 10-21
+        # "sensory_action_space_quantization": tune.randint(1, 21), # from 10-21
         "saccade_cost_scale": tune.quniform(0.0000, 0.0100, 0.0005),
-        "gaussian_fov": tune.choice([True, False])
+        "fov": tune.choice(get_args(FovType))
     }
 
     metric, mode = ("windowed_auc", "max") if GAZE_TARGET else ("raw_reward", "max")

@@ -10,6 +10,7 @@ from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
+from atari_cr.models import FovType
 
 # OPTIONAL: Remove normal pause cost in favor of a bigger penalty for 30 pauses in a row
 # OPTIONAL: Test realtive actions better
@@ -72,7 +73,7 @@ class ArgParser(Tap):
     debug: bool = False # Debug mode for more output
     gaze_target: bool = False # Whether to make ray optimize game score
     evaluator: str = "" # Path to gaze predictor weights for evaluation
-    gaussian_fov: bool = False # Whether to use a gaussian fovea or a window
+    fov: FovType = "window" # Type of fovea
 
 def main(args: ArgParser):
     # Use bfloat16 to speed up matrix computation
@@ -104,7 +105,7 @@ def main(args: ArgParser):
                 env = PauseableFixedFovealEnv(
                     env, env_args, args.pause_cost, args.consecutive_pause_limit,
                     args.no_action_pause_cost, args.saccade_cost_scale, args.use_emma,
-                    args.gaussian_fov
+                    args.fov
                 )
             else:
                 env_args.sensory_action_mode = "relative" \

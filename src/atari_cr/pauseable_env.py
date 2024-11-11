@@ -8,9 +8,10 @@ from typing import Optional, Tuple
 from torchvision.transforms import Resize
 from active_gym import AtariEnvArgs
 
-from atari_cr.models import EpisodeInfo, EpisodeRecord, StepInfo
+from atari_cr.models import EpisodeInfo, EpisodeRecord, StepInfo, FovType
 from atari_cr.utils import EMMA_fixation_time
 from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE
+from atari_cr.graphs.eccentricity import A, B, C
 
 
 class PauseableFixedFovealEnv(gym.Wrapper):
@@ -20,7 +21,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     """
     def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
             consecutive_pause_limit = 20, no_action_pause_cost = 0.1,
-            saccade_cost_scale = 0.001, use_emma = False, gaussian_fov = False):
+            saccade_cost_scale = 0.001, use_emma = False, fov: FovType = "window"):
         """
         :param float pause_cost: Negative reward for the agent whenever they chose to
             not take an action in the environment to only look; prevents abuse of
@@ -36,7 +37,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         """
         super().__init__(env)
         self.fov_size: Tuple[int, int] = args.fov_size
-        self.gaussian_fov = gaussian_fov
+        self.fov: FovType = fov
         self.fov_init_loc: Tuple[int, int] = args.fov_init_loc
         assert (np.array(self.fov_size) <
                 np.array(self.get_wrapper_attr("obs_size"))).all()
@@ -45,9 +46,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.relative_sensory_actions = args.sensory_action_mode == "relative"
         if self.relative_sensory_actions:
             self.sensory_action_space = np.array(args.sensory_action_space)
-        elif self.gaussian_fov:
+        elif self.fov in ["gaussian", "exponential"]:
             self.sensory_action_space = np.array(self.get_wrapper_attr("obs_size"))
-        else:
+        elif self.fov == "window":
             self.sensory_action_space = \
                 np.array(self.get_wrapper_attr("obs_size")) - np.array(self.fov_size)
 
@@ -276,27 +277,22 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
     def _crop_observation(self, full_state: np.ndarray):
         """
-        Get a version of the full_state that is cropped to the fovea around fov_loc. If
-        gaussian_fov is set, a gaussian mask around fov_loc will be applied instead.
+        Get a version of the full_state that is cropped to the fovea around fov_loc if fov is set to 'window'.
+        Otherwise get a mask over the output
 
         :param Array[4,84,84] full_state: Stack of four greyscale images of type float64
         """
         masked_state = np.zeros_like(full_state)
-        if self.gaussian_fov:
-            x = np.arange(full_state.shape[-2])
-            y = np.arange(full_state.shape[-1])
-            mesh = np.stack(np.meshgrid(x, y, indexing="xy")) # -> [2,84,84]
-            fov_loc = np.broadcast_to(np.array(
-                self.fov_loc)[..., np.newaxis, np.newaxis], [2,*full_state.shape[-2:]])
-                # -> [2,84,84]
-            # Half the fov_size is sigma for a comparable size
+        if self.fov == "gaussian":
+            distances_from_fov = self._pixel_eccentricities(
+                full_state.shape[-2:], self.fov_loc)
             sigma = self.fov_size[0] / 2
             gaussian = np.exp(-np.sum(
-                ((mesh - fov_loc) ** 2) / (2 * sigma**2),
+                np.square(distances_from_fov) / (2 * np.square(sigma)),
                 axis=0)) # -> [84,84]
             gaussian /= gaussian.max()
             masked_state = full_state * gaussian
-        else:
+        elif self.fov == "window":
             # Make this work with a list of fov_locs
             crop = full_state[...,
                 self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
@@ -307,8 +303,32 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
                 self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
             ] = crop
+        elif self.fov == "exponential":
+            distances_from_fov = self._pixel_eccentricities(
+                full_state.shape[-2:], self.fov_loc)
+            # absolute 1D distances
+            abs_distances = np.sqrt(np.square(distances_from_fov).sum(axis=0))
+
+            mask = A * np.exp(B * abs_distances) + C
+            mask /= mask.max()
+            masked_state = full_state * mask
 
         return masked_state
+
+    @staticmethod
+    def _pixel_eccentricities(screen_size: tuple[int, int], fov_loc: tuple[int, int]):
+        """
+        Returns a tensor containing x and y distances from the fov_loc for every
+        possible x and y coord. Used for broadcasted calculations.
+
+        :returns Array[2,W,H]:
+        """
+        x = np.arange(screen_size[0])
+        y = np.arange(screen_size[1])
+        mesh = np.stack(np.meshgrid(x, y, indexing="xy")) # -> [2,84,84]
+        fov_loc = np.broadcast_to(np.array(
+            fov_loc)[..., np.newaxis, np.newaxis], [2,*screen_size])
+        return mesh - fov_loc # -> [2,84,84]
 
 
 # # OPTIONAL:

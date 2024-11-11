@@ -1,5 +1,5 @@
 import os
-from typing import Optional, TypedDict
+from typing import Literal, Optional, TypeAlias, TypedDict
 
 import cv2
 import numpy as np
@@ -180,3 +180,5 @@ class EvalResult(TypedDict):
     kl_div: float
     auc: float
     entropy: float
+
+FovType: TypeAlias = Literal["window", "gaussian", "exponential"]

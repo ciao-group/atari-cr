@@ -12,7 +12,7 @@ def compare_data_to_predictors(model801: GazePredictionNetwork):
     sample = next(iter(data.split(10)[1]))
     frame_stacks, saliency = [x.to("cuda") for x in sample]
 
-    # Get gaze predictor saliency at at .801 auc
+    # Get gaze predictor saliency at .801 auc
     saliency801 = model801(frame_stacks).exp()
 
     # Get gaze predictor saliency at .725 auc
@@ -27,12 +27,15 @@ def compare_predictor_to_agent(model801: GazePredictionNetwork):
     """ Compares saliency from the gaze predictor of 0.8 AUC to the agent """
     # TODO: Get saliency of an agent with 0.8 auc, or otherwise best agent
     frame_stacks, agent_saliency = \
-        next(iter(GazeDataset.from_game_data([]).to_loader(10)))
+        next(iter(GazeDataset.from_game_data([
+                ""
+            ]).to_loader(10)))
 
     # Get gaze predictor saliency at at .801 auc
     model_saliency = model801(frame_stacks).exp()
 
-    debug_array(torch.stack(model_saliency, agent_saliency))
+    debug_array(torch.stack([model_saliency, agent_saliency]),
+                "output/graphs/801-agent.png")
 
 if __name__ == "__main__":
     # Get gaze predictor at .801 auc
