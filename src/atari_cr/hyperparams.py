@@ -28,8 +28,8 @@ def tuning(config: ConfigParams, time_steps: int, debug = False):
         "capture_video": True,
         "total_timesteps": time_steps,
         "no_pvm_visualization": True,
-        "no_model_output": True,
-        "use_pause_env": True,
+        # "no_model_output": True,
+        # "use_pause_env": True,
         "env": "ms_pacman"
     })
 
@@ -54,7 +54,7 @@ def tuning(config: ConfigParams, time_steps: int, debug = False):
     args_dict.update({
         "pause_cost": 0., # make only saccade costs matter
         "no_action_pause_cost": 1e9, # mask out action by a high cost
-        # "pvm_stack": 3 # from sugarl code
+        "pvm_stack": 3 # from sugarl code
     })
 
     # Add hyperparameter config
@@ -67,11 +67,11 @@ def tuning(config: ConfigParams, time_steps: int, debug = False):
 
 
 if __name__ == "__main__":
-    GAZE_TARGET = True
+    GAZE_TARGET = False
     DEBUG = False
     concurrent_runs = 3 if DEBUG else 3
-    num_samples = 1 * concurrent_runs if DEBUG else 100
-    time_steps = 3_000_000
+    num_samples = 1 * concurrent_runs if DEBUG else 20
+    time_steps = 5_000_000
 
     trainable = tune.with_resources(
         lambda config: tuning(config, time_steps, DEBUG),
@@ -80,10 +80,11 @@ if __name__ == "__main__":
     param_space: ConfigParams = {
         # "pause_cost": tune.quniform(0.00, 0.03, 0.002),
         # "no_action_pause_cost": tune.quniform(0., 2.0, 0.1),
-        "pvm_stack": tune.randint(1, 20),
+        # "pvm_stack": tune.randint(1, 20),
         # "sensory_action_space_quantization": tune.randint(1, 21), # from 10-21
         "saccade_cost_scale": tune.quniform(0.0000, 0.0100, 0.0005),
-        "fov": tune.choice(get_args(FovType))
+        "fov": tune.choice([fov for fov in get_args(FovType) if fov != "gaussian"]),
+        "use_pause_env": tune.choice([True, False])
     }
 
     metric, mode = ("windowed_auc", "max") if GAZE_TARGET else ("raw_reward", "max")
