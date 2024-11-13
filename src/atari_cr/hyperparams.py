@@ -14,8 +14,7 @@ class ConfigParams(TypedDict):
     sensory_action_space_quantization: int
     saccade_cost_scale: float
 
-def tuning(config: ConfigParams, time_steps: int, debug = False,
-           gaze_target = True):
+def tuning(config: ConfigParams, time_steps: int, debug = False):
     # Copy quantization value into the two corresponding values
     if "sensory_action_space_quantization" in config:
         quantization = config.pop("sensory_action_space_quantization")
@@ -37,7 +36,6 @@ def tuning(config: ConfigParams, time_steps: int, debug = False,
     # Other args
     args_dict.update({
         "debug": debug,
-        "gaze_target": gaze_target,
         "evaluator":
             "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth"})
 
@@ -71,12 +69,12 @@ def tuning(config: ConfigParams, time_steps: int, debug = False,
 if __name__ == "__main__":
     GAZE_TARGET = True
     DEBUG = False
-    concurrent_runs = 3 if DEBUG else 4
+    concurrent_runs = 3 if DEBUG else 3
     num_samples = 1 * concurrent_runs if DEBUG else 100
     time_steps = 3_000_000
 
     trainable = tune.with_resources(
-        lambda config: tuning(config, time_steps, DEBUG, GAZE_TARGET),
+        lambda config: tuning(config, time_steps, DEBUG),
         {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
     param_space: ConfigParams = {

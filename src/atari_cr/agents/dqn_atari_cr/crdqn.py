@@ -58,7 +58,6 @@ class CRDQN:
             capture_video = True,
             agent_id = 0,
             debug = False,
-            gaze_target = False,
             evaluator: Optional[GazePredictor] = None,
         ):
         """
@@ -120,7 +119,6 @@ class CRDQN:
         self.capture_video = capture_video
         self.agent_id = agent_id
         self.debug = debug
-        self.gaze_target = gaze_target
         self.evaluator = evaluator
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
@@ -258,7 +256,7 @@ class CRDQN:
                 eval_returns, out_paths = self.evaluate()
 
             # Test against Atari-HEAD gaze predictor
-            if self.gaze_target and self.current_timestep % 100_000 == 0:
+            if self.current_timestep % 100_000 == 0:
                 eval_returns, out_paths = self.evaluate(file_output=False)
 
         self.env.close()
