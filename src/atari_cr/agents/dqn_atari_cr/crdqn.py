@@ -122,7 +122,7 @@ class CRDQN:
         self.evaluator = evaluator
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
-        self.current_timestep = 0
+        self.timestep = 0
 
         # Get the observation size
         self.envs = env.envs if isinstance(env, VectorEnv) else [env]
@@ -203,7 +203,7 @@ class CRDQN:
                 timesteps = [int(model.split("_")[1][4:]) for model in seeded_models]
                 latest_model = seeded_models[np.argmax(timesteps)]
                 self.load_checkpoint(f"{self.model_dir}/{latest_model}")
-                n += self.current_timestep
+                n += self.timestep
 
         # Start acting in the environment
         self.start_time = time.time()
@@ -214,7 +214,7 @@ class CRDQN:
         # Init return value
         eval_returns = []
 
-        while self.current_timestep < n:
+        while self.timestep < n:
             # Chose action from q network
             self.epsilon = self._epsilon_schedule(n)
             motor_actions, sensory_action_indices = self.q_network.chose_action(
@@ -238,25 +238,25 @@ class CRDQN:
             pvm_obs = next_pvm_obs
 
             # Only train if a full batch is available
-            self.current_timestep += self.n_envs
-            if self.current_timestep < self.batch_size:
+            self.timestep += self.n_envs
+            if self.timestep < self.batch_size:
                 continue
 
             # Save the model every 1M timesteps
-            if (not self.no_model_output) and self.current_timestep % 1000000 == 0:
+            if (not self.no_model_output) and self.timestep % 1000000 == 0:
                 self._save_output(self.model_dir, "pt", self.save_checkpoint)
 
             # Training
-            if self.current_timestep % self.train_frequency == 0:
+            if self.timestep % self.train_frequency == 0:
                 self.train()
 
             # Evaluation
-            if (self.current_timestep % self.eval_frequency == 0 and
-                self.eval_frequency > 0) or (self.current_timestep >= n):
+            if (self.timestep % self.eval_frequency == 0 and
+                self.eval_frequency > 0) or (self.timestep >= n):
                 eval_returns, out_paths = self.evaluate()
 
             # Test against Atari-HEAD gaze predictor
-            if self.current_timestep % 100_000 == 0:
+            if self.timestep % 100_000 == 0:
                 eval_returns, out_paths = self.evaluate(file_output=False)
 
         self.env.close()
@@ -275,7 +275,7 @@ class CRDQN:
         observation_quality = self._train_sfn(data)
 
         # DQN training
-        if self.current_timestep > self.learning_start:
+        if self.timestep > self.learning_start:
             self._train_dqn(data, observation_quality)
 
     def evaluate(self, file_output = True):
@@ -302,8 +302,9 @@ class CRDQN:
             pvm_obs = eval_pvm_buffer.get_obs(mode="stack_max")
 
             # Add the observation to the env's EpisodeRecord
-            for i, o in enumerate(pvm_obs):
-                eval_env.envs[i].add_obs(o)
+            if isinstance(eval_env.envs[0], PauseableFixedFovealEnv):
+                for i, o in enumerate(pvm_obs):
+                    eval_env.envs[i].add_obs(o)
 
             # One episode in the environment
             while not done:
@@ -312,7 +313,8 @@ class CRDQN:
                     = self.q_network.chose_eval_action(pvm_obs, self.device)
 
                 # Forcefully do a pause some of the time in debug mode
-                if self.debug and np.random.choice([False, True], p=[0.5, 0.5]):
+                if isinstance(single_eval_env, PauseableFixedFovealEnv) and self.debug \
+                    and np.random.choice([False, True], p=[0.5, 0.5]):
                     motor_actions = np.full(
                         motor_actions.shape, single_eval_env.pause_action)
                     # Also change the sensory_action
@@ -335,10 +337,14 @@ class CRDQN:
                 done = dones[0]
 
                 # Add the observation to the env's EpisodeRecord
-                for i, o in enumerate(pvm_obs):
-                    eval_env.envs[i].add_obs(o)
+                if isinstance(eval_env.envs[0], PauseableFixedFovealEnv):
+                    for i, o in enumerate(pvm_obs):
+                        eval_env.envs[i].add_obs(o)
 
-            episode_infos.append(infos['final_info'][0]["episode_info"])
+            info = infos["final_info"][0]
+            if isinstance(eval_env.envs[0], PauseableFixedFovealEnv):
+                info = info["episode_info"]
+            episode_infos.append(info)
 
             # At the end of every eval episode:
             if file_output:
@@ -350,12 +356,15 @@ class CRDQN:
                 # Save results as video and csv file
                 # Only save 1/4th of the evals as videos
                 if (self.capture_video) and single_eval_env.record and eval_ep % 4 == 0:
-                    save_fn = single_eval_env.save_record_to_file \
-                        if isinstance(single_eval_env, FixedFovealEnv) \
-                        else lambda s: single_eval_env.prev_episode.save(
+                    if isinstance(single_eval_env, PauseableFixedFovealEnv):
+                        save_fn = lambda s: single_eval_env.prev_episode.save( # noqa: E731
                             s, with_obs=True)
+                        extension = ""
+                    else:
+                        save_fn = single_eval_env.save_record_to_file
+                        extension = "pt"
                     out_paths.append(self._save_output(
-                        self.video_dir, "", save_fn, eval_ep))
+                        self.video_dir, extension, save_fn, eval_ep))
 
                 # Safe the model file in the first eval run
                 if (not self.no_model_output) and eval_ep == 0:
@@ -376,9 +385,10 @@ class CRDQN:
         self._log_episode(mean_episode_info)
 
         # AUC and windowed AUC
-        self.auc = sum(aucs) / len(aucs)
-        self.auc_window.append(self.auc)
-        self.windowed_auc = sum(self.auc_window) / len(self.auc_window)
+        if isinstance(single_eval_env, PauseableFixedFovealEnv):
+            self.auc = sum(aucs) / len(aucs)
+            self.auc_window.append(self.auc)
+            self.windowed_auc = sum(self.auc_window) / len(self.auc_window)
 
         # Set the networks back to training mode
         self.q_network.train()
@@ -393,7 +403,7 @@ class CRDQN:
             {
                 "sfn": self.sfn.state_dict(),
                 "q": self.q_network.state_dict(),
-                "training_steps": self.current_timestep
+                "training_steps": self.timestep
             },
             file_path
         )
@@ -402,7 +412,7 @@ class CRDQN:
         checkpoint = torch.load(file_path, weights_only=True)
         self.sfn.load_state_dict(checkpoint["sfn"])
         self.q_network.load_state_dict(checkpoint["q"])
-        self.current_timestep = checkpoint["training_steps"]
+        self.timestep = checkpoint["training_steps"]
 
     def _save_output(self, output_dir: str, file_prefix: str,
                      save_fn: Callable[[str], None], eval_ep: int = 0):
@@ -411,7 +421,7 @@ class CRDQN:
         current episode
         """
         os.makedirs(output_dir, exist_ok=True)
-        file_name = f"seed{self.seed}_step{self.current_timestep:07d}_eval{eval_ep:02d}"
+        file_name = f"seed{self.seed}_step{self.timestep:07d}_eval{eval_ep:02d}"
         if isinstance(self.env, FixedFovealEnv):
             file_name += "_no_pause"
         if file_prefix: file_name += f".{file_prefix}"
@@ -438,7 +448,10 @@ class CRDQN:
         # Log episode returns and handle `terminal_observation`
         if not eval and "final_info" in infos and True in dones:
             finished_env_idx = np.argmax(dones)
-            self._log_episode(infos['final_info'][finished_env_idx]["episode_info"])
+            episode_info = infos['final_info'][finished_env_idx]
+            if isinstance(env.envs[0], PauseableFixedFovealEnv):
+                episode_info = episode_info["episode_info"]
+            self._log_episode(episode_info)
             next_obs[finished_env_idx] = infos["final_observation"][finished_env_idx]
 
         # Update the latest observation in the pvm buffer
@@ -466,7 +479,7 @@ class CRDQN:
         ray_info = {
             "raw_reward": episode_info["raw_reward"],
             "sfn_loss": self.sfn_loss.item(),
-            "k_timesteps": self.current_timestep / 1000
+            "k_timesteps": self.timestep / 1000
         }
         if isinstance(self.envs[0], PauseableFixedFovealEnv):
             ray_info.update({
@@ -547,7 +560,7 @@ class CRDQN:
         self.optimizer.step()
 
         # Update the target network with self.target_network_frequency
-        if (self.current_timestep // self.n_envs) % self.target_network_frequency == 0:
+        if (self.timestep // self.n_envs) % self.target_network_frequency == 0:
             self.target_network.load_state_dict(self.q_network.state_dict())
 
     def _epsilon_schedule(self, total_timesteps: int):
@@ -555,4 +568,4 @@ class CRDQN:
         Maps the current number of timesteps to a value of epsilon.
         """
         return linear_schedule(*self.epsilon_interval,
-            self.exploration_fraction * total_timesteps, self.current_timestep)
+            self.exploration_fraction * total_timesteps, self.timestep)

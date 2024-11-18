@@ -4,7 +4,7 @@ from sys import argv
 from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
 
 class TestMain(unittest.TestCase):
-    def test_main(self):
+    def test_pauseable(self):
         argv.extend([
             "--clip_reward",
                 "--capture_video",
@@ -18,6 +18,22 @@ class TestMain(unittest.TestCase):
                 "--action_repeat", "5",
                 "--evaluator",
                 "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth"
+        ])
+
+        args = ArgParser().parse_args(known_only=True)
+        main(args)
+
+    def test_og(self):
+        argv.extend([
+            "--clip_reward",
+            "--capture_video",
+            "--exp_name", "test_og",
+            "--total_timesteps", "5000",
+            "--learning_start", "100",
+            "--eval_num", "3",
+            #
+            "--no_pvm_visualization",
+            "--no_model_output",
         ])
 
         args = ArgParser().parse_args(known_only=True)
