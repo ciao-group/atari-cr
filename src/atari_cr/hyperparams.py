@@ -3,6 +3,7 @@ from typing import TypedDict, get_args
 
 from ray.tune.search.optuna import OptunaSearch
 from ray.tune.schedulers import ASHAScheduler
+from ray.tune.stopper import TrialPlateauStopper
 
 from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
 from atari_cr.models import FovType
@@ -93,15 +94,16 @@ if __name__ == "__main__":
         param_space=param_space,
         tune_config=tune.TuneConfig(
             num_samples=num_samples,
-            scheduler=None if DEBUG else ASHAScheduler(
-                stop_last_trials=False
-            ),
+            # scheduler=None if DEBUG else ASHAScheduler(
+            #     stop_last_trials=False
+            # ),
             search_alg=OptunaSearch(),
             metric=metric,
             mode=mode
         ),
         run_config=train.RunConfig(
             storage_path="/home/niko/Repos/atari-cr/output/ray_results",
+            stop=TrialPlateauStopper(metric, mode=mode)
         )
     )
     results = tuner.fit()

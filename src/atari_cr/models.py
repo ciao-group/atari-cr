@@ -11,8 +11,8 @@ class EpisodeInfo(TypedDict):
     :var int reward_wo_sugarl: Raw raw reward from the base env
     """
     reward: int
-    raw_reward: int
-    reward_wo_sugarl: int
+    raw_reward: int # Reward without pause penalties
+    reward_wo_sugarl: int # Reward without sugarl term
     pauses: int
     prevented_pauses: int
     no_action_pauses: int
@@ -44,6 +44,19 @@ class StepInfo(EpisodeInfo):
 class EpisodeArgs(TypedDict):
     fov_size: tuple[int, int]
 
+class RecordBuffer(TypedDict):
+    """ Implementation of an episode record in the original sugarl code """
+    rgb: list
+    state: list
+    action: list
+    reward: list
+    done: list
+    truncated: list
+    info: list
+    return_reward: list
+    fov_size: list
+    fov_loc: list
+
 class EpisodeRecord():
     """
     Recording of one game episode containing annotated frames
@@ -62,6 +75,28 @@ class EpisodeRecord():
         self.annotations = annotations
         self.args = args
         self.obs = obs
+
+    @staticmethod
+    def annotations_from_step_infos(step_infos: list[StepInfo]):
+        """
+        Casts a list of StepInfos into a polars dataframe for representations
+        in the EpisodeRecord
+        """
+        return pl.DataFrame(step_infos).with_columns(
+            pl.col("episode_info").struct.rename_fields(
+                [f"cum_{col}" for col in EpisodeInfo.__annotations__.keys()])
+            ).unnest("episode_info").with_columns([
+                # Split fov_loc and sensory_action into smaller columns
+                # To make the df exportable via csv later
+                pl.col("fov_loc").map_elements(
+                    lambda a: a[0], pl.Int32).alias("fov_x"),
+                pl.col("fov_loc").map_elements(
+                    lambda a: a[1], pl.Int32).alias("fov_y"),
+                pl.col("sensory_action").map_elements(
+                    lambda a: a[0], pl.Int32).alias("sensory_action_x"),
+                pl.col("sensory_action").map_elements(
+                    lambda a: a[1], pl.Int32).alias("sensory_action_y"),
+            ]).drop(["fov_loc", "sensory_action"])
 
     @staticmethod
     def _file_paths(save_dir: str):
@@ -86,6 +121,21 @@ class EpisodeRecord():
         for frame in frames:
             video_writer.write(frame)
         video_writer.release()
+
+    @staticmethod
+    def from_record_buffer(buffer: RecordBuffer):
+        frames = np.stack(buffer["rgb"])
+        step_infos = []
+        for i in range(len(buffer["rgb"])):
+            step_info = StepInfo.new()
+            step_info["reward"] = buffer["reward"][i]
+            step_info["raw_reward"] = buffer["reward"][i]
+            step_info["done"] = buffer["done"][i]
+            step_info["truncated"] = buffer["truncated"][i]
+            step_info["fov_loc"] = tuple(buffer["info"][i]["fov_loc"])
+        annotations = EpisodeRecord.annotations_from_step_infos(step_infos)
+        args = { "fov_size": buffer["fov_size"][0] }
+        return EpisodeRecord(frames, annotations, args)
 
     def save(self, save_dir: str, draw_focus = False, draw_pauses = False,
              with_obs = False):

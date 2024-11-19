@@ -4,7 +4,7 @@ import gymnasium as gym
 import torch
 from tap import Tap
 
-from active_gym.atari_env import AtariEnv, AtariEnvArgs, AtariFixedFovealEnv
+from active_gym.atari_env import AtariEnv, AtariEnvArgs, RecordWrapper, FixedFovealEnv
 
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
@@ -74,60 +74,64 @@ class ArgParser(Tap):
     evaluator: str = "" # Path to gaze predictor weights for evaluation
     fov: FovType = "window" # Type of fovea
 
+def make_env(seed: int, args: ArgParser, **kwargs):
+    def thunk():
+        # Env args
+        env_args = AtariEnvArgs(
+            game=args.env,
+            seed=seed,
+            obs_size=(84, 84),
+            frame_stack=args.frame_stack,
+            action_repeat=args.action_repeat,
+            fov_size=(args.fov_size, args.fov_size),
+            fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
+            sensory_action_mode="relative" if args.relative_sensory_actions \
+                else "absolute",
+            sensory_action_space=(
+                -args.sensory_action_space, args.sensory_action_space),
+            resize_to_full=args.resize_to_full,
+            clip_reward=args.clip_reward,
+            mask_out=True,
+            **kwargs
+        )
+
+        # Pauseable or not pauseable env creation
+        env = AtariEnv(env_args)
+        if args.use_pause_env:
+            env = PauseableFixedFovealEnv(
+                env, env_args, args.pause_cost, args.consecutive_pause_limit,
+                args.no_action_pause_cost, args.saccade_cost_scale, args.use_emma,
+                args.fov )
+        else:
+            env = RecordWrapper(env, env_args)
+            env = FixedFovealEnv(env, env_args)
+
+        # Env configuration
+        env.ale.setFloat(
+            'repeat_action_probability', args.sticky_action_prob)
+        env.action_space.seed(seed)
+        env.observation_space.seed(seed)
+
+        return env
+
+    return thunk
+
+def make_train_env(args: ArgParser):
+    envs = [make_env(args.seed + i, args) for i in range(args.env_num)]
+    return gym.vector.SyncVectorEnv(envs)
+
+def make_eval_env(seed, args: ArgParser):
+    envs = [make_env(args.seed + seed, args, training=False, record=args.capture_video)]
+    return gym.vector.SyncVectorEnv(envs)
+
 def main(args: ArgParser):
     # Use bfloat16 to speed up matrix computation
     torch.set_float32_matmul_precision("medium")
 
     seed_everything(args.seed)
 
-    def make_env(seed: int, **kwargs):
-        def thunk():
-            env_args = AtariEnvArgs(
-                game=args.env,
-                seed=seed,
-                obs_size=(84, 84),
-                frame_stack=args.frame_stack,
-                action_repeat=args.action_repeat,
-                fov_size=(args.fov_size, args.fov_size),
-                fov_init_loc=(args.fov_init_loc, args.fov_init_loc),
-                sensory_action_mode="relative" if args.relative_sensory_actions \
-                    else "absolute",
-                sensory_action_space=(
-                    -args.sensory_action_space, args.sensory_action_space),
-                resize_to_full=args.resize_to_full,
-                clip_reward=args.clip_reward,
-                mask_out=True,
-                **kwargs
-            )
-            if args.use_pause_env:
-                env = AtariEnv(env_args)
-                env = PauseableFixedFovealEnv(
-                    env, env_args, args.pause_cost, args.consecutive_pause_limit,
-                    args.no_action_pause_cost, args.saccade_cost_scale, args.use_emma,
-                    args.fov
-                )
-            else:
-                env_args.sensory_action_mode = "relative" \
-                    if args.relative_sensory_actions else "absolute"
-                env = AtariFixedFovealEnv(env_args)
-            env.get_wrapper_attr("ale").setFloat(
-                'repeat_action_probability', args.sticky_action_prob)
-            env.action_space.seed(seed)
-            env.observation_space.seed(seed)
-            return env
-
-        return thunk
-
-    def make_train_env():
-        envs = [make_env(args.seed + i) for i in range(args.env_num)]
-        return gym.vector.SyncVectorEnv(envs)
-
-    def make_eval_env(seed):
-        envs = [make_env(args.seed + seed, training=False, record=args.capture_video)]
-        return gym.vector.SyncVectorEnv(envs)
-
     # Create one env for each pause cost
-    env = make_train_env()
+    env = make_train_env(args)
 
     # Gaze predictor for evaluation of the agent's human-plausibility
     evaluator = GazePredictor.from_save_file(args.evaluator) if args.evaluator else None
@@ -135,7 +139,7 @@ def main(args: ArgParser):
     agent = CRDQN(
         env=env,
         sugarl_r_scale=get_sugarl_reward_scale_atari(args.env),
-        eval_env_generator=make_eval_env,
+        eval_env_generator=lambda seed: make_eval_env(seed, args),
         fov_size=args.fov_size,
         seed=args.seed,
         cuda=(not args.disable_cuda),

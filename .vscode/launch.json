@@ -64,7 +64,7 @@
             ]
         },
         {
-            "name": "DQN CR Sugarl",
+            "name": "DQN CR",
             "type": "debugpy",
             "request": "launch",
             "program": "src/atari_cr/agents/dqn_atari_cr/main.py",

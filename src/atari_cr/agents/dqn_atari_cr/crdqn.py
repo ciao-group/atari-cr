@@ -19,7 +19,7 @@ from active_gym import FixedFovealEnv
 from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
-from atari_cr.models import EpisodeInfo
+from atari_cr.models import EpisodeInfo, EpisodeRecord
 from atari_cr.buffers import DoubleActionReplayBuffer
 from atari_cr.pvm_buffer import PVMBuffer
 from atari_cr.utils import linear_schedule
@@ -372,10 +372,12 @@ class CRDQN:
                         self.model_dir, "pt", self.save_checkpoint, eval_ep)
 
             # AUC calculation
-            if isinstance(single_eval_env, PauseableFixedFovealEnv) \
-                and self.evaluator:
-                loader = GazeDataset.from_game_data(
-                    [single_eval_env.prev_episode]).to_loader()
+            if self.evaluator:
+                episode_record = single_eval_env.prev_episode \
+                    if isinstance(single_eval_env, PauseableFixedFovealEnv) \
+                    else EpisodeRecord.from_record_buffer(
+                        single_eval_env.env.prev_record_buffer)
+                loader = GazeDataset.from_game_data([episode_record]).to_loader()
                 aucs.append(self.evaluator.eval(loader)["auc"])
 
             eval_env.close()
@@ -451,6 +453,8 @@ class CRDQN:
             episode_info = infos['final_info'][finished_env_idx]
             if isinstance(env.envs[0], PauseableFixedFovealEnv):
                 episode_info = episode_info["episode_info"]
+            else:
+                episode_info["raw_reward"] = episode_info["reward"] // 10
             self._log_episode(episode_info)
             next_obs[finished_env_idx] = infos["final_observation"][finished_env_idx]
 
@@ -472,8 +476,9 @@ class CRDQN:
     def _log_episode(self, episode_info: EpisodeInfo):
         # Prepare the episode infos for the different supported envs
         if isinstance(self.envs[0], FixedFovealEnv):
+            new_info = episode_info
             episode_info = EpisodeInfo.new()
-            episode_info.update(episode_info)
+            episode_info.update(new_info)
 
         # Ray logging
         ray_info = {

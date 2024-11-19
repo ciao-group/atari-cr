@@ -17,49 +17,48 @@ from atari_cr.graphs.eccentricity import A, B, C
 
 class PauseableFixedFovealEnv(gym.Wrapper):
     """
-    Environemt making it possible to be paused to only take
+    Environemt wrapper making it possible to be paused to only take
     a sensory action without progressing the game.
+
+    :param float pause_cost: Negative reward for the agent whenever they chose to
+        not take an action in the environment to only look; prevents abuse of
+        pausing
+    :param int consecutive_pause_limit: Limit to the amount of consecutive pauses
+        the agent can make before a random action is selected instead. This prevents
+        the agent from halting
+    :param float saccade_cost_scale: How much the agent is punished for bigger eye
+        movements
+    :param bool use_emma: Whether to use the EMMA model
+        (doi.org/10.1016/S1389-0417(00)00015-2) for saccade cost calculation. If
+        not, the pixel length of the saccade is used.
     """
     def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
             consecutive_pause_limit = 20, no_action_pause_cost = 0.1,
             saccade_cost_scale = 0.001, use_emma = False, fov: FovType = "window"):
-        """
-        :param float pause_cost: Negative reward for the agent whenever they chose to
-            not take an action in the environment to only look; prevents abuse of
-            pausing
-        :param int consecutive_pause_limit: Limit to the amount of consecutive pauses
-            the agent can make before a random action is selected instead. This prevents
-            the agent from halting
-        :param float saccade_cost_scale: How much the agent is punished for bigger eye
-            movements
-        :param bool use_emma: Whether to use the EMMA model
-            (doi.org/10.1016/S1389-0417(00)00015-2) for saccade cost calculation. If
-            not, the pixel length of the saccade is used.
-        """
         super().__init__(env)
         self.fov_size: Tuple[int, int] = args.fov_size
         self.fov: FovType = fov
         self.fov_init_loc: Tuple[int, int] = args.fov_init_loc
         assert (np.array(self.fov_size) <
-                np.array(self.get_wrapper_attr("obs_size"))).all()
+                np.array(env.obs_size)).all()
 
         # Get sensory action space for the sensory action mode
         self.relative_sensory_actions = args.sensory_action_mode == "relative"
         if self.relative_sensory_actions:
             self.sensory_action_space = np.array(args.sensory_action_space)
         elif self.fov in ["gaussian", "exponential"]:
-            self.sensory_action_space = np.array(self.get_wrapper_attr("obs_size"))
+            self.sensory_action_space = np.array(env.obs_size)
         elif self.fov == "window":
             self.sensory_action_space = \
-                np.array(self.get_wrapper_attr("obs_size")) - np.array(self.fov_size)
+                np.array(env.obs_size) - np.array(self.fov_size)
 
-        self.resize: Resize = Resize(self.get_wrapper_attr("obs_size")) \
+        self.resize: Resize = Resize(env.obs_size) \
             if args.resize_to_full else None
 
         self.action_space = Dict({
             # One additional action lets the agent stop the game to perform a
             # sensory action without the game progressing
-            "motor_action": Discrete(self.get_wrapper_attr("action_space").n + 1),
+            "motor_action": Discrete(env.action_space.n + 1),
             "sensory_action": Box(low=self.sensory_action_space[0],
                                  high=self.sensory_action_space[1], dtype=int),
         })
@@ -204,26 +203,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # entire episode
         self.step_infos.append(step_info)
         if done or truncated:
-            # Dataframe containing one StepInfo per row
-            frame_annotations = pl.DataFrame(self.step_infos).with_columns(
-                pl.col("episode_info").struct.rename_fields(
-                    [f"cum_{col}" for col in self.episode_info.keys()])
-                ).unnest("episode_info").with_columns([
-                    # Split fov_loc and sensory_action into smaller columns
-                    # To make the df exportable via csv later
-                    pl.col("fov_loc").map_elements(
-                        lambda a: a[0], pl.Int32).alias("fov_x"),
-                    pl.col("fov_loc").map_elements(
-                        lambda a: a[1], pl.Int32).alias("fov_y"),
-                    pl.col("sensory_action").map_elements(
-                        lambda a: a[0], pl.Int32).alias("sensory_action_x"),
-                    pl.col("sensory_action").map_elements(
-                        lambda a: a[1], pl.Int32).alias("sensory_action_y"),
-                ]).drop(["fov_loc", "sensory_action"])
-
             self.prev_episode = EpisodeRecord(
                 np.stack(self.frames),
-                frame_annotations,
+                EpisodeRecord.annotations_from_step_infos(self.step_infos),
                 { "fov_size": self.fov_size },
                 np.stack(self.obs) if self.obs else None
             )
