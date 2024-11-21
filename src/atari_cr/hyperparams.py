@@ -72,7 +72,7 @@ if __name__ == "__main__":
     DEBUG = False
     concurrent_runs = 3 if DEBUG else 3
     num_samples = 1 * concurrent_runs if DEBUG else 20
-    time_steps = 5_000_000
+    time_steps = 500_000
 
     trainable = tune.with_resources(
         lambda config: tuning(config, time_steps, DEBUG),

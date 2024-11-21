@@ -3,7 +3,6 @@ import gymnasium as gym
 from gymnasium.spaces import Dict, Discrete, Box
 import torch
 import numpy as np
-import polars as pl
 from typing import Optional, Tuple
 from torchvision.transforms import Resize
 from active_gym import AtariEnvArgs
@@ -31,16 +30,19 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     :param bool use_emma: Whether to use the EMMA model
         (doi.org/10.1016/S1389-0417(00)00015-2) for saccade cost calculation. If
         not, the pixel length of the saccade is used.
+    :param bool no_pause: Whether to disable the pause action
     """
     def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
             consecutive_pause_limit = 20, no_action_pause_cost = 0.1,
-            saccade_cost_scale = 0.001, use_emma = False, fov: FovType = "window"):
+            saccade_cost_scale = 0.001, use_emma = False, fov: FovType = "window",
+            no_pauses = True):
         super().__init__(env)
         self.fov_size: Tuple[int, int] = args.fov_size
         self.fov: FovType = fov
         self.fov_init_loc: Tuple[int, int] = args.fov_init_loc
         assert (np.array(self.fov_size) <
                 np.array(env.obs_size)).all()
+        self.no_pauses = no_pauses
 
         # Get sensory action space for the sensory action mode
         self.relative_sensory_actions = args.sensory_action_mode == "relative"
@@ -58,11 +60,13 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.action_space = Dict({
             # One additional action lets the agent stop the game to perform a
             # sensory action without the game progressing
-            "motor_action": Discrete(env.action_space.n + 1),
+            "motor_action": Discrete(
+                env.action_space.n if no_pauses else env.action_space.n + 1),
             "sensory_action": Box(low=self.sensory_action_space[0],
                                  high=self.sensory_action_space[1], dtype=int),
         })
-        self.pause_action = self.action_space["motor_action"].n - 1
+        self.pause_action = None if no_pauses else \
+            self.action_space["motor_action"].n - 1
 
         # How much the agent is punished for large eye movements
         self.saccade_cost_scale = saccade_cost_scale
@@ -77,15 +81,12 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # Count the number of pauses without a sensory action for every episode
         self.no_action_pause_cost = no_action_pause_cost
 
-        # Attributes from RecordWrapper class
-        self.args = args
-        self.record_buffer: Optional[pl.DataFrame] = None
-        self.prev_episode: Optional[EpisodeRecord] = None
-        self.record = args.record
-
         # EMMA
         self.use_emma = use_emma
 
+        # Attributes for recording episodes
+        self.prev_episode: Optional[EpisodeRecord] = None
+        self.record = args.record
         self.episode_info: EpisodeInfo
         self.env: AtariEnv
 
@@ -129,6 +130,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             assert not step_info["pauses"], \
                 "Pause action should not happen on the first episode step"
 
+        # TODO: Remove
         # Prevent the agent from being stuck on only using pauses
         # Perform a random motor action instead if too many pauses
         # have happened in a row
@@ -141,6 +143,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             assert not step_info["pauses"], \
                 "Pause action should not happen after many consecutive pauses"
 
+        # Actual pause step
         if step_info["pauses"]:
             if np.all(self.fov_loc == action["sensory_action"]):
                 # No action pause
@@ -197,7 +200,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.episode_info[key] += step_info[key]
         step_info["episode_info"] = self.episode_info.copy()
         step_info["consecutive_pauses"] = self.consecutive_pauses
-        # self.obs.append(fov_state[-1])
 
         # Log the infos of all steps in one record for the
         # entire episode
