@@ -373,10 +373,10 @@ class CRDQN:
 
             # AUC calculation
             if self.evaluator:
-                episode_record = single_eval_env.prev_episode \
-                    if isinstance(single_eval_env, PauseableFixedFovealEnv) \
-                    else EpisodeRecord.from_record_buffer(
-                        single_eval_env.env.prev_record_buffer)
+                if isinstance(single_eval_env, PauseableFixedFovealEnv):
+                    episode_record = single_eval_env.prev_episode
+                else: episode_record = EpisodeRecord.from_record_buffer(
+                    single_eval_env.env.prev_record_buffer)
                 loader = GazeDataset.from_game_data([episode_record]).to_loader()
                 aucs.append(self.evaluator.eval(loader)["auc"])
 
@@ -387,7 +387,7 @@ class CRDQN:
         self._log_episode(mean_episode_info)
 
         # AUC and windowed AUC
-        if isinstance(single_eval_env, PauseableFixedFovealEnv):
+        if self.evaluator:
             self.auc = sum(aucs) / len(aucs)
             self.auc_window.append(self.auc)
             self.windowed_auc = sum(self.auc_window) / len(self.auc_window)
@@ -484,7 +484,9 @@ class CRDQN:
         ray_info = {
             "raw_reward": episode_info["raw_reward"],
             "sfn_loss": self.sfn_loss.item(),
-            "k_timesteps": self.timestep / 1000
+            "k_timesteps": self.timestep / 1000,
+            "auc": self.auc,
+            "windowed_auc": self.windowed_auc
         }
         if isinstance(self.envs[0], PauseableFixedFovealEnv):
             ray_info.update({
@@ -493,8 +495,6 @@ class CRDQN:
                 "no_action_pauses": episode_info["no_action_pauses"],
                 "saccade_cost": episode_info["saccade_cost"],
                 "reward": episode_info["reward"],
-                "auc": self.auc,
-                "windowed_auc": self.windowed_auc
             })
         train.report(ray_info)
 

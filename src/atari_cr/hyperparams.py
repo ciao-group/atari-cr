@@ -83,8 +83,9 @@ if __name__ == "__main__":
         # "no_action_pause_cost": tune.quniform(0., 2.0, 0.1),
         # "pvm_stack": tune.randint(1, 20),
         # "sensory_action_space_quantization": tune.randint(1, 21), # from 10-21
-        "saccade_cost_scale": tune.quniform(0.0000, 0.0100, 0.0005),
-        "fov": tune.choice([fov for fov in get_args(FovType) if fov != "gaussian"]),
+        # "saccade_cost_scale": tune.quniform(0.0000, 0.0100, 0.0005),
+        # "fov": tune.choice([fov for fov in get_args(FovType) if fov != "gaussian"]),
+        "seed": tune.randint(0,420),
         "use_pause_env": tune.choice([True, False])
     }
 
@@ -99,11 +100,11 @@ if __name__ == "__main__":
             # ),
             search_alg=OptunaSearch(),
             metric=metric,
-            mode=mode
+            mode=mode,
         ),
         run_config=train.RunConfig(
             storage_path="/home/niko/Repos/atari-cr/output/ray_results",
-            stop=TrialPlateauStopper(metric, mode=mode)
+            stop=TrialPlateauStopper(metric, mode=mode, grace_period=1000),
         )
     )
     results = tuner.fit()

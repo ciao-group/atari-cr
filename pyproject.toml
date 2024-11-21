@@ -23,7 +23,8 @@ torch = [
     "cython<3",
     "tb-nightly",
     "opencv-python>=4.10",
-    "gymnasium[atari]>=0.29",
+    "ale-py>=0.9",
+    "gymnasium[atari]==0.29",
     "autorom[accept-rom-license]",
     # Additionally used pacakages
     "typed-argument-parser",

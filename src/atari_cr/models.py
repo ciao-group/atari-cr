@@ -6,6 +6,8 @@ import numpy as np
 import polars as pl
 import yaml
 
+from atari_cr.atari_head.utils import open_mp4_as_frame_list
+
 class EpisodeInfo(TypedDict):
     """
     :var int reward_wo_sugarl: Raw raw reward from the base env
@@ -124,16 +126,32 @@ class EpisodeRecord():
 
     @staticmethod
     def from_record_buffer(buffer: RecordBuffer):
-        frames = np.stack(buffer["rgb"])
+        # Read frames directly or from an mp4 file
+        if isinstance(buffer["rgb"], str):
+            frames = np.stack(open_mp4_as_frame_list(buffer["rgb"]))
+        else: frames = np.stack(buffer["rgb"])
+
+        # Map keys from the buffer to StepInfo
         step_infos = []
-        for i in range(len(buffer["rgb"])):
+        for i in range(len(frames)):
             step_info = StepInfo.new()
             step_info["reward"] = buffer["reward"][i]
             step_info["raw_reward"] = buffer["reward"][i]
             step_info["done"] = buffer["done"][i]
             step_info["truncated"] = buffer["truncated"][i]
             step_info["fov_loc"] = tuple(buffer["info"][i]["fov_loc"])
+            step_info["episode_info"] = EpisodeInfo.new()
+            step_infos.append(step_info)
         annotations = EpisodeRecord.annotations_from_step_infos(step_infos)
+        annotations = annotations.with_columns([
+            # The sensory_action is set to the next fov location
+            pl.col("fov_x").shift(-1).alias("sensory_action_x"),
+            pl.col("fov_y").shift(-1).alias("sensory_action_y"),
+            # Manually calculate the EpisodeInfo columns
+            pl.col("reward").cum_sum().alias("cum_reward"),
+            pl.col("raw_reward").cum_sum().alias("cum_raw_reward"),
+        ])
+
         args = { "fov_size": buffer["fov_size"][0] }
         return EpisodeRecord(frames, annotations, args)
 

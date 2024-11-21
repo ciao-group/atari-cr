@@ -242,7 +242,10 @@ class GazeDataset(Dataset):
             pause_indices = []
             for i, (x, y, pauses) in enumerate(record.annotations[
                 "sensory_action_x", "sensory_action_y", "pauses"].iter_rows()):
-                gazes.append([x, y])
+                # OPTIONAL: Why is the last sensory action not None in the pauseable env
+                # There should be one more fov loc than sensory action
+                if x is not None and y is not None:
+                    gazes.append([x, y])
                 if pauses == 0:
                     gaze_lists.append(gazes)
                     gazes = []
