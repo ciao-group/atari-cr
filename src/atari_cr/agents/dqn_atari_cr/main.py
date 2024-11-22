@@ -4,7 +4,7 @@ import gymnasium as gym
 import torch
 from tap import Tap
 
-from active_gym.atari_env import AtariEnv, AtariEnvArgs, RecordWrapper, FixedFovealEnv
+from active_gym.atari_env import AtariEnv, AtariEnvArgs
 
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
@@ -97,14 +97,10 @@ def make_env(seed: int, args: ArgParser, **kwargs):
 
         # Pauseable or not pauseable env creation
         env = AtariEnv(env_args)
-        if args.use_pause_env:
-            env = PauseableFixedFovealEnv(
-                env, env_args, args.pause_cost, args.consecutive_pause_limit,
-                args.no_action_pause_cost, args.saccade_cost_scale, args.use_emma,
-                args.fov )
-        else:
-            env = RecordWrapper(env, env_args)
-            env = FixedFovealEnv(env, env_args)
+        env = PauseableFixedFovealEnv(
+            env, env_args, args.pause_cost,
+            args.no_action_pause_cost, args.saccade_cost_scale, args.use_emma,
+            args.fov, not args.use_pause_env)
 
         # Env configuration
         env.ale.setFloat(

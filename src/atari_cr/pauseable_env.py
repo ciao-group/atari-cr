@@ -33,9 +33,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     :param bool no_pause: Whether to disable the pause action
     """
     def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
-            consecutive_pause_limit = 20, no_action_pause_cost = 0.1,
-            saccade_cost_scale = 0.001, use_emma = False, fov: FovType = "window",
-            no_pauses = True):
+            no_action_pause_cost = 0.1, saccade_cost_scale = 0.001,
+            use_emma = False, fov: FovType = "window", no_pauses = False,
+            consecutive_pause_limit = 20):
         super().__init__(env)
         self.fov_size: Tuple[int, int] = args.fov_size
         self.fov: FovType = fov
