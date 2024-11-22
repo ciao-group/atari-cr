@@ -13,6 +13,8 @@ from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE
 from atari_cr.atari_head.dataset import SCREEN_SIZE
 from atari_cr.graphs.eccentricity import A, B, C
 
+MASKED_ACTION_PENTALTY = -1e9 # Negative reward for masking out actions
+
 
 class PauseableFixedFovealEnv(gym.Wrapper):
     """
@@ -33,7 +35,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     :param bool no_pause: Whether to disable the pause action
     """
     def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
-            no_action_pause_cost = 0.1, saccade_cost_scale = 0.001,
+            saccade_cost_scale = 0.001,
             use_emma = False, fov: FovType = "window", no_pauses = False,
             consecutive_pause_limit = 20):
         super().__init__(env)
@@ -77,9 +79,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # Count and log the number of pauses made and their cost
         self.pause_cost = pause_cost
         self.consecutive_pause_limit = consecutive_pause_limit
-
-        # Count the number of pauses without a sensory action for every episode
-        self.no_action_pause_cost = no_action_pause_cost
 
         # EMMA
         self.use_emma = use_emma
@@ -130,25 +129,16 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             assert not step_info["pauses"], \
                 "Pause action should not happen on the first episode step"
 
-        # TODO: Remove
-        # Prevent the agent from being stuck on only using pauses
-        # Perform a random motor action instead if too many pauses
-        # have happened in a row
-        if (self.episode_info["prevented_pauses"] > 50 or
-            self.consecutive_pauses > self.consecutive_pause_limit) and \
-                step_info["pauses"]:
-            action["motor_action"] = self._sample_no_pause()
-            step_info["pauses"] = int(action["motor_action"] == self.pause_action)
-            step_info["prevented_pauses"] = 1
-            assert not step_info["pauses"], \
-                "Pause action should not happen after many consecutive pauses"
-
         # Actual pause step
         if step_info["pauses"]:
             if np.all(self.fov_loc == action["sensory_action"]):
                 # No action pause
-                step_info["reward"] = -self.no_action_pause_cost
+                step_info["reward"] = MASKED_ACTION_PENTALTY
                 step_info["no_action_pauses"] = 1
+            elif self.consecutive_pauses > self.consecutive_pause_limit:
+                # Too many pauses in a row
+                step_info["reward"] = MASKED_ACTION_PENTALTY
+                step_info["prevented_pauses"] = 1
             else:
                 # Normal pause
                 step_info["reward"] = -self.pause_cost

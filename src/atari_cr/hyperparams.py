@@ -9,7 +9,6 @@ from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
 from atari_cr.models import FovType
 
 class ConfigParams(TypedDict):
-    no_action_pause_cost: float
     pause_cost: float
     pvm_stack: int
     sensory_action_space_quantization: int
@@ -47,14 +46,12 @@ def tuning(config: ConfigParams, time_steps: int, debug = False):
         "sensory_action_space_quantization": 4, # from 9-16
         "pvm_stack": 16, # from 9-16
         "saccade_cost_scale": 0.0015, # from 9-16
-        "no_action_pause_cost": 1.2, # from 10-23
         "pause_cost": 0.2, # from 9-16
     })
 
     # Set fixed params
     args_dict.update({
         "pause_cost": 0., # make only saccade costs matter
-        "no_action_pause_cost": 1e9, # mask out action by a high cost
         "pvm_stack": 3 # from sugarl code
     })
 
@@ -80,7 +77,6 @@ if __name__ == "__main__":
 
     param_space: ConfigParams = {
         # "pause_cost": tune.quniform(0.00, 0.03, 0.002),
-        # "no_action_pause_cost": tune.quniform(0., 2.0, 0.1),
         # "pvm_stack": tune.randint(1, 20),
         # "sensory_action_space_quantization": tune.randint(1, 21), # from 10-21
         # "saccade_cost_scale": tune.quniform(0.0000, 0.0100, 0.0005),

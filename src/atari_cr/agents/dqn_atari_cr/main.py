@@ -60,7 +60,6 @@ class ArgParser(Tap):
     use_pause_env: bool = False # Whether to allow pauses for more observations per step
     pause_cost: float = 0.1 # The cost for the env to only take a sensory step
     consecutive_pause_limit: int = 20 # Maximum allowed number of consecutive pauses
-    no_action_pause_cost: float = 0.1 # Penalty for pasues without a sensory action
     saccade_cost_scale: float = 0.000 # How much to penalize bigger eye movements
     # EMMA reference: doi.org/10.1016/S1389-0417(00)00015-2
     # If disabled, the pixel length of the saccade is used as saccade cost
@@ -99,7 +98,7 @@ def make_env(seed: int, args: ArgParser, **kwargs):
         env = AtariEnv(env_args)
         env = PauseableFixedFovealEnv(
             env, env_args, args.pause_cost,
-            args.no_action_pause_cost, args.saccade_cost_scale, args.use_emma,
+            args.saccade_cost_scale, args.use_emma,
             args.fov, not args.use_pause_env)
 
         # Env configuration
