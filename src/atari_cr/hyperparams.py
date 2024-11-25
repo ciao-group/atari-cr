@@ -67,7 +67,7 @@ def tuning(config: ConfigParams, time_steps: int, debug = False):
 if __name__ == "__main__":
     GAZE_TARGET = False
     DEBUG = False
-    concurrent_runs = 3 if DEBUG else 3
+    concurrent_runs = 3 if DEBUG else 4
     num_samples = 1 * concurrent_runs if DEBUG else 20
     time_steps = 1_000_000
 

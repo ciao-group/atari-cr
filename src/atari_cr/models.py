@@ -155,14 +155,11 @@ class EpisodeRecord():
         args = { "fov_size": buffer["fov_size"][0] }
         return EpisodeRecord(frames, annotations, args)
 
-    def save(self, save_dir: str, draw_focus = False, draw_pauses = False,
-             with_obs = False):
+    def save(self, save_dir: str, draw_focus = False, with_obs = False):
         """
         Saves the record_buffer to an mp4 file and a metadata file.
 
         :param bool draw_focus: Whether to draw the fovea onto the frames in the video
-        :param bool draw_pauses: Whether to draw a cumulative pause count onto the
-            frames in the video
         """
         # Output paths
         video_path, annotation_path, args_path, obs_path = \
@@ -191,13 +188,10 @@ class EpisodeRecord():
                 frame = cv2.rectangle(
                     frame, top_left, bottom_right, color, thickness)
 
-            if draw_pauses:
-                text = f"Pauses: {self.annotations[i, 'episode_info']['pauses']}"
-                position = (10, 20)
-                font = cv2.FONT_HERSHEY_COMPLEX
-                font_scale = 0.3
-                frame = cv2.putText(
-                    frame, text, position, font, font_scale, color, thickness)
+            # Draw a red dot on the image if the agent paused
+            if self.annotations[i, 'pauses']:
+                frame[247:251, 4:8, :] = np.broadcast_to(
+                    np.array([0, 0, 255]), [4, 4, 3])
 
             frames.append(frame)
         self._save_video(np.stack(frames), video_path)
