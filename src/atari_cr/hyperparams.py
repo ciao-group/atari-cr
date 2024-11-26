@@ -45,7 +45,8 @@ def tuning(config: ConfigParams, time_steps: int, debug = False):
         "fov_size": 20,
         "sensory_action_space_quantization": 4, # from 9-16
         "pvm_stack": 16, # from 9-16
-        "saccade_cost_scale": 0.0015, # from 9-16
+        # "saccade_cost_scale": 0.0015, # from 9-16
+        "saccade_cost_scale": 0.0002, # lowered for more pauses
         "pause_cost": 0.2, # from 9-16
     })
 
@@ -82,7 +83,8 @@ if __name__ == "__main__":
         # "saccade_cost_scale": tune.quniform(0.0000, 0.0100, 0.0005),
         # "fov": tune.choice([fov for fov in get_args(FovType) if fov != "gaussian"]),
         "seed": tune.randint(0,420),
-        "use_pause_env": tune.choice([True, False])
+        "use_pause_env": tune.choice([True, False]),
+        "ignore_sugarl": tune.choice([True, False])
     }
 
     metric, mode = ("windowed_auc", "max") if GAZE_TARGET else ("raw_reward", "max")

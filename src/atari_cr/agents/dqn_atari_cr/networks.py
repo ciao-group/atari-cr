@@ -48,7 +48,7 @@ class QNetwork(nn.Module):
     def chose_action(self, env: gym.vector.VectorEnv, pvm_obs: np.ndarray,
                      epsilon: float, device):
         """
-        Epsilon greedy action selection
+        Epsilon greedy action selection for exploration during training.
 
         :param ndarray pvm_obs: The Observation
         :param torch.device device: The device to perform computations on
@@ -68,7 +68,7 @@ class QNetwork(nn.Module):
 
     def chose_eval_action(self, pvm_obs: np.ndarray, device: torch.device):
         """
-        Greedy action selection
+        Greedy action selection exploiting the best known policy.
 
         :param ndarray pvm_obs: The Observation
         :param torch.device device: The device to perform computations on

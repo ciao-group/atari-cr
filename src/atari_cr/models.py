@@ -1,5 +1,5 @@
 import os
-from typing import Literal, Optional, TypeAlias, TypedDict
+from typing import Literal, NamedTuple, Optional, TypeAlias, TypedDict
 
 import cv2
 import numpy as np
@@ -19,6 +19,7 @@ class EpisodeInfo(TypedDict):
     prevented_pauses: int
     no_action_pauses: int
     saccade_cost: float
+    truncated: int
 
     @staticmethod
     def new():
@@ -33,7 +34,6 @@ class StepInfo(EpisodeInfo):
     motor_action: int
     sensory_action: tuple[int, int]
     done: bool
-    truncated: bool
     consecutive_pauses: bool
 
     @staticmethod
@@ -201,9 +201,13 @@ class EpisodeRecord():
         with open(args_path, "w") as f:
             yaml.safe_dump(self.args, f)
 
-        # Safe observations
+        # Safe observations together with original frames
         if with_obs and self.obs is not None:
-            self._save_video(self.obs, obs_path, greyscale=True)
+            upscaled_obs = np.stack([cv2.resize(
+                    np.broadcast_to(obs[...,np.newaxis], (*obs.shape, 3)),
+                    (256, 256)
+                ) for obs in (self.obs * 255).astype(np.uint8)])
+            self._save_video(np.concatenate([upscaled_obs, frames], axis=2), obs_path)
 
     @staticmethod
     def load(save_dir: str):
@@ -244,3 +248,11 @@ class EvalResult(TypedDict):
     entropy: float
 
 FovType: TypeAlias = Literal["window", "gaussian", "exponential"]
+
+class TdUpdateParts(NamedTuple):
+    old_value: float
+    td_target: float
+    reward: float
+    sugarl_penalty: float
+    next_state_value: float
+    loss: float

@@ -19,8 +19,8 @@ from active_gym import FixedFovealEnv
 from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
-from atari_cr.models import EpisodeInfo, EpisodeRecord
-from atari_cr.buffers import DoubleActionReplayBuffer
+from atari_cr.models import EpisodeInfo, EpisodeRecord, TdUpdateParts
+from atari_cr.buffers import DoubleActionReplayBuffer, DoubleActionReplayBufferSamples
 from atari_cr.pvm_buffer import PVMBuffer
 from atari_cr.utils import linear_schedule
 from atari_cr.agents.dqn_atari_cr.networks import QNetwork, SelfPredictionNetwork
@@ -213,6 +213,7 @@ class CRDQN:
 
         # Init return value
         eval_returns = []
+        td_update = tuple([None] * len(TdUpdateParts.__annotations__))
 
         while self.timestep < n:
             # Chose action from q network
@@ -230,6 +231,7 @@ class CRDQN:
                 self.pvm_buffer,
                 motor_actions,
                 sensory_actions,
+                td_update,
             )
 
             # Add new pvm ovbervation to the buffer
@@ -246,14 +248,14 @@ class CRDQN:
             if (not self.no_model_output) and self.timestep % 1000000 == 0:
                 self._save_output(self.model_dir, "pt", self.save_checkpoint)
 
-            # Training
+            # Training from the replay buffer
             if self.timestep % self.train_frequency == 0:
-                self.train()
+                td_update = self.train()
 
             # Evaluation
             if (self.timestep % self.eval_frequency == 0 and
                 self.eval_frequency > 0) or (self.timestep >= n):
-                eval_returns, out_paths = self.evaluate()
+                eval_returns, out_paths = self.evaluate(td_update)
 
             # Test against Atari-HEAD gaze predictor
             if self.timestep % 100_000 == 0:
@@ -276,9 +278,10 @@ class CRDQN:
 
         # DQN training
         if self.timestep > self.learning_start:
-            self._train_dqn(data, observation_quality)
+            td_update = self._train_dqn(data, observation_quality)
+            return td_update
 
-    def evaluate(self, file_output = True):
+    def evaluate(self, td_update: TdUpdateParts, file_output = True):
         # Set networks to eval mode
         self.q_network.eval()
         self.sfn.eval()
@@ -382,9 +385,10 @@ class CRDQN:
 
             eval_env.close()
 
-        # Log results
-        mean_episode_info = pl.DataFrame(episode_infos).mean().row(0, named=True)
-        self._log_episode(mean_episode_info)
+        # Log mean result of eval episodes
+        mean_episode_info: EpisodeInfo = \
+            pl.DataFrame(episode_infos).mean().row(0, named=True)
+        self._log_episode(mean_episode_info, td_update)
 
         # AUC and windowed AUC
         if self.evaluator:
@@ -433,7 +437,9 @@ class CRDQN:
         return out_path
 
     def _step(self, env: VectorEnv, pvm_buffer: PVMBuffer, motor_actions: np.ndarray,
-              sensory_actions: np.ndarray, eval = False):
+              sensory_actions: np.ndarray, eval = False,
+              td_update: TdUpdateParts = tuple(
+                  [None] * len(TdUpdateParts.__annotations__))):
         """
         Given an action, the agent does one step in the environment,
         returning the next observation
@@ -455,7 +461,7 @@ class CRDQN:
                 episode_info = episode_info["episode_info"]
             else:
                 episode_info["raw_reward"] = episode_info["reward"] // 10
-            self._log_episode(episode_info)
+            self._log_episode(episode_info, td_update)
             next_obs[finished_env_idx] = infos["final_observation"][finished_env_idx]
 
         # Update the latest observation in the pvm buffer
@@ -473,12 +479,16 @@ class CRDQN:
 
         return next_pvm_obs, rewards, dones, infos
 
-    def _log_episode(self, episode_info: EpisodeInfo):
+    def _log_episode(self, episode_info: EpisodeInfo, td_update: TdUpdateParts):
         # Prepare the episode infos for the different supported envs
         if isinstance(self.envs[0], FixedFovealEnv):
             new_info = episode_info
             episode_info = EpisodeInfo.new()
             episode_info.update(new_info)
+
+        # Last TD update that happened before the episode ended
+        old_value, td_target, td_reward, sugarl_penalty, next_state_value, loss \
+            = td_update
 
         # Ray logging
         ray_info = {
@@ -486,7 +496,14 @@ class CRDQN:
             "sfn_loss": self.sfn_loss.item(),
             "k_timesteps": self.timestep / 1000,
             "auc": self.auc,
-            "windowed_auc": self.windowed_auc
+            "windowed_auc": self.windowed_auc,
+            "truncated": episode_info["truncated"],
+            "td/old": old_value,
+            "td/target": td_target,
+            "td/reward": td_reward,
+            "td/sugarl": sugarl_penalty,
+            "td/next_state_value": next_state_value,
+            "td/loss": loss,
         }
         if isinstance(self.envs[0], PauseableFixedFovealEnv):
             ray_info.update({
@@ -498,7 +515,7 @@ class CRDQN:
             })
         train.report(ray_info)
 
-    def _train_sfn(self, data):
+    def _train_sfn(self, data: DoubleActionReplayBufferSamples):
         # Prediction
         concat_observation = torch.concat(
             [data.next_observations, data.observations], dim=1)
@@ -511,7 +528,7 @@ class CRDQN:
         self.sfn_loss.backward()
         self.sfn_optimizer.step()
 
-        # Return the probabilites the sfn would have also selected the truely selected
+        # Return the probabilites the sfn would have also selected the actually selected
         # action, given the limited observation. Higher probabilities suggest
         # better information was provided from the visual input
         observation_quality = F.softmax(pred_motor_actions, dim=0).gather(
@@ -519,7 +536,8 @@ class CRDQN:
 
         return observation_quality
 
-    def _train_dqn(self, data, observation_quality):
+    def _train_dqn(self, data: DoubleActionReplayBufferSamples,
+                   observation_quality: torch.Tensor):
         """
         Trains the behavior q network and copies it to the target q network with
         self.target_network_frequency.
@@ -531,42 +549,44 @@ class CRDQN:
         # Target network prediction
         with torch.no_grad():
             # Assign a value to every possible action in the next state for one batch
-            # motor_target.shape: [32, 19]
             motor_target, sensory_target = self.target_network(
                 Resize(self.obs_size)(data.next_observations))
+                # -> [32, 19], [32, 19]
             # Get the maximum action value for one batch
-            # motor_target_max.shape: [32]
-            motor_target_max, _ = motor_target.max(dim=1)
-            sensory_target_max, _ = sensory_target.max(dim=1)
-            # Scale step-wise reward with observation_quality
-            observation_quality_adjusted = observation_quality.clone()
-            observation_quality_adjusted[data.rewards.flatten() > 0] = \
-                1 - observation_quality_adjusted[data.rewards.flatten() > 0]
-            td_target = data.rewards.flatten() \
-                - (1 - observation_quality) * self.sugarl_r_scale \
-                + self.gamma * (motor_target_max + sensory_target_max) * (
+            motor_target_max, _ = motor_target.max(dim=1) # -> [32]
+            sensory_target_max, _ = sensory_target.max(dim=1) # -> [32]
+
+            # Reward function
+            sugarl_penalty = 0 if self.ignore_sugarl else (
+                (1 - observation_quality) * self.sugarl_r_scale) # -> [32]
+            next_state_value = self.gamma * (motor_target_max + sensory_target_max) * (
                     1 - data.dones.flatten())
-            original_td_target = data.rewards.flatten() + self.gamma * (
-                motor_target_max + sensory_target_max) * (1 - data.dones.flatten())
+            # reward - sugarl + (gamma * target_max if not terminal)
+            td_target = data.rewards.flatten() - sugarl_penalty \
+                + next_state_value # -> [32]
 
         # Q network prediction
         old_motor_q_val, old_sensory_q_val = self.q_network(
             Resize(self.obs_size)(data.observations))
+            # -> [32], [32]
         old_motor_val = old_motor_q_val.gather(1, data.motor_actions).squeeze()
         old_sensory_val = old_sensory_q_val.gather(1, data.sensory_actions).squeeze()
-        old_val = old_motor_val + old_sensory_val
+        old_val = old_motor_val + old_sensory_val # -> [32]
 
         # Back propagation
-        loss_without_sugarl = F.mse_loss(original_td_target, old_val)
         loss = F.mse_loss(td_target, old_val)
-        backprop_loss = loss_without_sugarl if self.ignore_sugarl else loss
         self.optimizer.zero_grad()
-        backprop_loss.backward()
+        loss.backward()
         self.optimizer.step()
 
         # Update the target network with self.target_network_frequency
         if (self.timestep // self.n_envs) % self.target_network_frequency == 0:
             self.target_network.load_state_dict(self.q_network.state_dict())
+
+        r: TdUpdateParts = (old_val.mean().item(), td_target.mean().item(),
+                data.rewards.flatten().mean().item(), sugarl_penalty.mean().item(),
+                next_state_value.mean().item(), loss.mean().item())
+        return r
 
     def _epsilon_schedule(self, total_timesteps: int):
         """

@@ -131,21 +131,22 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         # Actual pause step
         if step_info["pauses"]:
-            if np.all(self.fov_loc == action["sensory_action"]):
-                # No action pause
-                step_info["reward"] = MASKED_ACTION_PENTALTY
-                step_info["no_action_pauses"] = 1
-            elif self.consecutive_pauses > self.consecutive_pause_limit:
-                # Too many pauses in a row
-                step_info["reward"] = MASKED_ACTION_PENTALTY
-                step_info["prevented_pauses"] = 1
-            else:
-                # Normal pause
-                step_info["reward"] = -self.pause_cost
-
             raw_reward = 0
             done, truncated = False, False
             info = {"raw_reward": raw_reward}
+
+            if self.consecutive_pauses > self.consecutive_pause_limit:
+                # Too many pauses in a row
+                step_info["reward"] = MASKED_ACTION_PENTALTY
+                step_info["prevented_pauses"] = 1
+                truncated = True
+            elif np.all(self.fov_loc == action["sensory_action"]):
+                # No action pause
+                step_info["reward"] = MASKED_ACTION_PENTALTY
+                step_info["no_action_pauses"] = 1
+            else:
+                # Normal pause
+                step_info["reward"] = -self.pause_cost
 
             # Log another pause
             if self.prev_pause_action:
@@ -186,6 +187,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         step_info["raw_reward"] = raw_reward
         step_info["done"] = done
         step_info["truncated"] = truncated
+        # Episode info stores cumulative sums of the step info keys
         for key in self.episode_info.keys():
             self.episode_info[key] += step_info[key]
         step_info["episode_info"] = self.episode_info.copy()
