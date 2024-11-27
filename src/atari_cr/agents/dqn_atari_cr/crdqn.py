@@ -181,7 +181,7 @@ class CRDQN:
         self.pvm_buffer = PVMBuffer(
             pvm_stack, (self.n_envs, frame_stack, *self.obs_size))
 
-        self.auc = None
+        self.auc = 0.7
         self.auc_window = deque(maxlen=5)
         self.windowed_auc = self.auc
 
@@ -378,20 +378,24 @@ class CRDQN:
                         self.model_dir, "pt", self.save_checkpoint, eval_ep)
 
             # AUC calculation
-            if self.evaluator:
-                if isinstance(single_eval_env, PauseableFixedFovealEnv):
-                    episode_record = single_eval_env.prev_episode
-                else: episode_record = EpisodeRecord.from_record_buffer(
+            episode_record = single_eval_env.prev_episode \
+                if isinstance(single_eval_env, PauseableFixedFovealEnv) \
+                else EpisodeRecord.from_record_buffer(
                     single_eval_env.env.prev_record_buffer)
-                loader = GazeDataset.from_game_data([episode_record]).to_loader()
+            dataset = GazeDataset.from_game_data([episode_record])
+            if self.evaluator:
+                loader = dataset.to_loader()
                 aucs.append(self.evaluator.eval(loader)["auc"])
+            # Duration error calculation
+            histogram = torch.histogram(dataset.durations, BINS).hist
+            duration_error = F.mse_loss(histogram, get_histogram(self.env_name)).item()
 
             eval_env.close()
 
         # Log mean result of eval episodes
         mean_episode_info: EpisodeInfo = \
             pl.DataFrame(episode_infos).mean().row(0, named=True)
-        self._log_episode(mean_episode_info, td_update)
+        self._log_episode(mean_episode_info, td_update, duration_error)
 
         # AUC and windowed AUC
         if self.evaluator:
@@ -475,7 +479,8 @@ class CRDQN:
                 histogram = torch.stack(histograms).mean(dim=0)
                 histogram /= histogram.sum()
                 with torch.no_grad():
-                    duration_error = F.mse_loss(histogram, get_histogram(self.env_name))
+                    duration_error = F.mse_loss(
+                        histogram, get_histogram(self.env_name)).item()
 
             self._log_episode(episode_info, td_update, duration_error)
 
@@ -495,7 +500,7 @@ class CRDQN:
         return next_pvm_obs, rewards, dones, infos
 
     def _log_episode(self, episode_info: EpisodeInfo,
-            td_update: Optional[TdUpdateInfo], duration_error: Optional[float] = None):
+            td_update: Optional[TdUpdateInfo], duration_error: float):
         # Prepare the episode infos for the different supported envs
         if isinstance(self.envs[0], FixedFovealEnv):
             new_info = episode_info

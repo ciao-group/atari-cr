@@ -99,7 +99,7 @@ def make_env(seed: int, args: ArgParser, **kwargs):
             args.fov, not args.use_pause_env)
 
         # Env configuration
-        env.ale.setFloat(
+        env.unwrapped.ale.setFloat(
             'repeat_action_probability', args.sticky_action_prob)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
