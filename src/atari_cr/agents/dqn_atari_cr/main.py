@@ -131,6 +131,7 @@ def main(args: ArgParser):
     agent = CRDQN(
         env=env,
         sugarl_r_scale=get_sugarl_reward_scale_atari(args.env),
+        env_name=args.env,
         eval_env_generator=lambda seed: make_eval_env(seed, args),
         fov_size=args.fov_size,
         seed=args.seed,
@@ -159,7 +160,6 @@ def main(args: ArgParser):
     )
     eval_returns, out_paths = agent.learn(
         n=args.total_timesteps,
-        env_name=args.env,
         experiment_name=args.exp_name
     )
 

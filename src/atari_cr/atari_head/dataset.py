@@ -291,7 +291,8 @@ class GazeDataset(Dataset):
         val_indices = torch.Tensor(val_indices).to(torch.int32)
         frames = torch.Tensor(np.stack(frames))
         saliency = torch.stack(saliency)
-        durations = torch.Tensor(durations[:-1]) # Remove the trailing empty duration
+        # Remove the trailing empty duration and cast to milliseconds
+        durations = torch.Tensor(durations[:-1]) * 1000
         assert len(train_indices) + len(val_indices) + 3 * len(records) \
             == len(frames) == len(durations)
 

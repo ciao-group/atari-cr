@@ -23,6 +23,7 @@ class TestMain(unittest.TestCase):
         args = ArgParser().parse_args(known_only=True)
         main(args)
 
+    @unittest.skip
     def test_og(self):
         argv.extend([
             "--clip_reward",

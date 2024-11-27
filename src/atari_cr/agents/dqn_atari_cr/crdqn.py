@@ -17,6 +17,7 @@ from gymnasium.spaces import Discrete
 
 from active_gym import FixedFovealEnv
 from atari_cr.atari_head.dataset import GazeDataset
+from atari_cr.atari_head.durations import BINS, get_histogram
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.models import EpisodeInfo, EpisodeRecord, TdUpdateInfo
@@ -35,6 +36,7 @@ class CRDQN:
             eval_env_generator: Callable[[int], Union[
                 VectorEnv, FixedFovealEnv, PauseableFixedFovealEnv]],
             sugarl_r_scale: float,
+            env_name: str,
             seed = 0,
             fov_size = 50,
             sensory_action_space_quantization: Tuple[int] = (4, 4),
@@ -58,7 +60,7 @@ class CRDQN:
             capture_video = True,
             agent_id = 0,
             debug = False,
-            evaluator: Optional[GazePredictor] = None,
+            evaluator: Optional[GazePredictor] = None
         ):
         """
         :param env `gymnasium.Env`:
@@ -99,6 +101,7 @@ class CRDQN:
         """
         self.env = env
         self.sugarl_r_scale = sugarl_r_scale
+        self.env_name = env_name
         self.seed = seed
         self.fov_size = fov_size
         self.epsilon_interval = epsilon_interval
@@ -182,12 +185,12 @@ class CRDQN:
         self.auc_window = deque(maxlen=5)
         self.windowed_auc = self.auc
 
-    def learn(self, n: int, env_name: str, experiment_name: str):
+    def learn(self, n: int, experiment_name: str):
         """
         Acts in the environment and trains the agent for n timesteps
         """
         # Define output paths
-        run_identifier = os.path.join(experiment_name, env_name)
+        run_identifier = os.path.join(experiment_name, self.env_name)
         self.run_dir = os.path.join("output/runs", run_identifier)
         self.video_dir = os.path.join(self.run_dir, "recordings")
         self.pvm_dir = os.path.join(self.run_dir, "pvms")
@@ -460,8 +463,21 @@ class CRDQN:
                 episode_info = episode_info["episode_info"]
             else:
                 episode_info["raw_reward"] = episode_info["reward"] // 10
-            self._log_episode(episode_info, td_update)
             next_obs[finished_env_idx] = infos["final_observation"][finished_env_idx]
+
+            # Calculate gaze duration distribution and deviation from Atari-HEAD
+            duration_error = None
+            if isinstance(env.envs[0], PauseableFixedFovealEnv):
+                histograms = []
+                for e in [e for (e, done) in zip(env.envs, dones) if done]:
+                    durations = GazeDataset.from_game_data([e.prev_episode]).durations
+                    histograms.append(torch.histogram(durations, BINS).hist)
+                histogram = torch.stack(histograms).mean(dim=0)
+                histogram /= histogram.sum()
+                with torch.no_grad():
+                    duration_error = F.mse_loss(histogram, get_histogram(self.env_name))
+
+            self._log_episode(episode_info, td_update, duration_error)
 
         # Update the latest observation in the pvm buffer
         assert len(env.envs) == 1, \
@@ -479,7 +495,7 @@ class CRDQN:
         return next_pvm_obs, rewards, dones, infos
 
     def _log_episode(self, episode_info: EpisodeInfo,
-                     td_update: Optional[TdUpdateInfo]):
+            td_update: Optional[TdUpdateInfo], duration_error: Optional[float] = None):
         # Prepare the episode infos for the different supported envs
         if isinstance(self.envs[0], FixedFovealEnv):
             new_info = episode_info
@@ -513,6 +529,9 @@ class CRDQN:
                 "no_action_pauses": episode_info["no_action_pauses"],
                 "saccade_cost": episode_info["saccade_cost"],
                 "reward": episode_info["reward"],
+                "duration_error": duration_error,
+                "human_error": (1 - self.auc)+duration_error \
+                    if (duration_error and self.auc) else None
             })
         train.report(ray_info)
 

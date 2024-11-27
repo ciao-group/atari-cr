@@ -30,7 +30,8 @@ def tuning(config: ConfigParams, time_steps: int, debug = False):
         "no_pvm_visualization": True,
         # "no_model_output": True,
         # "use_pause_env": True,
-        "env": "ms_pacman"
+        "env": "ms_pacman",
+        "learning_start": 10_000 # Instead of 80k to prevent masked actions faster
     })
 
     # Other args
