@@ -62,8 +62,6 @@ class ArgParser(Tap):
     consecutive_pause_limit: int = 20 # Maximum allowed number of consecutive pauses
     saccade_cost_scale: float = 0.000 # How much to penalize bigger eye movements
     # EMMA reference: doi.org/10.1016/S1389-0417(00)00015-2
-    # If disabled, the pixel length of the saccade is used as saccade cost
-    use_emma: bool = False # Whether to use the EMMA model for saccade cost calculation
 
     # Misc
     ignore_sugarl: bool = False # Whether to ignore the sugarl term for Q net learning
@@ -97,8 +95,7 @@ def make_env(seed: int, args: ArgParser, **kwargs):
         # Pauseable or not pauseable env creation
         env = AtariEnv(env_args)
         env = PauseableFixedFovealEnv(
-            env, env_args, args.pause_cost,
-            args.saccade_cost_scale, args.use_emma,
+            env, env_args, args.pause_cost, args.saccade_cost_scale,
             args.fov, not args.use_pause_env)
 
         # Env configuration

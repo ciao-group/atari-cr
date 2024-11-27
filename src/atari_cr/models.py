@@ -20,6 +20,7 @@ class EpisodeInfo(TypedDict):
     no_action_pauses: int
     saccade_cost: float
     truncated: int
+    emma_time: float
 
     @staticmethod
     def new():

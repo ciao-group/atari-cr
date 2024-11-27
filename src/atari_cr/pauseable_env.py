@@ -29,14 +29,10 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         the agent from halting
     :param float saccade_cost_scale: How much the agent is punished for bigger eye
         movements
-    :param bool use_emma: Whether to use the EMMA model
-        (doi.org/10.1016/S1389-0417(00)00015-2) for saccade cost calculation. If
-        not, the pixel length of the saccade is used.
     :param bool no_pause: Whether to disable the pause action
     """
     def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
-            saccade_cost_scale = 0.001,
-            use_emma = False, fov: FovType = "window", no_pauses = False,
+            saccade_cost_scale = 0.001, fov: FovType = "window", no_pauses = False,
             consecutive_pause_limit = 20):
         super().__init__(env)
         self.fov_size: Tuple[int, int] = args.fov_size
@@ -79,9 +75,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # Count and log the number of pauses made and their cost
         self.pause_cost = pause_cost
         self.consecutive_pause_limit = consecutive_pause_limit
-
-        # EMMA
-        self.use_emma = use_emma
 
         # Attributes for recording episodes
         self.prev_episode: Optional[EpisodeRecord] = None
@@ -168,18 +161,14 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             full_state=self.state, action=action["sensory_action"])
 
         # Add costs for the time it took the agent to move its fovea
-        if self.use_emma:
-            visual_degrees_per_pixel = np.array(VISUAL_DEGREE_SCREEN_SIZE) / \
-                np.array(self.get_wrapper_attr("obs_size"))
-            visual_degree_distance = np.sqrt(np.sum(
-                np.square((self.fov_loc - prev_fov_loc) * visual_degrees_per_pixel) ))
-            _, total_emma_time, fovea_did_move = EMMA_fixation_time(
-                visual_degree_distance)
-            step_info["saccade_cost"] = self.saccade_cost_scale * total_emma_time
-        # Add cost for the distance traveled by the fovea
-        else:
-            pixel_distance = np.sqrt(np.sum( np.square(self.fov_loc - prev_fov_loc) ))
-            step_info["saccade_cost"] = self.saccade_cost_scale * pixel_distance
+        visual_degrees_per_pixel = np.array(VISUAL_DEGREE_SCREEN_SIZE) / \
+            np.array(self.get_wrapper_attr("obs_size"))
+        visual_degree_distance = np.sqrt(np.sum(
+            np.square((self.fov_loc - prev_fov_loc) * visual_degrees_per_pixel) ))
+        _, total_emma_time, fovea_did_move = EMMA_fixation_time(
+            visual_degree_distance)
+        step_info["emma_time"] = total_emma_time
+        step_info["saccade_cost"] = self.saccade_cost_scale * total_emma_time
         step_info["reward"] -= step_info["saccade_cost"]
 
         # Log the results of taking an action

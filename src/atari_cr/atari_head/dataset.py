@@ -23,18 +23,21 @@ class GazeDataset(Dataset):
     :param Tensor[N,W,H] saliency: Saliency maps belonging to the frames
     :param Tensor[N] train_indcies: Indices of frame stacks used for training
     :param Tensor[N] val_indcies: Inidcies of frame stacks used for validation
+    :param Tensor[N] durations: How long each frame was looked at
     :param bool class_output: Whether to output the gaze positions as 1D
         discrete class labels
     """
 
     def __init__(
         self, frames: torch.Tensor, saliency: torch.Tensor,
-        train_indices: torch.Tensor, val_indices: torch.Tensor, class_output=False
+        train_indices: torch.Tensor, val_indices: torch.Tensor, durations: torch.Tensor,
+        class_output=False,
     ):
         self.frames = frames
         self.saliency = saliency
         self.train_indices = train_indices
         self.val_indices = val_indices
+        self.durations = durations
         self.class_output = class_output
 
     def split(self, batch_size=512):
@@ -120,15 +123,16 @@ class GazeDataset(Dataset):
                     pl.col("frame_id"),
                     # Parse gaze positions string to a list of float arrays
                     pl.when(pl.col("gaze_positions") == "[]")
-                    .then(None)
-                    .otherwise(pl.col("gaze_positions"))
-                    .alias("gazes")
-                    .str.strip_chars("[])")
-                    .str.replace_all(r"['\(,n\\]", "")
-                    .str.split(") ")
-                    .list.eval(
-                        pl.element().str.split(" ").cast(pl.List(pl.Float32))
-                    )
+                        .then(None)
+                        .otherwise(pl.col("gaze_positions"))
+                        .alias("gazes")
+                        .str.strip_chars("[])")
+                        .str.replace_all(r"['\(,n\\]", "")
+                        .str.split(") ")
+                        .list.eval(
+                            pl.element().str.split(" ").cast(pl.List(pl.Float32))
+                        ),
+                    pl.col("duration(ms)")
                 ])
                 .with_row_index("trial_frame_id")
                 .collect()
@@ -221,6 +225,7 @@ class GazeDataset(Dataset):
                 pl.col("gazes").map_elements(to_gaze_class).alias("gaze_classes")
             )
 
+        # Train and val indices
         train_indices = torch.Tensor(list(df.lazy().filter(
             (pl.col("trial_frame_id") >= 3) & pl.col("train")).select(
             pl.col("id")).collect().to_series())).to(torch.int32)
@@ -228,29 +233,43 @@ class GazeDataset(Dataset):
             (pl.col("trial_frame_id") >= 3) & ~pl.col("train")).select(
             pl.col("id")).collect().to_series())).to(torch.int32)
 
-        return GazeDataset(
-            frames, saliency, train_indices, val_indices, class_output=class_output)
+        # Cast durations to torch tensor
+        durations = torch.Tensor([(duration if duration else 0.)
+                                  for duration in list(df["duration(ms)"])])
+
+        return GazeDataset(frames, saliency, train_indices, val_indices,
+                           durations, class_output=class_output)
 
     @staticmethod
     def from_game_data(records: List[EpisodeRecord], test_split = 0.2):
         """ Create a dataset from an agent's recorded game """
         frames, saliency, train_indices, val_indices = [], [], [], []
+        durations = [0.]
 
         for record in records:
-            # Get the saliency maps
+            # Get the saliency maps and gaze durations
             gaze_lists, gazes = [], [] # List of gazes for all rows, list for one frame
             pause_indices = []
-            for i, (x, y, pauses) in enumerate(record.annotations[
-                "sensory_action_x", "sensory_action_y", "pauses"].iter_rows()):
+            for i, (x, y, pauses, emma_time) in enumerate(record.annotations[
+                "sensory_action_x", "sensory_action_y", "pauses", "emma_time"
+                    ].iter_rows()):
                 # OPTIONAL: Why is the last sensory action not None in the pauseable env
                 # There should be one more fov loc than sensory action
                 if x is not None and y is not None:
                     gazes.append([x, y])
+                # Add to the gaze duration
+                durations[-1] += emma_time
                 if pauses == 0:
+                    # Add all accumulated gazes to the frame that no longer pauses
                     gaze_lists.append(gazes)
                     gazes = []
+                    # Make a new duration for the next frame
+                    durations.append(0.)
                 else:
+                    # Keep accumulating gazes and mark this env step for removal
                     pause_indices.append(i)
+
+            # Merge saliency for all the records
             saliency.extend([GazeDataset.create_saliency_map(torch.Tensor(gazes))
                  for gazes in gaze_lists])
 
@@ -272,10 +291,11 @@ class GazeDataset(Dataset):
         val_indices = torch.Tensor(val_indices).to(torch.int32)
         frames = torch.Tensor(np.stack(frames))
         saliency = torch.stack(saliency)
+        durations = torch.Tensor(durations[:-1]) # Remove the trailing empty duration
         assert len(train_indices) + len(val_indices) + 3 * len(records) \
-            == len(frames)
+            == len(frames) == len(durations)
 
-        return GazeDataset(frames, saliency, train_indices, val_indices)
+        return GazeDataset(frames, saliency, train_indices, val_indices, durations)
 
     @staticmethod
     def create_saliency_map(gaze_positions: torch.Tensor):

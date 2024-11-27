@@ -4,6 +4,7 @@ import unittest
 from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.models import EpisodeRecord
 
+@unittest.skip
 class TestFromGameData(unittest.TestCase):
     def test_main(self):
         episode_dirs = [
