@@ -200,7 +200,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.prev_episode = EpisodeRecord(
                 np.stack(self.frames),
                 EpisodeRecord.annotations_from_step_infos(self.step_infos),
-                { "fov_size": self.fov_size },
+                { "fov_size": self.fov_size, "fov": self.fov },
                 np.stack(self.obs) if self.obs else None
             )
 

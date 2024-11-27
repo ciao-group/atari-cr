@@ -19,7 +19,7 @@ from active_gym import FixedFovealEnv
 from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
-from atari_cr.models import EpisodeInfo, EpisodeRecord, TdUpdateParts
+from atari_cr.models import EpisodeInfo, EpisodeRecord, TdUpdateInfo
 from atari_cr.buffers import DoubleActionReplayBuffer, DoubleActionReplayBufferSamples
 from atari_cr.pvm_buffer import PVMBuffer
 from atari_cr.utils import linear_schedule
@@ -178,7 +178,7 @@ class CRDQN:
         self.pvm_buffer = PVMBuffer(
             pvm_stack, (self.n_envs, frame_stack, *self.obs_size))
 
-        self.auc = 0.5
+        self.auc = None
         self.auc_window = deque(maxlen=5)
         self.windowed_auc = self.auc
 
@@ -213,7 +213,7 @@ class CRDQN:
 
         # Init return value
         eval_returns = []
-        td_update = tuple([None] * len(TdUpdateParts.__annotations__))
+        td_update = None
 
         while self.timestep < n:
             # Chose action from q network
@@ -259,7 +259,7 @@ class CRDQN:
 
             # Test against Atari-HEAD gaze predictor
             if self.timestep % 100_000 == 0:
-                eval_returns, out_paths = self.evaluate(file_output=False)
+                eval_returns, out_paths = self.evaluate(td_update, file_output=False)
 
         self.env.close()
 
@@ -281,7 +281,7 @@ class CRDQN:
             td_update = self._train_dqn(data, observation_quality)
             return td_update
 
-    def evaluate(self, td_update: TdUpdateParts, file_output = True):
+    def evaluate(self, td_update: TdUpdateInfo, file_output = True):
         # Set networks to eval mode
         self.q_network.eval()
         self.sfn.eval()
@@ -437,9 +437,8 @@ class CRDQN:
         return out_path
 
     def _step(self, env: VectorEnv, pvm_buffer: PVMBuffer, motor_actions: np.ndarray,
-              sensory_actions: np.ndarray, eval = False,
-              td_update: TdUpdateParts = tuple(
-                  [None] * len(TdUpdateParts.__annotations__))):
+              sensory_actions: np.ndarray, td_update: Optional[TdUpdateInfo] = None,
+              eval = False):
         """
         Given an action, the agent does one step in the environment,
         returning the next observation
@@ -479,7 +478,8 @@ class CRDQN:
 
         return next_pvm_obs, rewards, dones, infos
 
-    def _log_episode(self, episode_info: EpisodeInfo, td_update: TdUpdateParts):
+    def _log_episode(self, episode_info: EpisodeInfo,
+                     td_update: Optional[TdUpdateInfo]):
         # Prepare the episode infos for the different supported envs
         if isinstance(self.envs[0], FixedFovealEnv):
             new_info = episode_info
@@ -488,7 +488,8 @@ class CRDQN:
 
         # Last TD update that happened before the episode ended
         old_value, td_target, td_reward, sugarl_penalty, next_state_value, loss \
-            = td_update
+            = td_update if td_update is not None else \
+                [None] * len(TdUpdateInfo.__annotations__)
 
         # Ray logging
         ray_info = {
@@ -557,8 +558,8 @@ class CRDQN:
             sensory_target_max, _ = sensory_target.max(dim=1) # -> [32]
 
             # Reward function
-            sugarl_penalty = 0 if self.ignore_sugarl else (
-                (1 - observation_quality) * self.sugarl_r_scale) # -> [32]
+            sugarl_penalty = torch.zeros([32]).to(self.device) if self.ignore_sugarl \
+                else (1 - observation_quality) * self.sugarl_r_scale # -> [32]
             next_state_value = self.gamma * (motor_target_max + sensory_target_max) * (
                     1 - data.dones.flatten())
             # reward - sugarl + (gamma * target_max if not terminal)
@@ -583,7 +584,7 @@ class CRDQN:
         if (self.timestep // self.n_envs) % self.target_network_frequency == 0:
             self.target_network.load_state_dict(self.q_network.state_dict())
 
-        r: TdUpdateParts = (old_val.mean().item(), td_target.mean().item(),
+        r: TdUpdateInfo = (old_val.mean().item(), td_target.mean().item(),
                 data.rewards.flatten().mean().item(), sugarl_penalty.mean().item(),
                 next_state_value.mean().item(), loss.mean().item())
         return r

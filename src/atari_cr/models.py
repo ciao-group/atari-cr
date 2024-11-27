@@ -249,7 +249,7 @@ class EvalResult(TypedDict):
 
 FovType: TypeAlias = Literal["window", "gaussian", "exponential"]
 
-class TdUpdateParts(NamedTuple):
+class TdUpdateInfo(NamedTuple):
     old_value: float
     td_target: float
     reward: float

@@ -69,8 +69,8 @@ if __name__ == "__main__":
     GAZE_TARGET = False
     DEBUG = False
     concurrent_runs = 3 if DEBUG else 4
-    num_samples = 1 * concurrent_runs if DEBUG else 20
-    time_steps = 1_000_000
+    num_samples = 2 * concurrent_runs if DEBUG else 20
+    time_steps = 500_000 if DEBUG else 3_000_000
 
     trainable = tune.with_resources(
         lambda config: tuning(config, time_steps, DEBUG),
@@ -102,7 +102,8 @@ if __name__ == "__main__":
         ),
         run_config=train.RunConfig(
             storage_path="/home/niko/Repos/atari-cr/output/ray_results",
-            stop=TrialPlateauStopper(metric, mode=mode, grace_period=1000),
+            stop=TrialPlateauStopper(metric, mode=mode, num_results=8,
+                                     grace_period=1000),
         )
     )
     results = tuner.fit()

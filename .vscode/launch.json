@@ -108,7 +108,7 @@
                 "--capture_video",
                 "--env", "ms_pacman",
                 // Debug config
-                "--exp_name", "dqn_cr_debug",
+                "--exp_name", "dqn_cr_og_debug",
                 "--total_timesteps", "10000",
                 "--learning_start", "1000",
                 "--debug",
