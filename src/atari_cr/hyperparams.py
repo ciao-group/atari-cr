@@ -69,18 +69,18 @@ if __name__ == "__main__":
     GAZE_TARGET = True
     DEBUG = False
     concurrent_runs = 3 if DEBUG else 4
-    num_samples = 2 * concurrent_runs if DEBUG else 40
-    time_steps = 500_000 if DEBUG else 3_000_000
+    # num_samples = 2 * concurrent_runs if DEBUG else 20
+    time_steps = 500_000 if DEBUG else 2_000_000
 
     trainable = tune.with_resources(
         lambda config: tuning(config, time_steps, DEBUG),
         {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
     param_space: ConfigParams = {
-        "pause_cost": tune.quniform(0, 1e-3, 1e-5),
+        "pause_cost": tune.grid_search([-1e-3, 0, 1e-3]),
         # "pvm_stack": tune.randint(1, 20),
         # "sensory_action_space_quantization": tune.randint(1, 21), # from 10-21
-        "saccade_cost_scale": tune.quniform(0, 1e-5, 1e-7),
+        "saccade_cost_scale": tune.grid_search([-1e-3, 0, 1e-3]),
         # "fov": tune.choice([fov for fov in get_args(FovType) if fov != "gaussian"]),
         "seed": tune.randint(0,420),
         # "use_pause_env": tune.choice([True, False]),
@@ -92,18 +92,18 @@ if __name__ == "__main__":
         trainable,
         param_space=param_space,
         tune_config=tune.TuneConfig(
-            num_samples=num_samples,
-            scheduler=None if DEBUG else ASHAScheduler(
-                stop_last_trials=False
-            ),
-            search_alg=OptunaSearch(),
+            # num_samples=num_samples,
+            # scheduler=None if DEBUG else ASHAScheduler(
+            #     stop_last_trials=False
+            # ),
+            # search_alg=OptunaSearch(),
             metric=metric,
             mode=mode,
         ),
         run_config=train.RunConfig(
             storage_path="/home/niko/Repos/atari-cr/output/ray_results",
-            stop=TrialPlateauStopper(metric, mode=mode, num_results=8,
-                                     grace_period=1000),
+            # stop=TrialPlateauStopper(metric, mode=mode, num_results=8,
+            #                          grace_period=1000),
         )
     )
     results = tuner.fit()

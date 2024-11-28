@@ -257,3 +257,8 @@ class TdUpdateInfo(NamedTuple):
     sugarl_penalty: float
     next_state_value: float
     loss: float
+
+class DurationInfo(TypedDict):
+    error: float
+    mean: float
+    median: float

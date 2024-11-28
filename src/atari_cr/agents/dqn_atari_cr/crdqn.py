@@ -17,10 +17,9 @@ from gymnasium.spaces import Discrete
 
 from active_gym import FixedFovealEnv
 from atari_cr.atari_head.dataset import GazeDataset
-from atari_cr.atari_head.durations import BINS, get_histogram
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
-from atari_cr.models import EpisodeInfo, EpisodeRecord, TdUpdateInfo
+from atari_cr.models import DurationInfo, EpisodeInfo, EpisodeRecord, TdUpdateInfo
 from atari_cr.buffers import DoubleActionReplayBuffer, DoubleActionReplayBufferSamples
 from atari_cr.pvm_buffer import PVMBuffer
 from atari_cr.utils import linear_schedule
@@ -387,15 +386,18 @@ class CRDQN:
                 loader = dataset.to_loader()
                 aucs.append(self.evaluator.eval(loader)["auc"])
             # Duration error calculation
-            histogram = torch.histogram(dataset.durations, BINS).hist
-            duration_error = F.mse_loss(histogram, get_histogram(self.env_name)).item()
+            duration_info: DurationInfo = {
+                "error": dataset.duration_error(self.env_name),
+                "mean": dataset.durations.mean().item(),
+                "median": dataset.durations.median().item(),
+            }
 
             eval_env.close()
 
         # Log mean result of eval episodes
         mean_episode_info: EpisodeInfo = \
             pl.DataFrame(episode_infos).mean().row(0, named=True)
-        self._log_episode(mean_episode_info, td_update, duration_error)
+        self._log_episode(mean_episode_info, td_update, duration_info)
 
         # AUC and windowed AUC
         if self.evaluator:
@@ -470,19 +472,17 @@ class CRDQN:
             next_obs[finished_env_idx] = infos["final_observation"][finished_env_idx]
 
             # Calculate gaze duration distribution and deviation from Atari-HEAD
-            duration_error = None
+            duration_info: DurationInfo = { "error": 1., "mean": None, "median": None }
             if isinstance(env.envs[0], PauseableFixedFovealEnv):
-                histograms = []
-                for e in [e for (e, done) in zip(env.envs, dones) if done]:
-                    durations = GazeDataset.from_game_data([e.prev_episode]).durations
-                    histograms.append(torch.histogram(durations, BINS).hist)
-                histogram = torch.stack(histograms).mean(dim=0)
-                histogram /= histogram.sum()
-                with torch.no_grad():
-                    duration_error = F.mse_loss(
-                        histogram, get_histogram(self.env_name)).item()
+                dataset = GazeDataset.from_game_data(
+                    [e.prev_episode for (e, done) in zip(env.envs, dones) if done])
+                duration_info: DurationInfo = {
+                    "error": dataset.duration_error(self.env_name),
+                    "mean": dataset.durations.mean().item(),
+                    "median": dataset.durations.median().item(),
+                }
 
-            self._log_episode(episode_info, td_update, duration_error)
+            self._log_episode(episode_info, td_update, duration_info)
 
         # Update the latest observation in the pvm buffer
         assert len(env.envs) == 1, \
@@ -500,7 +500,7 @@ class CRDQN:
         return next_pvm_obs, rewards, dones, infos
 
     def _log_episode(self, episode_info: EpisodeInfo,
-            td_update: Optional[TdUpdateInfo], duration_error: float):
+            td_update: Optional[TdUpdateInfo], duration_info: DurationInfo):
         # Prepare the episode infos for the different supported envs
         if isinstance(self.envs[0], FixedFovealEnv):
             new_info = episode_info
@@ -534,9 +534,10 @@ class CRDQN:
                 "no_action_pauses": episode_info["no_action_pauses"],
                 "saccade_cost": episode_info["saccade_cost"],
                 "reward": episode_info["reward"],
-                "duration_error": duration_error,
-                "human_error": (1 - self.auc)+duration_error \
-                    if (duration_error and self.auc) else None
+                "duration_error": duration_info["error"],
+                "human_error": (1 - self.auc) + 5 * duration_info["error"],
+                "mean_duration": duration_info["mean"],
+                "median_duration": duration_info["median"],
             })
         train.report(ray_info)
 

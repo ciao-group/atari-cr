@@ -3,9 +3,11 @@ from typing import List
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 import polars as pl
 
+from atari_cr.atari_head.durations import BINS, get_histogram
 from atari_cr.models import EpisodeRecord
 from atari_cr.module_overrides import tqdm
 from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE, preprocess
@@ -62,6 +64,13 @@ class GazeDataset(Dataset):
         """ Get the entire dataset as a single dataloader """
         return DataLoader(self, batch_size, sampler=SubsetRandomSampler(
                 torch.cat([self.train_indices, self.val_indices])))
+
+    def duration_error(self, env_name: str) -> float:
+        """ Get the error between gaze durations in this dataset and the durations in
+         Atari-HEAD """
+        histogram = torch.histogram(self.durations, BINS).hist
+        histogram = histogram / histogram.sum()
+        return F.mse_loss(histogram, get_histogram(env_name)).item()
 
     def __len__(self):
         return len(self.train_indices) + len(self.val_indices)
