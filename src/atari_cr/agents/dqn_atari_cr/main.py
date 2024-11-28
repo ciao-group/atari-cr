@@ -4,7 +4,7 @@ import gymnasium as gym
 import torch
 from tap import Tap
 
-from active_gym.atari_env import AtariEnv, AtariEnvArgs
+from active_gym.atari_env import AtariEnv, AtariEnvArgs, RecordWrapper, FixedFovealEnv
 
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
@@ -70,6 +70,7 @@ class ArgParser(Tap):
     debug: bool = False # Debug mode for more output
     evaluator: str = "" # Path to gaze predictor weights for evaluation
     fov: FovType = "window" # Type of fovea
+    og_env: bool = False # Whether to use normal sugarl env
 
 def make_env(seed: int, args: ArgParser, **kwargs):
     def thunk():
@@ -94,9 +95,13 @@ def make_env(seed: int, args: ArgParser, **kwargs):
 
         # Pauseable or not pauseable env creation
         env = AtariEnv(env_args)
-        env = PauseableFixedFovealEnv(
-            env, env_args, args.pause_cost, args.saccade_cost_scale,
-            args.fov, not args.use_pause_env)
+        if args.og_env:
+            env = RecordWrapper(env, env_args)
+            env = FixedFovealEnv(env, env_args)
+        else:
+            env = PauseableFixedFovealEnv(
+                env, env_args, args.pause_cost, args.saccade_cost_scale,
+                args.fov, not args.use_pause_env)
 
         # Env configuration
         env.unwrapped.ale.setFloat(

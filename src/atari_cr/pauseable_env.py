@@ -68,6 +68,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         # How much the agent is punished for large eye movements
         self.saccade_cost_scale = saccade_cost_scale
+        self.visual_degrees_per_pixel = np.array(VISUAL_DEGREE_SCREEN_SIZE) / \
+            np.array(self.get_wrapper_attr("obs_size"))
 
         # Whether the current action is a pause action
         self.prev_pause_action = 0
@@ -114,20 +116,13 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # Save the previous fov_loc to calculate the saccade cost
         prev_fov_loc = self.fov_loc.copy()
 
-        # Disallow a pause on the first episode step because there is no
-        # observation to look at yet and do a random action instead
-        if not hasattr(self, "state") and step_info["pauses"]:
-            action["motor_action"] = self._sample_no_pause()
-            step_info["pauses"] = int(action["motor_action"] == self.pause_action)
-            assert not step_info["pauses"], \
-                "Pause action should not happen on the first episode step"
-
         # Actual pause step
         if step_info["pauses"]:
             raw_reward = 0
             done, truncated = False, False
             info = {"raw_reward": raw_reward}
 
+            # Mask out unwanted pause behavior
             if self.consecutive_pauses > self.consecutive_pause_limit:
                 # Too many pauses in a row
                 step_info["reward"] = MASKED_ACTION_PENTALTY
@@ -146,7 +141,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 self.consecutive_pauses += 1
             else:
                 self.consecutive_pauses = 0
-            # Set prev pause action for next step
             self.prev_pause_action = step_info["pauses"]
 
         else:
@@ -161,15 +155,13 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             full_state=self.state, action=action["sensory_action"])
 
         # Add costs for the time it took the agent to move its fovea
-        visual_degrees_per_pixel = np.array(VISUAL_DEGREE_SCREEN_SIZE) / \
-            np.array(self.get_wrapper_attr("obs_size"))
-        visual_degree_distance = np.sqrt(np.sum(
-            np.square((self.fov_loc - prev_fov_loc) * visual_degrees_per_pixel) ))
-        _, total_emma_time, fovea_did_move = EMMA_fixation_time(
-            visual_degree_distance)
-        step_info["emma_time"] = total_emma_time
-        step_info["saccade_cost"] = self.saccade_cost_scale * total_emma_time
-        step_info["reward"] -= step_info["saccade_cost"]
+        if self.saccade_cost_scale:
+            visual_degree_distance = np.sqrt(np.sum(np.square(
+                (self.fov_loc - prev_fov_loc) * self.visual_degrees_per_pixel) ))
+            _, total_emma_time, fov_moved = EMMA_fixation_time(visual_degree_distance)
+            step_info["emma_time"] = total_emma_time
+            step_info["saccade_cost"] = self.saccade_cost_scale * total_emma_time
+            step_info["reward"] -= step_info["saccade_cost"]
 
         # Log the results of taking an action
         step_info["reward_wo_sugarl"] = info["raw_reward"]
@@ -181,10 +173,10 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.episode_info[key] += step_info[key]
         step_info["episode_info"] = self.episode_info.copy()
         step_info["consecutive_pauses"] = self.consecutive_pauses
+        self.step_infos.append(step_info)
 
         # Log the infos of all steps in one record for the
         # entire episode
-        self.step_infos.append(step_info)
         if done or truncated:
             self.prev_episode = EpisodeRecord(
                 np.stack(self.frames),
@@ -219,18 +211,14 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         """ :param Array[W,H] loc: """
         return np.clip(loc, [0,0], self.sensory_action_space).astype(int)
 
-    def _fov_step(self, full_state, action):
+    def _fov_step(self, full_state, action: np.ndarray):
         """
         Changes self.fov_loc by the given action and returns a version of the full
         state that is cropped to where the new self.fov_loc is
 
+        :param Array[2] action:
         :returns Array[4,84,84]:
         """
-        if type(action) is torch.Tensor:
-            action = action.detach().cpu().numpy()
-        elif type(action) is Tuple:
-            action = np.array(action)
-
         # Move the fovea
         if self.relative_sensory_actions:
             action = self._clip_to_valid_fov(action)
@@ -259,7 +247,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             gaussian /= gaussian.max()
             masked_state = full_state * gaussian
         elif self.fov == "window":
-            # Make this work with a list of fov_locs
             crop = full_state[...,
                 self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
                 self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]

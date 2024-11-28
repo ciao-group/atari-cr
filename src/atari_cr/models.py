@@ -4,8 +4,11 @@ from typing import Literal, NamedTuple, Optional, TypeAlias, TypedDict
 import cv2
 import numpy as np
 import polars as pl
+import torch
+import torch.nn.functional as F
 import yaml
 
+from atari_cr.atari_head.durations import BINS, get_histogram
 from atari_cr.atari_head.utils import open_mp4_as_frame_list
 
 class EpisodeInfo(TypedDict):
@@ -258,7 +261,36 @@ class TdUpdateInfo(NamedTuple):
     next_state_value: float
     loss: float
 
-class DurationInfo(TypedDict):
+class DurationInfo:
     error: float
     mean: float
     median: float
+
+    def __init__(self, error: float, mean: float, median: float):
+        self.error = error
+        self.mean = mean
+        self.median = median
+
+    @staticmethod
+    def from_episodes(records: list[EpisodeRecord], env_name: str):
+        durations = [0.]
+        annotations = pl.concat([record.annotations for record in records])
+        # Add to the gaze duration
+        for pauses, emma_time in annotations["pauses", "emma_time"].iter_rows():
+            durations[-1] += emma_time
+            if pauses == 0:
+                # Make a new duration for the next frame
+                durations.append(0.)
+        # Drop the last empty duration
+        durations = torch.Tensor(durations[:-1])
+
+        # Calculate histogram and distance to the expected histogram for the given game
+        histogram = torch.histogram(durations, BINS).hist
+        histogram = histogram / histogram.sum()
+        error = F.mse_loss(histogram, get_histogram(env_name)).item()
+
+        return DurationInfo(
+            error,
+            durations.mean().item(),
+            durations.median().item(),
+        )

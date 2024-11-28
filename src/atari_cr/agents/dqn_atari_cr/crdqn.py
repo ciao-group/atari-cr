@@ -128,9 +128,6 @@ class CRDQN:
 
         # Get the observation size
         self.envs = env.envs if isinstance(env, VectorEnv) else [env]
-        for env in self.envs:
-            assert isinstance(env, (PauseableFixedFovealEnv, FixedFovealEnv)), \
-                "The environment is expected to be wrapped in a PauseableFixedFovealEnv"
         self.obs_size = self.env.observation_space.shape[2:]
         assert len(self.obs_size) == 2, "The CRDQN agent only supports 2D Environments"
 
@@ -386,11 +383,7 @@ class CRDQN:
                 loader = dataset.to_loader()
                 aucs.append(self.evaluator.eval(loader)["auc"])
             # Duration error calculation
-            duration_info: DurationInfo = {
-                "error": dataset.duration_error(self.env_name),
-                "mean": dataset.durations.mean().item(),
-                "median": dataset.durations.median().item(),
-            }
+            duration_info = DurationInfo.from_episodes([episode_record], self.env_name)
 
             eval_env.close()
 
@@ -472,15 +465,12 @@ class CRDQN:
             next_obs[finished_env_idx] = infos["final_observation"][finished_env_idx]
 
             # Calculate gaze duration distribution and deviation from Atari-HEAD
-            duration_info: DurationInfo = { "error": 1., "mean": None, "median": None }
+            duration_info = DurationInfo(None, None, None)
             if isinstance(env.envs[0], PauseableFixedFovealEnv):
-                dataset = GazeDataset.from_game_data(
-                    [e.prev_episode for (e, done) in zip(env.envs, dones) if done])
-                duration_info: DurationInfo = {
-                    "error": dataset.duration_error(self.env_name),
-                    "mean": dataset.durations.mean().item(),
-                    "median": dataset.durations.median().item(),
-                }
+                duration_info = DurationInfo.from_episodes(
+                    [e.prev_episode for (e, done) in zip(env.envs, dones) if done],
+                    self.env_name
+                )
 
             self._log_episode(episode_info, td_update, duration_info)
 
@@ -534,10 +524,10 @@ class CRDQN:
                 "no_action_pauses": episode_info["no_action_pauses"],
                 "saccade_cost": episode_info["saccade_cost"],
                 "reward": episode_info["reward"],
-                "duration_error": duration_info["error"],
-                "human_error": (1 - self.auc) + 5 * duration_info["error"],
-                "mean_duration": duration_info["mean"],
-                "median_duration": duration_info["median"],
+                "duration_error": duration_info.error,
+                "human_error": (1 - self.auc) + 5 * duration_info.error,
+                "mean_duration": duration_info.mean,
+                "median_duration": duration_info.median,
             })
         train.report(ray_info)
 
