@@ -376,7 +376,7 @@ class CRDQN:
 
             # AUC calculation
             episode_record = single_eval_env.prev_episode \
-                if isinstance(single_eval_env, PauseableFixedFovealEnv) \
+                if isinstance(single_eval_env, (PauseableFixedFovealEnv, MyFovEnv)) \
                 else EpisodeRecord.from_record_buffer(
                     single_eval_env.env.prev_record_buffer)
             if self.evaluator:
@@ -473,14 +473,14 @@ class CRDQN:
             self._log_episode(episode_info, td_update, duration_info)
 
         # Update the latest observation in the pvm buffer
-        # assert len(env.envs) == 1, \
-        #     "Vector env with more than one env not supported for the following code"
-        # if isinstance(env.envs[0], PauseableFixedFovealEnv) \
-        #     and motor_actions[0] == env.envs[0].pause_action:
-        #     pvm_buffer.buffer[-1] = np.expand_dims(np.max(np.vstack(
-        #         [pvm_buffer.buffer[-1], next_obs]), axis=0), axis=0)
-        # else:
-        #     pvm_buffer.append(next_obs)
+        assert len(env.envs) == 1, \
+            "Vector env with more than one env not supported for the following code"
+        if isinstance(env.envs[0], (PauseableFixedFovealEnv, MyFovEnv)) \
+            and motor_actions[0] == env.envs[0].pause_action:
+            pvm_buffer.buffer[-1] = np.expand_dims(np.max(np.vstack(
+                [pvm_buffer.buffer[-1], next_obs]), axis=0), axis=0)
+        else:
+            pvm_buffer.append(next_obs)
 
         # Get the next pvm observation
         next_pvm_obs = pvm_buffer.get_obs(mode="stack_max")
@@ -515,7 +515,7 @@ class CRDQN:
             # "td/next_state_value": next_state_value,
             # "td/loss": loss,
         }
-        if isinstance(self.envs[0], PauseableFixedFovealEnv):
+        if isinstance(self.envs[0], (PauseableFixedFovealEnv, MyFovEnv)):
             ray_info.update({
                 # "pauses": episode_info["pauses"],
                 # "prevented_pauses": episode_info["prevented_pauses"],

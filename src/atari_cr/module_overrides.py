@@ -238,15 +238,20 @@ class FixedFovealEnv(gym.Wrapper):
         return fov_state
 
     def _fov_step(self, full_state, action):
-        if type(action) is torch.Tensor:
-            action = action.detach().cpu().numpy()
-        elif type(action) is Tuple:
-            action = np.array(action)
+        """
+        Changes self.fov_loc by the given action and returns a version of the full
+        state that is cropped to where the new self.fov_loc is
 
-        action = self._clip_to_valid_fov(action)
-        self.fov_loc = action
+        :param Array[2] action:
+        :returns Array[4,84,84]:
+        """
+        # Move the fovea
+        if self.relative_sensory_actions:
+            action = self._clip_to_valid_fov(action)
+            action = self.fov_loc + action
+        self.fov_loc = self._clip_to_valid_fov(action)
 
-        fov_state = self._get_fov_state(full_state)
+        fov_state = self._crop_observation(full_state)
 
         return fov_state
 
@@ -341,15 +346,3 @@ class FixedFovealEnv(gym.Wrapper):
         """ :param Array[4,84,84] obs: Frame stack, only last frame is saved """
         self.obs.append(obs[-1])
 
-    @property
-    def unwrapped(self):
-        """
-        Grabs unwrapped environment
-
-        Returns:
-            env (MujocoEnv): Unwrapped environment
-        """
-        if hasattr(self.env, "unwrapped"):
-            return self.env.unwrapped
-        else:
-            return self.env
