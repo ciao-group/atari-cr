@@ -16,7 +16,8 @@ from active_gym.atari_env import AtariEnv
 from atari_cr.atari_head.dataset import SCREEN_SIZE
 from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE
 from atari_cr.graphs.eccentricity import A, B, C
-from atari_cr.models import EpisodeInfo, EpisodeRecord, FovType
+from atari_cr.models import EpisodeInfo, EpisodeRecord, FovType, StepInfo
+from atari_cr.pauseable_env import MASKED_ACTION_PENTALTY
 
 class tqdm(tqdm):
     @property
@@ -169,10 +170,8 @@ class FixedFovealEnv(gym.Wrapper):
 
         # TODO: Remove
         info["fov_loc"] = self.fov_loc.copy()
-        if self.env.record:
-            self.env.record_buffer["fov_size"] = self.fov_size
-            self.env.record_buffer["fov_loc"] = []
-            self.env.record_buffer["fov_loc"].append(info["fov_loc"])
+        self.env.record_buffer["fov_size"] = self.fov_size
+        self.env.record_buffer["fov_loc"] = [info["fov_loc"]]
 
         return fov_obs, info
 
@@ -251,17 +250,62 @@ class FixedFovealEnv(gym.Wrapper):
         return fov_state
 
     def step(self, action):
-        """
-        action : {"motor_action":
-                  "sensory_action": }
-        """
-        state, reward, done, truncated, info = \
-            self.env.step(action=action["motor_action"])
-        fov_state = self._fov_step(full_state=state, action=action["sensory_action"])
+        # Log the state before the action is taken
+        self.timestep += 1
+        step_info = StepInfo.new()
+        step_info["timestep"] = self.timestep
+        step_info["fov_loc"] = self.fov_loc.tolist()
+        step_info["motor_action"] = action["motor_action"]
+        step_info["sensory_action"] = action["sensory_action"]
+        step_info["pauses"] = int(action["motor_action"] == self.pause_action)
+        self.frames.append(self.unwrapped.render())
+
+        # Save the previous fov_loc to calculate the saccade cost
+        prev_fov_loc = self.fov_loc.copy()
+
+        # Actual pause step
+        if step_info["pauses"]:
+            raw_reward = 0
+            done, truncated = False, False
+            info = {"raw_reward": raw_reward}
+
+            # Mask out unwanted pause behavior
+            if self.consecutive_pauses > self.consecutive_pause_limit:
+                # Too many pauses in a row
+                reward = MASKED_ACTION_PENTALTY
+                step_info["prevented_pauses"] = 1
+                truncated = True
+            elif np.all(self.fov_loc == action["sensory_action"]):
+                # No action pause
+                reward = MASKED_ACTION_PENTALTY
+                step_info["no_action_pauses"] = 1
+            else:
+                # Normal pause
+                reward = -self.pause_cost
+
+            # Log another pause
+            if self.prev_pause_action:
+                self.consecutive_pauses += 1
+            else:
+                self.consecutive_pauses = 0
+            self.prev_pause_action = step_info["pauses"]
+
+        # Normal step
+        else:
+            self.consecutive_pauses = 0
+            # The state is saved for the next pause step
+            self.state, reward, done, truncated, info = \
+                self.env.step(action=action["motor_action"])
+            raw_reward = reward
+
+        # Sensory step
+        fov_state = self._fov_step(
+            full_state=self.state, action=action["sensory_action"])
+
+        # TODO: Remove and add my own logging
         info["fov_loc"] = self.fov_loc.copy()
-        if self.record:
-            if not done:
-                self.env.record_buffer["fov_loc"].append(info["fov_loc"])
+        if not done:
+            self.env.record_buffer["fov_loc"].append(info["fov_loc"])
         return fov_state, reward, done, truncated, info
 
     @property
