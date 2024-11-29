@@ -302,10 +302,11 @@ class CRDQN:
             eval_pvm_buffer.append(obs)
             pvm_obs = eval_pvm_buffer.get_obs(mode="stack_max")
 
-            # # Add the observation to the env's EpisodeRecord
-            # if isinstance(eval_env.envs[0], PauseableFixedFovealEnv):
-            #     for i, o in enumerate(pvm_obs):
-            #         eval_env.envs[i].add_obs(o)
+            # Add the observation to the env's EpisodeRecord
+            if self.capture_video and \
+                    isinstance(eval_env.envs[0], (PauseableFixedFovealEnv, MyFovEnv)):
+                for i, o in enumerate(pvm_obs):
+                    eval_env.envs[i].add_obs(o)
 
             # One episode in the environment
             while not done:
@@ -313,15 +314,15 @@ class CRDQN:
                 motor_actions, sensory_action_indices \
                     = self.q_network.chose_eval_action(pvm_obs, self.device)
 
-                # # Forcefully do a pause some of the time in debug mode
-                # if isinstance(single_eval_env, PauseableFixedFovealEnv) and self.debug \
-                #     and np.random.choice([False, True], p=[0.5, 0.5]):
-                #     motor_actions = np.full(
-                #         motor_actions.shape, single_eval_env.pause_action)
-                #     # Also change the sensory_action
-                #     sensory_action_indices = np.full(
-                #         sensory_action_indices.shape,
-                #         np.random.randint(len(self.sensory_action_set)))
+                # Forcefully do a pause some of the time in debug mode
+                if isinstance(single_eval_env, (PauseableFixedFovealEnv, MyFovEnv)) and self.debug \
+                    and np.random.choice([False, True], p=[0.5, 0.5]):
+                    motor_actions = np.full(
+                        motor_actions.shape, single_eval_env.pause_action)
+                    # Also change the sensory_action
+                    sensory_action_indices = np.full(
+                        sensory_action_indices.shape,
+                        np.random.randint(len(self.sensory_action_set)))
 
                 # Translate the action to an absolute fovea position
                 sensory_actions = np.array(
@@ -337,14 +338,15 @@ class CRDQN:
                 )
                 done = dones[0]
 
-                # # Add the observation to the env's EpisodeRecord
-                # if isinstance(eval_env.envs[0], PauseableFixedFovealEnv):
-                #     for i, o in enumerate(pvm_obs):
-                #         eval_env.envs[i].add_obs(o)
+                # Add the observation to the env's EpisodeRecord
+                if self.capture_video and \
+                    isinstance(eval_env.envs[0], (PauseableFixedFovealEnv, MyFovEnv)):
+                    for i, o in enumerate(pvm_obs):
+                        eval_env.envs[i].add_obs(o)
 
             info = infos["final_info"][0]
-            # if isinstance(eval_env.envs[0], PauseableFixedFovealEnv):
-            #     info = info["episode_info"]
+            if isinstance(eval_env.envs[0], (PauseableFixedFovealEnv, MyFovEnv)):
+                info = info["episode_info"]
             episode_infos.append(info)
 
             # At the end of every eval episode:
@@ -354,18 +356,18 @@ class CRDQN:
                     self._save_output(
                         self.pvm_dir, "png", eval_pvm_buffer.to_png, eval_ep)
 
-                # # Save results as video and csv file
-                # # Only save 1/4th of the evals as videos
-                # if (self.capture_video) and single_eval_env.record and eval_ep % 4 == 0:
-                #     if isinstance(single_eval_env, PauseableFixedFovealEnv):
-                #         save_fn = lambda s: single_eval_env.prev_episode.save( # noqa: E731
-                #             s, with_obs=True)
-                #         extension = ""
-                #     else:
-                #         save_fn = single_eval_env.save_record_to_file
-                #         extension = "pt"
-                #     out_paths.append(self._save_output(
-                #         self.video_dir, extension, save_fn, eval_ep))
+                # Save results as video and csv file
+                # Only save 1/4th of the evals as videos
+                if (self.capture_video) and single_eval_env.record and eval_ep % 4 == 0:
+                    if isinstance(single_eval_env, (PauseableFixedFovealEnv, MyFovEnv)):
+                        save_fn = lambda s: single_eval_env.prev_episode.save( # noqa: E731
+                            s, with_obs=True)
+                        extension = ""
+                    else:
+                        save_fn = single_eval_env.save_record_to_file
+                        extension = "pt"
+                    out_paths.append(self._save_output(
+                        self.video_dir, extension, save_fn, eval_ep))
 
                 # Safe the model file in the first eval run
                 if (not self.no_model_output) and eval_ep == 0:
@@ -462,11 +464,11 @@ class CRDQN:
 
             # Calculate gaze duration distribution and deviation from Atari-HEAD
             duration_info = DurationInfo(None, None, None)
-            # if isinstance(env.envs[0], PauseableFixedFovealEnv):
-            #     duration_info = DurationInfo.from_episodes(
-            #         [e.prev_episode for (e, done) in zip(env.envs, dones) if done],
-            #         self.env_name
-            #     )
+            if isinstance(env.envs[0], (PauseableFixedFovealEnv, MyFovEnv)):
+                duration_info = DurationInfo.from_episodes(
+                    [e.prev_episode for (e, done) in zip(env.envs, dones) if done],
+                    self.env_name
+                )
 
             self._log_episode(episode_info, td_update, duration_info)
 

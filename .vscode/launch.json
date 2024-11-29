@@ -61,8 +61,8 @@
                 "--env", "ms_pacman",
                 // Debug config
                 "--exp_name", "dqn_cr_debug",
-                "--total_timesteps", "10000",
-                "--learning_start", "1000",
+                "--total_timesteps", "100",
+                "--learning_start", "50",
                 "--debug",
                 // Additional config
                 "--pause_cost", "0.0",
@@ -91,8 +91,8 @@
                 "--env", "ms_pacman",
                 // Debug config
                 "--exp_name", "dqn_cr_og_debug",
-                "--total_timesteps", "10000",
-                "--learning_start", "1000",
+                "--total_timesteps", "100",
+                "--learning_start", "50",
                 "--debug",
                 // Additional config
                 "--action_repeat", "5",

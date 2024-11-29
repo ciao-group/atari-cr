@@ -337,6 +337,10 @@ class FixedFovealEnv(gym.Wrapper):
             self.env.record_buffer["fov_loc"].append(info["fov_loc"])
         return fov_state, reward, done, truncated, step_info
 
+    def add_obs(self, obs: np.ndarray):
+        """ :param Array[4,84,84] obs: Frame stack, only last frame is saved """
+        self.obs.append(obs[-1])
+
     @property
     def unwrapped(self):
         """
