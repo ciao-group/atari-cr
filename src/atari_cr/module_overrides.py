@@ -8,9 +8,13 @@ from torchvision.transforms import Resize
 from tqdm import tqdm
 import gymnasium as gym
 from gymnasium import spaces
-from gymnasium.spaces import Box
-
+from gymnasium.spaces import Box, Discrete, Dict
 import stable_baselines3.common.preprocessing as sb_preprocessing
+
+from active_gym import AtariEnvArgs
+from active_gym.atari_env import AtariEnv
+from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE
+from atari_cr.models import EpisodeRecord, FovType
 
 class tqdm(tqdm):
     @property
@@ -93,48 +97,56 @@ def get_action_dim(action_space: spaces.Space) -> Union[int, Dict]:
         return sb_preprocessing.get_action_dim(action_space)
 
 class FixedFovealEnv(gym.Wrapper):
-    def __init__(self, env: gym.Env, args):
+    def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
+            saccade_cost_scale = 0.001, fov: FovType = "window", no_pauses = False,
+            consecutive_pause_limit = 20):
         super().__init__(env)
         self.fov_size: Tuple[int, int] = args.fov_size
+        self.fov: FovType = fov
         self.fov_init_loc: Tuple[int, int] = args.fov_init_loc
-        assert (np.array(self.fov_size) < np.array(self.obs_size)).all()
+        assert (np.array(self.fov_size) <
+                np.array(env.obs_size)).all()
+        self.no_pauses = no_pauses
 
-        self.sensory_action_mode: str = args.sensory_action_mode # "absolute","relative"
-        if self.sensory_action_mode == "relative":
+        # Get sensory action space for the sensory action mode
+        self.relative_sensory_actions = args.sensory_action_mode == "relative"
+        if self.relative_sensory_actions:
             self.sensory_action_space = np.array(args.sensory_action_space)
-        elif self.sensory_action_mode == "absolute":
-            self.sensory_action_space = np.array(self.obs_size) \
-                                        - np.array(self.fov_size)
+        elif self.fov in ["gaussian", "exponential"]:
+            self.sensory_action_space = np.array(env.obs_size)
+        elif self.fov == "window":
+            self.sensory_action_space = \
+                np.array(env.obs_size) - np.array(self.fov_size)
 
-        self.resize: Resize = Resize(self.env.obs_size) if args.resize_to_full else None
+        self.resize: Resize = Resize(env.obs_size) \
+            if args.resize_to_full else None
 
-        self.mask_out: bool = args.mask_out
-
-        # set gym.Env attribute
         self.action_space = Dict({
-            "motor_action": self.env.action_space,
+            # One additional action lets the agent stop the game to perform a
+            # sensory action without the game progressing
+            "motor_action": Discrete(
+                env.action_space.n if no_pauses else env.action_space.n + 1),
             "sensory_action": Box(low=self.sensory_action_space[0],
                                  high=self.sensory_action_space[1], dtype=int),
         })
+        self.pause_action = None if no_pauses else \
+            self.action_space["motor_action"].n - 1
 
-        if args.mask_out:
-            self.observation_space = Box(low=-1., high=1.,
-                                         shape=(self.env.frame_stack,)+self.env.obs_size,
-                                         dtype=np.float32)
-        elif args.resize_to_full:
-            self.observation_space = Box(low=-1., high=1.,
-                                         shape=(self.env.frame_stack,)+self.env.obs_size,
-                                         dtype=np.float32)
-        else:
-            self.observation_space = Box(low=-1., high=1.,
-                                         shape=(self.env.frame_stack,)+self.fov_size,
-                                         dtype=np.float32)
+        # How much the agent is punished for large eye movements
+        self.saccade_cost_scale = saccade_cost_scale
+        self.visual_degrees_per_pixel = np.array(VISUAL_DEGREE_SCREEN_SIZE) / \
+            np.array(self.get_wrapper_attr("obs_size"))
 
-        # init fov location
-        # The location of the upper left corner of the fov image,
-        # on the original observation plane
-        self.fov_loc: np.ndarray = np.empty_like(self.fov_init_loc)  #
-        self._init_fov_loc()
+        # Whether the previous action was a pause action
+        self.prev_pause_action = 0
+        # Count and log the number of pauses made and their cost
+        self.pause_cost = pause_cost
+        self.consecutive_pause_limit = consecutive_pause_limit
+
+        # Attributes for recording episodes
+        self.record = args.record
+        self.prev_episode: Optional[EpisodeRecord] = None
+        self.env: AtariEnv
 
     def _init_fov_loc(self):
         self.fov_loc = np.rint(np.array(self.fov_init_loc, copy=True)).astype(np.int32)
@@ -164,14 +176,10 @@ class FixedFovealEnv(gym.Wrapper):
         fov_state = full_state[..., self.fov_loc[0]:self.fov_loc[0]+self.fov_size[0],
                                     self.fov_loc[1]:self.fov_loc[1]+self.fov_size[1]]
 
-        if self.mask_out:
-            mask = np.zeros_like(full_state)
-            mask[..., self.fov_loc[0]:self.fov_loc[0]+self.fov_size[0],
-                    self.fov_loc[1]:self.fov_loc[1]+self.fov_size[1]] = fov_state
-            fov_state = mask
-        elif self.resize:
-            fov_state = self.resize(torch.from_numpy(fov_state))
-            fov_state = fov_state.numpy()
+        mask = np.zeros_like(full_state)
+        mask[..., self.fov_loc[0]:self.fov_loc[0]+self.fov_size[0],
+                self.fov_loc[1]:self.fov_loc[1]+self.fov_size[1]] = fov_state
+        fov_state = mask
 
         return fov_state
 
@@ -181,13 +189,8 @@ class FixedFovealEnv(gym.Wrapper):
         elif type(action) is Tuple:
             action = np.array(action)
 
-        if self.sensory_action_mode == "absolute":
-            action = self._clip_to_valid_fov(action)
-            self.fov_loc = action
-        elif self.sensory_action_mode == "relative":
-            action = self._clip_to_valid_sensory_action_space(action)
-            fov_loc = self.fov_loc + action
-            self.fov_loc = self._clip_to_valid_fov(fov_loc)
+        action = self._clip_to_valid_fov(action)
+        self.fov_loc = action
 
         fov_state = self._get_fov_state(full_state)
 
@@ -202,7 +205,6 @@ class FixedFovealEnv(gym.Wrapper):
         action : {"motor_action":
                   "sensory_action": }
         """
-        # print ("in env", action, action["motor_action"], action["sensory_action"])
         state, reward, done, truncated, info = \
             self.env.step(action=action["motor_action"])
         fov_state = self._fov_step(full_state=state, action=action["sensory_action"])
