@@ -83,10 +83,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.env: AtariEnv
 
     def reset(self):
-        self.state, info = self.env.reset()
+        self.state, info = self.env.reset() # -> [4,84,84;f64]
         assert info == {'raw_reward': 0}
-        assert self.state.shape == (4, 84, 84)
-        assert self.state.dtype == np.float64
 
         self.timestep = -1
         self.frames = []
@@ -188,10 +186,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     def add_obs(self, obs: np.ndarray):
         """ :param Array[4,84,84] obs: Frame stack, only last frame is saved """
         self.obs.append(obs[-1])
-
-    def _sample_no_pause(self):
-        """ Samples an action that is not a pause. """
-        return np.random.randint(len(self.get_wrapper_attr("actions")))
 
     def _clip_to_valid_fov(self, loc: np.ndarray):
         """ :param Array[W,H] loc: """

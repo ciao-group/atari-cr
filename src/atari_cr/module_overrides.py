@@ -152,9 +152,6 @@ class FixedFovealEnv(gym.Wrapper):
         self.prev_episode: Optional[EpisodeRecord] = None
         self.env: AtariEnv
 
-    def _init_fov_loc(self):
-        self.fov_loc = np.rint(np.array(self.fov_init_loc, copy=True)).astype(np.int32)
-
     def reset(self):
         self.state, info = self.env.reset()
 
@@ -169,91 +166,7 @@ class FixedFovealEnv(gym.Wrapper):
         self.fov_loc = np.array(self.fov_init_loc, copy=True).astype(np.int32)
         fov_obs = self._crop_observation(self.state)
 
-        # TODO: Remove
-        info["fov_loc"] = self.fov_loc.copy()
-        self.env.record_buffer["fov_size"] = self.fov_size
-        self.env.record_buffer["fov_loc"] = [info["fov_loc"]]
-
         return fov_obs, info
-
-    def _crop_observation(self, full_state: np.ndarray):
-        """
-        Get a version of the full_state that is cropped to the fovea around fov_loc if
-        fov is set to 'window'. Otherwise get a mask over the output
-
-        :param Array[4,84,84] full_state: Stack of four greyscale images of type float64
-        """
-        masked_state = np.zeros_like(full_state)
-        if self.fov == "gaussian":
-            distances_from_fov = self._pixel_eccentricities(
-                full_state.shape[-2:], self.fov_loc)
-            sigma = self.fov_size[0] / 2
-            gaussian = np.exp(-np.sum(
-                np.square(distances_from_fov) / (2 * np.square(sigma)),
-                axis=0)) # -> [84,84]
-            gaussian /= gaussian.max()
-            masked_state = full_state * gaussian
-        elif self.fov == "window":
-            crop = full_state[...,
-                self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
-                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
-            ]
-            # Fill the area outside the crop with zeros
-            masked_state[...,
-                self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
-                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
-            ] = crop
-        elif self.fov == "exponential":
-            pixel_eccentricities = self._pixel_eccentricities(
-                full_state.shape[-2:], self.fov_loc)
-            # Convert from pixels to visual degrees
-            eccentricities = (pixel_eccentricities.transpose([1,2,0]) *\
-                (np.array(VISUAL_DEGREE_SCREEN_SIZE) / np.array(SCREEN_SIZE))
-                ).transpose(2,0,1)
-            # Absolute 1D distances
-            abs_distances = np.sqrt(np.square(eccentricities).sum(axis=0))
-
-            mask = A * np.exp(B * abs_distances) + C
-            mask /= mask.max()
-            masked_state = full_state * mask
-
-        return masked_state
-
-    def _clip_to_valid_fov(self, loc):
-        return np.rint(np.clip(
-            loc, 0, np.array(self.env.obs_size) - np.array(self.fov_size))).astype(int)
-
-    def _clip_to_valid_sensory_action_space(self, action):
-        return np.rint(np.clip(action, *self.sensory_action_space)).astype(int)
-
-    def _get_fov_state(self, full_state):
-        fov_state = full_state[..., self.fov_loc[0]:self.fov_loc[0]+self.fov_size[0],
-                                    self.fov_loc[1]:self.fov_loc[1]+self.fov_size[1]]
-
-        mask = np.zeros_like(full_state)
-        mask[..., self.fov_loc[0]:self.fov_loc[0]+self.fov_size[0],
-                self.fov_loc[1]:self.fov_loc[1]+self.fov_size[1]] = fov_state
-        fov_state = mask
-
-        return fov_state
-
-    def _fov_step(self, full_state, action):
-        """
-        Changes self.fov_loc by the given action and returns a version of the full
-        state that is cropped to where the new self.fov_loc is
-
-        :param Array[2] action:
-        :returns Array[4,84,84]:
-        """
-        # Move the fovea
-        if self.relative_sensory_actions:
-            action = self._clip_to_valid_fov(action)
-            action = self.fov_loc + action
-        self.fov_loc = self._clip_to_valid_fov(action)
-
-        fov_state = self._crop_observation(full_state)
-
-        return fov_state
 
     def step(self, action):
         # Log the state before the action is taken
@@ -336,11 +249,75 @@ class FixedFovealEnv(gym.Wrapper):
                 np.stack(self.obs) if self.obs else None
             )
 
-        # TODO: Remove
-        info["fov_loc"] = self.fov_loc.copy()
-        if not done:
-            self.env.record_buffer["fov_loc"].append(info["fov_loc"])
         return fov_state, reward, done, truncated, step_info
+
+    def _init_fov_loc(self):
+        self.fov_loc = np.rint(np.array(self.fov_init_loc, copy=True)).astype(np.int32)
+
+    def _crop_observation(self, full_state: np.ndarray):
+        """
+        Get a version of the full_state that is cropped to the fovea around fov_loc if
+        fov is set to 'window'. Otherwise get a mask over the output
+
+        :param Array[4,84,84] full_state: Stack of four greyscale images of type float64
+        """
+        masked_state = np.zeros_like(full_state)
+        if self.fov == "gaussian":
+            distances_from_fov = self._pixel_eccentricities(
+                full_state.shape[-2:], self.fov_loc)
+            sigma = self.fov_size[0] / 2
+            gaussian = np.exp(-np.sum(
+                np.square(distances_from_fov) / (2 * np.square(sigma)),
+                axis=0)) # -> [84,84]
+            gaussian /= gaussian.max()
+            masked_state = full_state * gaussian
+        elif self.fov == "window":
+            crop = full_state[...,
+                self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
+                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
+            ]
+            # Fill the area outside the crop with zeros
+            masked_state[...,
+                self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
+                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
+            ] = crop
+        elif self.fov == "exponential":
+            pixel_eccentricities = self._pixel_eccentricities(
+                full_state.shape[-2:], self.fov_loc)
+            # Convert from pixels to visual degrees
+            eccentricities = (pixel_eccentricities.transpose([1,2,0]) *\
+                (np.array(VISUAL_DEGREE_SCREEN_SIZE) / np.array(SCREEN_SIZE))
+                ).transpose(2,0,1)
+            # Absolute 1D distances
+            abs_distances = np.sqrt(np.square(eccentricities).sum(axis=0))
+
+            mask = A * np.exp(B * abs_distances) + C
+            mask /= mask.max()
+            masked_state = full_state * mask
+
+        return masked_state
+
+    def _clip_to_valid_fov(self, loc: np.ndarray):
+        """ :param Array[W,H] loc: """
+        return np.clip(loc, [0,0], self.sensory_action_space).astype(int)
+
+    def _fov_step(self, full_state, action):
+        """
+        Changes self.fov_loc by the given action and returns a version of the full
+        state that is cropped to where the new self.fov_loc is
+
+        :param Array[2] action:
+        :returns Array[4,84,84]:
+        """
+        # Move the fovea
+        if self.relative_sensory_actions:
+            action = self._clip_to_valid_fov(action)
+            action = self.fov_loc + action
+        self.fov_loc = self._clip_to_valid_fov(action)
+
+        fov_state = self._crop_observation(full_state)
+
+        return fov_state
 
     def add_obs(self, obs: np.ndarray):
         """ :param Array[4,84,84] obs: Frame stack, only last frame is saved """
