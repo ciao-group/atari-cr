@@ -56,7 +56,6 @@
                 "-Xfrozen_modules=off"
             ],
             "args": [
-                "--clip_reward",
                 "--capture_video",
                 "--env", "ms_pacman",
                 // Debug config
@@ -86,7 +85,6 @@
                 "-Xfrozen_modules=off"
             ],
             "args": [
-                "--clip_reward",
                 "--capture_video",
                 "--env", "ms_pacman",
                 // Debug config
