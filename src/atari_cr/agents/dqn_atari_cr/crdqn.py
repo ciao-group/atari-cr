@@ -24,7 +24,6 @@ from atari_cr.buffers import DoubleActionReplayBuffer, DoubleActionReplayBufferS
 from atari_cr.pvm_buffer import PVMBuffer
 from atari_cr.utils import linear_schedule
 from atari_cr.agents.dqn_atari_cr.networks import QNetwork, SelfPredictionNetwork
-from atari_cr.module_overrides import FixedFovealEnv as MyFovEnv
 
 class CRDQN:
     """
@@ -304,7 +303,7 @@ class CRDQN:
 
             # Add the observation to the env's EpisodeRecord
             if self.capture_video and \
-                    isinstance(eval_env.envs[0], (PauseableFixedFovealEnv, MyFovEnv)):
+                    isinstance(eval_env.envs[0], PauseableFixedFovealEnv):
                 for i, o in enumerate(pvm_obs):
                     eval_env.envs[i].add_obs(o)
 
@@ -315,7 +314,7 @@ class CRDQN:
                     = self.q_network.chose_eval_action(pvm_obs, self.device)
 
                 # Forcefully do a pause some of the time in debug mode
-                if isinstance(single_eval_env, (PauseableFixedFovealEnv, MyFovEnv)) and self.debug \
+                if isinstance(single_eval_env, PauseableFixedFovealEnv) and self.debug \
                     and np.random.choice([False, True], p=[0.5, 0.5]):
                     motor_actions = np.full(
                         motor_actions.shape, single_eval_env.pause_action)
@@ -340,12 +339,12 @@ class CRDQN:
 
                 # Add the observation to the env's EpisodeRecord
                 if self.capture_video and \
-                    isinstance(eval_env.envs[0], (PauseableFixedFovealEnv, MyFovEnv)):
+                    isinstance(eval_env.envs[0], PauseableFixedFovealEnv):
                     for i, o in enumerate(pvm_obs):
                         eval_env.envs[i].add_obs(o)
 
             info = infos["final_info"][0]
-            if isinstance(eval_env.envs[0], (PauseableFixedFovealEnv, MyFovEnv)):
+            if isinstance(eval_env.envs[0], PauseableFixedFovealEnv):
                 info = info["episode_info"]
             episode_infos.append(info)
 
@@ -359,7 +358,7 @@ class CRDQN:
                 # Save results as video and csv file
                 # Only save 1/4th of the evals as videos
                 if (self.capture_video) and single_eval_env.record and eval_ep % 4 == 0:
-                    if isinstance(single_eval_env, (PauseableFixedFovealEnv, MyFovEnv)):
+                    if isinstance(single_eval_env, PauseableFixedFovealEnv):
                         save_fn = lambda s: single_eval_env.prev_episode.save( # noqa: E731
                             s, with_obs=True)
                         extension = ""
@@ -376,7 +375,7 @@ class CRDQN:
 
             # AUC calculation
             episode_record = single_eval_env.prev_episode \
-                if isinstance(single_eval_env, (PauseableFixedFovealEnv, MyFovEnv)) \
+                if isinstance(single_eval_env, PauseableFixedFovealEnv) \
                 else EpisodeRecord.from_record_buffer(
                     single_eval_env.env.prev_record_buffer)
             if self.evaluator:
@@ -458,13 +457,13 @@ class CRDQN:
             finished_env_idx = np.argmax(dones)
             episode_info = infos['final_info'][finished_env_idx]
             next_obs[finished_env_idx] = infos["final_observation"][finished_env_idx]
-            if isinstance(env.envs[0], (PauseableFixedFovealEnv, MyFovEnv)):
+            if isinstance(env.envs[0], PauseableFixedFovealEnv):
                 episode_info = episode_info["episode_info"]
             else: episode_info["raw_reward"] = episode_info["reward"]
 
             # Calculate gaze duration distribution and deviation from Atari-HEAD
             duration_info = DurationInfo(None, None, None)
-            if isinstance(env.envs[0], (PauseableFixedFovealEnv, MyFovEnv)):
+            if isinstance(env.envs[0], PauseableFixedFovealEnv):
                 duration_info = DurationInfo.from_episodes(
                     [e.prev_episode for (e, done) in zip(env.envs, dones) if done],
                     self.env_name
@@ -475,7 +474,7 @@ class CRDQN:
         # Update the latest observation in the pvm buffer
         assert len(env.envs) == 1, \
             "Vector env with more than one env not supported for the following code"
-        if isinstance(env.envs[0], (PauseableFixedFovealEnv, MyFovEnv)) \
+        if isinstance(env.envs[0], PauseableFixedFovealEnv) \
             and motor_actions[0] == env.envs[0].pause_action:
             pvm_buffer.buffer[-1] = np.expand_dims(np.max(np.vstack(
                 [pvm_buffer.buffer[-1], next_obs]), axis=0), axis=0)
@@ -503,29 +502,29 @@ class CRDQN:
         # Ray logging
         ray_info = {
             "raw_reward": episode_info["raw_reward"],
-            # "sfn_loss": self.sfn_loss.item(),
-            # "k_timesteps": self.timestep / 1000,
-            # "auc": self.auc,
-            # "windowed_auc": self.windowed_auc,
-            # "truncated": episode_info["truncated"],
-            # "td/old": old_value,
-            # "td/target": td_target,
-            # "td/reward": td_reward,
-            # "td/sugarl": sugarl_penalty,
-            # "td/next_state_value": next_state_value,
-            # "td/loss": loss,
+            "sfn_loss": self.sfn_loss.item(),
+            "k_timesteps": self.timestep / 1000,
+            "auc": self.auc,
+            "windowed_auc": self.windowed_auc,
+            "truncated": episode_info["truncated"],
+            "td/old": old_value,
+            "td/target": td_target,
+            "td/reward": td_reward,
+            "td/sugarl": sugarl_penalty,
+            "td/next_state_value": next_state_value,
+            "td/loss": loss,
         }
-        if isinstance(self.envs[0], (PauseableFixedFovealEnv, MyFovEnv)):
+        if isinstance(self.envs[0], PauseableFixedFovealEnv):
             ray_info.update({
-                # "pauses": episode_info["pauses"],
-                # "prevented_pauses": episode_info["prevented_pauses"],
-                # "no_action_pauses": episode_info["no_action_pauses"],
-                # "saccade_cost": episode_info["saccade_cost"],
+                "pauses": episode_info["pauses"],
+                "prevented_pauses": episode_info["prevented_pauses"],
+                "no_action_pauses": episode_info["no_action_pauses"],
+                "saccade_cost": episode_info["saccade_cost"],
                 "reward": episode_info["reward"],
-                # "duration_error": duration_info.error,
-                # "human_error": (1 - self.auc) + 5 * duration_info.error,
-                # "mean_duration": duration_info.mean,
-                # "median_duration": duration_info.median,
+                "duration_error": duration_info.error,
+                "human_error": (1 - self.auc) + 5 * duration_info.error,
+                "mean_duration": duration_info.mean,
+                "median_duration": duration_info.median,
             })
         train.report(ray_info)
 

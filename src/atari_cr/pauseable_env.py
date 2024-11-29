@@ -84,7 +84,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
     def reset(self):
         self.state, info = self.env.reset() # -> [4,84,84;f64]
-        # assert info == {'raw_reward': 0}
 
         self.timestep = -1
         self.frames = []
@@ -160,6 +159,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         # Log the results of taking an action
         step_info["raw_reward"] = info["raw_reward"]
+        step_info["reward"] = reward
         step_info["done"] = done
         step_info["truncated"] = truncated
         # Episode info stores cumulative sums of the step info keys

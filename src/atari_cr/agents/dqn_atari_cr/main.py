@@ -5,8 +5,6 @@ import torch
 from tap import Tap
 
 from active_gym.atari_env import AtariEnv, AtariEnvArgs, RecordWrapper, FixedFovealEnv
-from atari_cr.module_overrides import FixedFovealEnv as MyFovEnv
-
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
