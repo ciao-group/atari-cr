@@ -153,7 +153,8 @@ class FixedFovealEnv(gym.Wrapper):
         self.env: AtariEnv
 
     def reset(self):
-        self.state, info = self.env.reset()
+        self.state, info = self.env.reset() # -> [4,84,84;f64]
+        assert info == {'raw_reward': 0}
 
         self.timestep = -1
         self.frames = []
@@ -251,8 +252,31 @@ class FixedFovealEnv(gym.Wrapper):
 
         return fov_state, reward, done, truncated, step_info
 
-    def _init_fov_loc(self):
-        self.fov_loc = np.rint(np.array(self.fov_init_loc, copy=True)).astype(np.int32)
+    def add_obs(self, obs: np.ndarray):
+        """ :param Array[4,84,84] obs: Frame stack, only last frame is saved """
+        self.obs.append(obs[-1])
+
+    def _clip_to_valid_fov(self, loc: np.ndarray):
+        """ :param Array[W,H] loc: """
+        return np.clip(loc, [0,0], self.sensory_action_space).astype(int)
+
+    def _fov_step(self, full_state, action):
+        """
+        Changes self.fov_loc by the given action and returns a version of the full
+        state that is cropped to where the new self.fov_loc is
+
+        :param Array[2] action:
+        :returns Array[4,84,84]:
+        """
+        # Move the fovea
+        if self.relative_sensory_actions:
+            action = self._clip_to_valid_fov(action)
+            action = self.fov_loc + action
+        self.fov_loc = self._clip_to_valid_fov(action)
+
+        fov_state = self._crop_observation(full_state)
+
+        return fov_state
 
     def _crop_observation(self, full_state: np.ndarray):
         """
@@ -296,30 +320,4 @@ class FixedFovealEnv(gym.Wrapper):
             masked_state = full_state * mask
 
         return masked_state
-
-    def _clip_to_valid_fov(self, loc: np.ndarray):
-        """ :param Array[W,H] loc: """
-        return np.clip(loc, [0,0], self.sensory_action_space).astype(int)
-
-    def _fov_step(self, full_state, action):
-        """
-        Changes self.fov_loc by the given action and returns a version of the full
-        state that is cropped to where the new self.fov_loc is
-
-        :param Array[2] action:
-        :returns Array[4,84,84]:
-        """
-        # Move the fovea
-        if self.relative_sensory_actions:
-            action = self._clip_to_valid_fov(action)
-            action = self.fov_loc + action
-        self.fov_loc = self._clip_to_valid_fov(action)
-
-        fov_state = self._crop_observation(full_state)
-
-        return fov_state
-
-    def add_obs(self, obs: np.ndarray):
-        """ :param Array[4,84,84] obs: Frame stack, only last frame is saved """
-        self.obs.append(obs[-1])
 

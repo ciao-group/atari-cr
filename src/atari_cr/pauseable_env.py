@@ -84,7 +84,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
     def reset(self):
         self.state, info = self.env.reset() # -> [4,84,84;f64]
-        assert info == {'raw_reward': 0}
+        # assert info == {'raw_reward': 0}
 
         self.timestep = -1
         self.frames = []
@@ -180,7 +180,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 np.stack(self.obs) if self.obs else None
             )
 
-        # return fov_state, reward, done, truncated, step_info
         return fov_state, reward, done, truncated, step_info
 
     def add_obs(self, obs: np.ndarray):

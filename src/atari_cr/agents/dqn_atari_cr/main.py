@@ -101,11 +101,8 @@ def make_env(seed: int, args: ArgParser, training = False):
             env = RecordWrapper(env, env_args)
             env = FixedFovealEnv(env, env_args)
         else:
-            # env = PauseableFixedFovealEnv(
-            #     env, env_args, args.pause_cost, args.saccade_cost_scale,
-            #     args.fov, not args.use_pause_env)
-            env = RecordWrapper(env, env_args)
-            env = MyFovEnv(env, env_args, args.pause_cost, args.saccade_cost_scale,
+            env = PauseableFixedFovealEnv(
+                env, env_args, args.pause_cost, args.saccade_cost_scale,
                 args.fov, not args.use_pause_env)
 
         # Env configuration
