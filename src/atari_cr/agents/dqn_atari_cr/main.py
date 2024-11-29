@@ -5,6 +5,7 @@ import torch
 from tap import Tap
 
 from active_gym.atari_env import AtariEnv, AtariEnvArgs, RecordWrapper, FixedFovealEnv
+from atari_cr.module_overrides import FixedFovealEnv as MyFovEnv
 
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
@@ -72,7 +73,7 @@ class ArgParser(Tap):
     fov: FovType = "window" # Type of fovea
     og_env: bool = False # Whether to use normal sugarl env
 
-def make_env(seed: int, args: ArgParser, **kwargs):
+def make_env(seed: int, args: ArgParser, training = False):
     def thunk():
         # Env args
         env_args = AtariEnvArgs(
@@ -90,7 +91,8 @@ def make_env(seed: int, args: ArgParser, **kwargs):
             resize_to_full=args.resize_to_full,
             clip_reward=args.clip_reward,
             mask_out=True,
-            **kwargs
+            training=training,
+            record=args.capture_video,
         )
 
         # Pauseable or not pauseable env creation
@@ -99,8 +101,11 @@ def make_env(seed: int, args: ArgParser, **kwargs):
             env = RecordWrapper(env, env_args)
             env = FixedFovealEnv(env, env_args)
         else:
-            env = PauseableFixedFovealEnv(
-                env, env_args, args.pause_cost, args.saccade_cost_scale,
+            # env = PauseableFixedFovealEnv(
+            #     env, env_args, args.pause_cost, args.saccade_cost_scale,
+            #     args.fov, not args.use_pause_env)
+            env = RecordWrapper(env, env_args)
+            env = MyFovEnv(env, env_args, args.pause_cost, args.saccade_cost_scale,
                 args.fov, not args.use_pause_env)
 
         # Env configuration
@@ -118,7 +123,7 @@ def make_train_env(args: ArgParser):
     return gym.vector.SyncVectorEnv(envs)
 
 def make_eval_env(seed, args: ArgParser):
-    envs = [make_env(args.seed + seed, args, training=False, record=args.capture_video)]
+    envs = [make_env(args.seed + seed, args, training=False)]
     return gym.vector.SyncVectorEnv(envs)
 
 def main(args: ArgParser):

@@ -71,17 +71,15 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.visual_degrees_per_pixel = np.array(VISUAL_DEGREE_SCREEN_SIZE) / \
             np.array(self.get_wrapper_attr("obs_size"))
 
-        # Whether the current action is a pause action
+        # Whether the previous action was a pause action
         self.prev_pause_action = 0
-
         # Count and log the number of pauses made and their cost
         self.pause_cost = pause_cost
         self.consecutive_pause_limit = consecutive_pause_limit
 
         # Attributes for recording episodes
-        self.prev_episode: Optional[EpisodeRecord] = None
         self.record = args.record
-        self.episode_info: EpisodeInfo
+        self.prev_episode: Optional[EpisodeRecord] = None
         self.env: AtariEnv
 
     def reset(self):
@@ -90,22 +88,23 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         assert self.state.shape == (4, 84, 84)
         assert self.state.dtype == np.float64
 
+        self.timestep = -1
         self.frames = []
+        # self.obs appended to from outside the environment
         self.obs = []
         self.step_infos = []
         self.episode_info = EpisodeInfo.new()
-        self.timestep = -1
         self.consecutive_pauses = 0
-        self.fov_loc = np.array(self.fov_init_loc, copy=True).astype(np.int32)
 
+        self.fov_loc = np.array(self.fov_init_loc, copy=True).astype(np.int32)
         fov_obs = self._crop_observation(self.state)
 
         return fov_obs, info
 
     def step(self, action):
         # Log the state before the action is taken
-        step_info = StepInfo.new()
         self.timestep += 1
+        step_info = StepInfo.new()
         step_info["timestep"] = self.timestep
         step_info["fov_loc"] = self.fov_loc.tolist()
         step_info["motor_action"] = action["motor_action"]
@@ -118,23 +117,22 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         # Actual pause step
         if step_info["pauses"]:
-            raw_reward = 0
             done, truncated = False, False
-            info = {"raw_reward": raw_reward}
+            info = {"raw_reward": 0}
 
             # Mask out unwanted pause behavior
             if self.consecutive_pauses > self.consecutive_pause_limit:
                 # Too many pauses in a row
-                step_info["reward"] = MASKED_ACTION_PENTALTY
+                reward = MASKED_ACTION_PENTALTY
                 step_info["prevented_pauses"] = 1
                 truncated = True
             elif np.all(self.fov_loc == action["sensory_action"]):
                 # No action pause
-                step_info["reward"] = MASKED_ACTION_PENTALTY
+                reward = MASKED_ACTION_PENTALTY
                 step_info["no_action_pauses"] = 1
             else:
                 # Normal pause
-                step_info["reward"] = -self.pause_cost
+                reward = -self.pause_cost
 
             # Log another pause
             if self.prev_pause_action:
@@ -146,9 +144,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         else:
             self.consecutive_pauses = 0
             # Normal step, the state is saved for the next pause step
-            self.state, step_info["reward"], done, truncated, info = \
+            self.state, reward, done, truncated, info = \
                 self.env.step(action=action["motor_action"])
-            raw_reward = step_info["reward"]
 
         # Sensory step
         fov_state = self._fov_step(
@@ -161,14 +158,14 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             _, total_emma_time, fov_moved = EMMA_fixation_time(visual_degree_distance)
             step_info["emma_time"] = total_emma_time
             step_info["saccade_cost"] = self.saccade_cost_scale * total_emma_time
-            step_info["reward"] -= step_info["saccade_cost"]
+            reward -= step_info["saccade_cost"]
 
         # Log the results of taking an action
-        step_info["reward_wo_sugarl"] = info["raw_reward"]
-        step_info["raw_reward"] = raw_reward
+        step_info["raw_reward"] = info["raw_reward"]
         step_info["done"] = done
         step_info["truncated"] = truncated
         # Episode info stores cumulative sums of the step info keys
+        self.episode_info: EpisodeInfo
         for key in self.episode_info.keys():
             self.episode_info[key] += step_info[key]
         step_info["episode_info"] = self.episode_info.copy()
@@ -185,7 +182,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 np.stack(self.obs) if self.obs else None
             )
 
-        return fov_state, step_info["reward"], done, truncated, step_info
+        # return fov_state, reward, done, truncated, step_info
+        return fov_state, reward, done, truncated, step_info
 
     def add_obs(self, obs: np.ndarray):
         """ :param Array[4,84,84] obs: Frame stack, only last frame is saved """
@@ -194,18 +192,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     def _sample_no_pause(self):
         """ Samples an action that is not a pause. """
         return np.random.randint(len(self.get_wrapper_attr("actions")))
-
-    def _skip_step(self, reward):
-        """
-        Make a step without actually making a step.
-
-        Returns
-        -------
-        state, the given reward, done, truncated, info
-        """
-        done, truncated = False, False
-        info = { "raw_reward": reward }
-        return self.state, reward, done, truncated, info
 
     def _clip_to_valid_fov(self, loc: np.ndarray):
         """ :param Array[W,H] loc: """

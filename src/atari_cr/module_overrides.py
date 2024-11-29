@@ -266,9 +266,8 @@ class FixedFovealEnv(gym.Wrapper):
 
         # Actual pause step
         if step_info["pauses"]:
-            raw_reward = 0
             done, truncated = False, False
-            info = {"raw_reward": raw_reward}
+            info = {"raw_reward": 0}
 
             # Mask out unwanted pause behavior
             if self.consecutive_pauses > self.consecutive_pause_limit:
@@ -291,13 +290,11 @@ class FixedFovealEnv(gym.Wrapper):
                 self.consecutive_pauses = 0
             self.prev_pause_action = step_info["pauses"]
 
-        # Normal step
         else:
             self.consecutive_pauses = 0
-            # The state is saved for the next pause step
+            # Normal step, the state is saved for the next pause step
             self.state, reward, done, truncated, info = \
                 self.env.step(action=action["motor_action"])
-            raw_reward = reward
 
         # Sensory step
         fov_state = self._fov_step(
@@ -313,8 +310,7 @@ class FixedFovealEnv(gym.Wrapper):
             reward -= step_info["saccade_cost"]
 
         # Log the results of taking an action
-        step_info["reward_wo_sugarl"] = info["raw_reward"]
-        step_info["raw_reward"] = raw_reward
+        step_info["raw_reward"] = info["raw_reward"]
         step_info["done"] = done
         step_info["truncated"] = truncated
         # Episode info stores cumulative sums of the step info keys
@@ -339,7 +335,7 @@ class FixedFovealEnv(gym.Wrapper):
         info["fov_loc"] = self.fov_loc.copy()
         if not done:
             self.env.record_buffer["fov_loc"].append(info["fov_loc"])
-        return fov_state, reward, done, truncated, info
+        return fov_state, reward, done, truncated, step_info
 
     @property
     def unwrapped(self):
