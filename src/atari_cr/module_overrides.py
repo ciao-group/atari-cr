@@ -13,8 +13,10 @@ import stable_baselines3.common.preprocessing as sb_preprocessing
 
 from active_gym import AtariEnvArgs
 from active_gym.atari_env import AtariEnv
+from atari_cr.atari_head.dataset import SCREEN_SIZE
 from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE
-from atari_cr.models import EpisodeRecord, FovType
+from atari_cr.graphs.eccentricity import A, B, C
+from atari_cr.models import EpisodeInfo, EpisodeRecord, FovType
 
 class tqdm(tqdm):
     @property
@@ -156,14 +158,69 @@ class FixedFovealEnv(gym.Wrapper):
         self.env.record_buffer["fov_loc"] = []
 
     def reset(self):
-        full_state, info = self.env.reset()
-        self._init_fov_loc()
-        fov_state = self._get_fov_state(full_state)
+        self.state, info = self.env.reset()
+
+        self.timestep = -1
+        self.frames = []
+        # self.obs appended to from outside the environment
+        self.obs = []
+        self.step_infos = []
+        self.episode_info = EpisodeInfo.new()
+        self.consecutive_pauses = 0
+
+        self.fov_loc = np.array(self.fov_init_loc, copy=True).astype(np.int32)
+        fov_obs = self._crop_observation(self.state)
+
+        # TODO: Remove
         info["fov_loc"] = self.fov_loc.copy()
         if self.env.record:
             self.reset_record_buffer()
             self.save_transition(info["fov_loc"])
-        return fov_state, info
+
+        return fov_obs, info
+
+    def _crop_observation(self, full_state: np.ndarray):
+        """
+        Get a version of the full_state that is cropped to the fovea around fov_loc if
+        fov is set to 'window'. Otherwise get a mask over the output
+
+        :param Array[4,84,84] full_state: Stack of four greyscale images of type float64
+        """
+        masked_state = np.zeros_like(full_state)
+        if self.fov == "gaussian":
+            distances_from_fov = self._pixel_eccentricities(
+                full_state.shape[-2:], self.fov_loc)
+            sigma = self.fov_size[0] / 2
+            gaussian = np.exp(-np.sum(
+                np.square(distances_from_fov) / (2 * np.square(sigma)),
+                axis=0)) # -> [84,84]
+            gaussian /= gaussian.max()
+            masked_state = full_state * gaussian
+        elif self.fov == "window":
+            crop = full_state[...,
+                self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
+                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
+            ]
+            # Fill the area outside the crop with zeros
+            masked_state[...,
+                self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
+                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
+            ] = crop
+        elif self.fov == "exponential":
+            pixel_eccentricities = self._pixel_eccentricities(
+                full_state.shape[-2:], self.fov_loc)
+            # Convert from pixels to visual degrees
+            eccentricities = (pixel_eccentricities.transpose([1,2,0]) *\
+                (np.array(VISUAL_DEGREE_SCREEN_SIZE) / np.array(SCREEN_SIZE))
+                ).transpose(2,0,1)
+            # Absolute 1D distances
+            abs_distances = np.sqrt(np.square(eccentricities).sum(axis=0))
+
+            mask = A * np.exp(B * abs_distances) + C
+            mask /= mask.max()
+            masked_state = full_state * mask
+
+        return masked_state
 
     def _clip_to_valid_fov(self, loc):
         return np.rint(np.clip(
