@@ -153,10 +153,6 @@ class FixedFovealEnv(gym.Wrapper):
     def _init_fov_loc(self):
         self.fov_loc = np.rint(np.array(self.fov_init_loc, copy=True)).astype(np.int32)
 
-    def reset_record_buffer(self):
-        self.env.record_buffer["fov_size"] = self.fov_size
-        self.env.record_buffer["fov_loc"] = []
-
     def reset(self):
         self.state, info = self.env.reset()
 
@@ -174,8 +170,9 @@ class FixedFovealEnv(gym.Wrapper):
         # TODO: Remove
         info["fov_loc"] = self.fov_loc.copy()
         if self.env.record:
-            self.reset_record_buffer()
-            self.save_transition(info["fov_loc"])
+            self.env.record_buffer["fov_size"] = self.fov_size
+            self.env.record_buffer["fov_loc"] = []
+            self.env.record_buffer["fov_loc"].append(info["fov_loc"])
 
         return fov_obs, info
 
@@ -253,10 +250,6 @@ class FixedFovealEnv(gym.Wrapper):
 
         return fov_state
 
-    def save_transition(self, fov_loc):
-        # print ("saving one transition")
-        self.env.record_buffer["fov_loc"].append(fov_loc)
-
     def step(self, action):
         """
         action : {"motor_action":
@@ -268,7 +261,7 @@ class FixedFovealEnv(gym.Wrapper):
         info["fov_loc"] = self.fov_loc.copy()
         if self.record:
             if not done:
-                self.save_transition(info["fov_loc"])
+                self.env.record_buffer["fov_loc"].append(info["fov_loc"])
         return fov_state, reward, done, truncated, info
 
     @property
