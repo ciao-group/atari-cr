@@ -18,6 +18,7 @@ from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE
 from atari_cr.graphs.eccentricity import A, B, C
 from atari_cr.models import EpisodeInfo, EpisodeRecord, FovType, StepInfo
 from atari_cr.pauseable_env import MASKED_ACTION_PENTALTY
+from atari_cr.utils import EMMA_fixation_time
 
 class tqdm(tqdm):
     @property
@@ -302,7 +303,39 @@ class FixedFovealEnv(gym.Wrapper):
         fov_state = self._fov_step(
             full_state=self.state, action=action["sensory_action"])
 
-        # TODO: Remove and add my own logging
+        # Add costs for the time it took the agent to move its fovea
+        if self.saccade_cost_scale:
+            visual_degree_distance = np.sqrt(np.sum(np.square(
+                (self.fov_loc - prev_fov_loc) * self.visual_degrees_per_pixel) ))
+            _, total_emma_time, fov_moved = EMMA_fixation_time(visual_degree_distance)
+            step_info["emma_time"] = total_emma_time
+            step_info["saccade_cost"] = self.saccade_cost_scale * total_emma_time
+            reward -= step_info["saccade_cost"]
+
+        # Log the results of taking an action
+        step_info["reward_wo_sugarl"] = info["raw_reward"]
+        step_info["raw_reward"] = raw_reward
+        step_info["done"] = done
+        step_info["truncated"] = truncated
+        # Episode info stores cumulative sums of the step info keys
+        self.episode_info: EpisodeInfo
+        for key in self.episode_info.keys():
+            self.episode_info[key] += step_info[key]
+        step_info["episode_info"] = self.episode_info.copy()
+        step_info["consecutive_pauses"] = self.consecutive_pauses
+        self.step_infos.append(step_info)
+
+        # Log the infos of all steps in one record for the
+        # entire episode
+        if done or truncated:
+            self.prev_episode = EpisodeRecord(
+                np.stack(self.frames),
+                EpisodeRecord.annotations_from_step_infos(self.step_infos),
+                { "fov_size": self.fov_size, "fov": self.fov },
+                np.stack(self.obs) if self.obs else None
+            )
+
+        # TODO: Remove
         info["fov_loc"] = self.fov_loc.copy()
         if not done:
             self.env.record_buffer["fov_loc"].append(info["fov_loc"])
