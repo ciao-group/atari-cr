@@ -11,6 +11,9 @@ import yaml
 from atari_cr.atari_head.durations import BINS, get_histogram
 from atari_cr.atari_head.utils import open_mp4_as_frame_list
 
+
+FovType: TypeAlias = Literal["window", "gaussian", "exponential"]
+
 class EpisodeInfo(TypedDict):
     """
     :var int reward_wo_sugarl: Raw raw reward from the base env
@@ -129,6 +132,16 @@ class EpisodeRecord():
         video_writer.release()
 
     @staticmethod
+    def _load_video(path: str):
+        frames = []
+        vid_capture = cv2.VideoCapture(path)
+        ret, frame = vid_capture.read()
+        while(ret):
+            frames.append(frame)
+            ret, frame = vid_capture.read()
+        return np.stack(frames)
+
+    @staticmethod
     def from_record_buffer(buffer: RecordBuffer):
         # Read frames directly or from an mp4 file
         if isinstance(buffer["rgb"], str):
@@ -173,14 +186,12 @@ class EpisodeRecord():
         color = (255, 0, 0)
         thickness = 1
 
-        if draw_focus:
-            # The fov_loc is set in a 84x84 grid; the video output is 256x256
-            # This scales it down
-            COORD_SCALING = 256 / 84
-            fov_locs = np.stack(self.annotations["fov_x"].to_numpy(),
-                                self.annotations["fov_y"].to_numpy())
-            fov_locs *= COORD_SCALING
-            fov_size = np.array(self.args["fov_size"]) * COORD_SCALING
+        # The fov_loc is set in a 84x84 grid; the video output is 256x256
+        # This scales it down
+        COORD_SCALING = 256 / 84
+        fov_locs = self.annotations["fov_x", "fov_y"].to_numpy()
+        fov_locs = np.rint(fov_locs.astype(np.float32) * COORD_SCALING)
+        fov_size = np.rint(np.array(self.args["fov_size"]) * COORD_SCALING)
 
         # Draw onto the frames and save them as mp4
         frames = []
@@ -198,7 +209,7 @@ class EpisodeRecord():
                     np.array([0, 0, 255]), [4, 4, 3])
 
             frames.append(frame)
-        self._save_video(np.stack(frames), video_path)
+        EpisodeRecord._save_video(np.stack(frames), video_path)
 
         # Safe annotations and args
         self.annotations.write_csv(annotation_path)
@@ -211,7 +222,10 @@ class EpisodeRecord():
                     np.broadcast_to(obs[...,np.newaxis], (*obs.shape, 3)),
                     (256, 256)
                 ) for obs in (self.obs * 255).astype(np.uint8)])
-            self._save_video(np.concatenate([upscaled_obs, frames], axis=2), obs_path)
+
+            EpisodeRecord.draw_fovea(frames, fov_locs, self.args["fov"], fov_size)
+            EpisodeRecord._save_video(np.concatenate([upscaled_obs, frames], axis=2),
+                                      obs_path)
 
     @staticmethod
     def load(save_dir: str):
@@ -220,13 +234,7 @@ class EpisodeRecord():
             EpisodeRecord._file_paths(save_dir)
 
         # Load mp4 file as list of numpy frames
-        frames = []
-        vid_capture = cv2.VideoCapture(video_path)
-        ret, frame = vid_capture.read()
-        while(ret):
-            frames.append(frame)
-            ret, frame = vid_capture.read()
-        frames = np.stack(frames)
+        frames = EpisodeRecord._load_video(video_path)
 
         # Load the annoations as a polars DataFrame
         annotations = pl.read_csv(annotation_path)
@@ -238,10 +246,42 @@ class EpisodeRecord():
         # Load observations
         obs = None
         if os.path.exists(obs_path):
-            with open(obs_path, "rb") as f:
-                obs: np.ndarray = np.load(f)
+            obs = EpisodeRecord._load_video(obs_path)
+            # Cut off the part with the fully colored and visible frames
+            obs = obs[:,:,:256,:]
+            # Scale back from [N,256,256,3] to [N,84,84]
+            new_obs = np.empty([len(obs), 84, 84])
+            for i in range(len(obs)):
+                new_obs[i] = cv2.cvtColor(cv2.resize(obs[i], [84,84]),
+                                          cv2.COLOR_BGR2GRAY)
+            obs = new_obs
 
         return EpisodeRecord(frames, annotations, args, obs)
+
+    @staticmethod
+    def draw_fovea(frames: np.ndarray, fov_locs: np.ndarray, fov_type: FovType,
+                   fov_size: np.ndarray):
+        """ Draw the fovea onto a stack of frames
+
+        :param Array[N,256,256,3] frames:
+        :param Array[N,2] fov_locs:
+        :param Array[2] fov_size:
+        """
+        color = [0,255,0] # Green
+        match(fov_type):
+            # Draw the window for a windowed fovea
+            case "window":
+                for i in range(len(frames)):
+                    top_left = fov_locs[i].astype(np.int32)
+                    bottom_right = (top_left + fov_size).astype(np.int32)
+                    frames[i] = cv2.rectangle(frames[i], top_left, bottom_right,
+                                              color, 1)
+            # Just mark the fov location for other foveae
+            case "gaussian" | "exponential":
+                for i in range(len(frames)):
+                    frames[i] = cv2.drawMarker(frames[i], fov_locs[i], color)
+            case _:
+                raise ValueError("Invalid fov type")
 
 class EvalResult(TypedDict):
     min: float
@@ -250,8 +290,6 @@ class EvalResult(TypedDict):
     kl_div: float
     auc: float
     entropy: float
-
-FovType: TypeAlias = Literal["window", "gaussian", "exponential"]
 
 class TdUpdateInfo(NamedTuple):
     old_value: float

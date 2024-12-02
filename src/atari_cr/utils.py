@@ -239,7 +239,7 @@ def EMMA_fixation_time(
     Mathematical model for saccade duration in seconds from EMMA (Salvucci, 2001).
     Borrowed from https://github.com/aditya02acharya/TypingAgent/blob/master/src/utilities/utils.py.
 
-    :param float dist: Eccentricity in visual angle.
+    :param float dist: Eccentricity in visual degrees.
     :param float freq: Frequency of object being encoded. How often does the object
         appear. Value in (0,1).
     :param float execution_time: The base time it takes to execute an eye movement,

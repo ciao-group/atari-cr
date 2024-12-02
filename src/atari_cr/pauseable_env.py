@@ -150,9 +150,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         # Add costs for the time it took the agent to move its fovea
         if self.saccade_cost_scale:
-            visual_degree_distance = np.sqrt(np.sum(np.square(
-                (self.fov_loc - prev_fov_loc) * self.visual_degrees_per_pixel) ))
-            _, total_emma_time, fov_moved = EMMA_fixation_time(visual_degree_distance)
+            eccentricity = np.sqrt(np.sum(np.square(
+                (self.fov_loc - prev_fov_loc) * self.visual_degrees_per_pixel )))
+            _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
             step_info["emma_time"] = total_emma_time
             step_info["saccade_cost"] = self.saccade_cost_scale * total_emma_time
             reward -= step_info["saccade_cost"]

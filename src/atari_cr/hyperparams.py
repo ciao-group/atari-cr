@@ -23,7 +23,7 @@ def tuning(config: ConfigParams, time_steps: int, debug = False):
     # Add basic config
     args_dict = {}
     args_dict.update({
-        "clip_reward": True,
+        "clip_reward": False,
         "capture_video": True,
         "total_timesteps": time_steps,
         "no_pvm_visualization": True,
