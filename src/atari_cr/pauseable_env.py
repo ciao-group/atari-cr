@@ -1,7 +1,6 @@
 from active_gym.atari_env import AtariEnv
 import gymnasium as gym
 from gymnasium.spaces import Dict, Discrete, Box
-import torch
 import numpy as np
 from typing import Optional, Tuple
 from torchvision.transforms import Resize
@@ -111,9 +110,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         step_info["pauses"] = int(action["motor_action"] == self.pause_action)
         self.frames.append(self.unwrapped.render())
 
-        # Save the previous fov_loc to calculate the saccade cost
-        prev_fov_loc = self.fov_loc.copy()
-
         # Actual pause step
         if step_info["pauses"]:
             done, truncated = False, False
@@ -147,17 +143,17 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 self.env.step(action=action["motor_action"])
 
         # Sensory step
+        prev_fov_loc = self.fov_loc.copy()
         fov_state = self._fov_step(
             full_state=self.state, action=action["sensory_action"])
 
         # Add costs for the time it took the agent to move its fovea
-        if self.saccade_cost_scale:
-            eccentricity = np.sqrt(np.sum(np.square(
-                (self.fov_loc - prev_fov_loc) * self.visual_degrees_per_pixel )))
-            _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
-            step_info["emma_time"] = total_emma_time
-            step_info["saccade_cost"] = self.saccade_cost_scale * total_emma_time
-            reward -= step_info["saccade_cost"]
+        eccentricity = np.sqrt(np.sum(np.square(
+            (self.fov_loc - prev_fov_loc) * self.visual_degrees_per_pixel )))
+        _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
+        step_info["emma_time"] = total_emma_time
+        step_info["saccade_cost"] = self.saccade_cost_scale * total_emma_time
+        reward -= step_info["saccade_cost"]
 
         # Log the results of taking an action
         step_info["raw_reward"] = info["raw_reward"]
@@ -267,3 +263,70 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         fov_loc = np.broadcast_to(np.array(
             fov_loc)[..., np.newaxis, np.newaxis], [2,*screen_size])
         return mesh - fov_loc # -> [2,84,84]
+
+class SlowedFixedFovealEnv(PauseableFixedFovealEnv):
+    """ Pauseable like in Atari-HEAD with the option to make the game run at a constant
+    20Hz by pressing down a key """
+    def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
+            saccade_cost_scale = 0.001, fov: FovType = "window", no_pauses = False,
+            consecutive_pause_limit = 20):
+        super().__init__(env, args, pause_cost, saccade_cost_scale, fov, no_pauses,
+                         consecutive_pause_limit)
+
+        # Two additional actions: PlayKeyDown, PlayKeyUp for pressing down or lifting
+        # the key press again. The pressed key continues the env at a speed of 20Hz.
+        # With no key pressed, the game waits for an action by the agent before
+        # resuming
+        self.action_space = Dict({
+            "motor_action": Discrete(
+                env.action_space.n if no_pauses else env.action_space.n + 2),
+            "sensory_action": Box(low=self.sensory_action_space[0],
+                                 high=self.sensory_action_space[1], dtype=int),
+        })
+        self.key_down_action = self.action_space["motor_action"].n - 1
+        self.key_up_action = self.action_space["motor_action"].n - 2
+
+        # Key is initially not pressed
+        self.key_is_pressed = False
+
+    def reset(self):
+        super().reset()
+
+        self.timer = 0 # Time in ms since last new frame
+
+    def step(self, action):
+        # Take a motor action
+        done, truncated, info = False, False, {}
+        match action["motor_action"]:
+            case self.key_down_action:
+                self.key_is_pressed = True
+                # Take a normal step if 50ms have passed, otherwise NOOP
+                if self.timer >= 50:
+                    self.state, reward, done, truncated, info = \
+                    self.env.step(action=action["motor_action"])
+                    self.timer = 0
+            case self.key_up_action:
+                # NOOP
+                self.key_is_pressed = False
+            # Normal env step
+            case _:
+                self.state, reward, done, truncated, info = \
+                    self.env.step(action=action["motor_action"])
+                self.timer = 0
+
+        # Sensory action
+        prev_fov_loc = self.fov_loc.copy()
+        fov_state = self._fov_step(
+            full_state=self.state, action=action["sensory_action"])
+
+        # Add costs for the time it took the agent to move its fovea
+        eccentricity = np.sqrt(np.sum(np.square(
+            (self.fov_loc - prev_fov_loc) * self.visual_degrees_per_pixel )))
+        _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
+        reward -= self.saccade_cost_scale * total_emma_time
+
+        # Increment the time by emma time in ms
+        self.timer += total_emma_time * 1000
+
+        return fov_state, reward, done, truncated, info
+
