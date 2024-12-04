@@ -13,7 +13,7 @@ def get_histogram(game: str):
     Atari-HEAD game.
 
     :param str game: Name of the atari game
-    :return Tensor[19]:
+    :return Tensor[21]:
     """
     game_dir = f"/home/niko/Repos/atari-cr/data/Atari-HEAD/{game}"
     if not os.path.exists(game_dir):
