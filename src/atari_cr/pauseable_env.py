@@ -51,6 +51,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         elif self.fov == "window":
             self.sensory_action_space = \
                 np.array(env.obs_size) - np.array(self.fov_size)
+        else:
+            raise ValueError("Invalid fov type")
 
         self.resize: Resize = Resize(env.obs_size) \
             if args.resize_to_full else None

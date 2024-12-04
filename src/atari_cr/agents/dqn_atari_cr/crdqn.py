@@ -462,7 +462,7 @@ class CRDQN:
             else: episode_info["raw_reward"] = episode_info["reward"]
 
             # Calculate gaze duration distribution and deviation from Atari-HEAD
-            duration_info = DurationInfo(None, None, None)
+            duration_info = None
             if isinstance(env.envs[0], PauseableFixedFovealEnv):
                 duration_info = DurationInfo.from_episodes(
                     [e.prev_episode for (e, done) in zip(env.envs, dones) if done],
@@ -487,7 +487,7 @@ class CRDQN:
         return next_pvm_obs, rewards, dones, infos
 
     def _log_episode(self, episode_info: EpisodeInfo,
-            td_update: Optional[TdUpdateInfo], duration_info: DurationInfo):
+            td_update: Optional[TdUpdateInfo], duration_info: Optional[DurationInfo]):
         # Prepare the episode infos for the different supported envs
         if isinstance(self.envs[0], FixedFovealEnv):
             new_info = episode_info
@@ -521,11 +521,13 @@ class CRDQN:
                 "no_action_pauses": episode_info["no_action_pauses"],
                 "saccade_cost": episode_info["saccade_cost"],
                 "reward": episode_info["reward"],
-                "duration_error": duration_info.error,
-                "human_error": (1 - self.auc) + 5 * duration_info.error,
-                "mean_duration": duration_info.mean,
-                "median_duration": duration_info.median,
             })
+            if duration_info:
+                ray_info.update({
+                    "duration_error": duration_info.error,
+                    "human_error": (1 - self.auc) + 5 * duration_info.error,
+                    "gaze_duration": duration_info.durations
+                })
         train.report(ray_info)
 
     def _train_sfn(self, data: DoubleActionReplayBufferSamples):

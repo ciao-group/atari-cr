@@ -26,7 +26,7 @@ if __name__ == "__main__":
     time_steps = 500_000 if DEBUG else 5_000_000
 
     trainable = tune.with_resources(
-        lambda config: tuning(config, DEBUG),
+        lambda config: tuning(config),
         {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
     param_space = {
@@ -42,21 +42,23 @@ if __name__ == "__main__":
         "debug": DEBUG,
         "evaluator":
             "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth",
+        "pvm_stack": 3, # from sugarl code
+        "fov": "window",
         # Already searched
         "action_repeat": 5,
         "fov_size": 20,
-        "sensory_action_space_quantization": 4, # from 9-16
-        "pvm_stack": 16, # from 9-16
+        "sensory_action_space_quantization": 8, # from 12-03
         "saccade_cost_scale": 0.0002, # lowered from 0.0015 (9-16) for more pauses
         "pause_cost": 0.2, # from 9-16
         # Fixed overrides
-        "pause_cost": 0., # make only saccade costs matter
-        "pvm_stack": 3, # from sugarl code
-        "saccade_cost_scale": 0.,
-        "use_pause_env": False,
+        "pause_cost": 0.,
+        # "saccade_cost_scale": 0.,
+        # "use_pause_env": False,
         # Searchable
-        "seed": tune.grid_search([0, 1]),
-        "sensory_action_space_quantization": tune.grid_search([4, 8, 16, 32]),
+        "saccade_cost_scale": tune.grid_search([0, 1e-4, 2e-4]),
+        "use_pause_env": tune.grid_search([True, False]),
+        # "fov": tune.grid_search(["window", "exponential"]),
+        # "pvm_stack": tune.grid_search([2,4,8,16]),
         # "pause_cost": tune.grid_search([-1e-3, 0, 1e-3]),
         # "fov": tune.choice([fov for fov in get_args(FovType) if fov != "gaussian"]),
     }
@@ -66,18 +68,18 @@ if __name__ == "__main__":
         trainable,
         param_space=param_space,
         tune_config=tune.TuneConfig(
-            num_samples=None if GRID_SEARCH else num_samples,
-            scheduler=None if GRID_SEARCH else ASHAScheduler(
-                stop_last_trials=False
-            ),
-            search_alg=None if GRID_SEARCH else OptunaSearch(),
+            # num_samples=num_samples,
+            # scheduler=None if GRID_SEARCH else ASHAScheduler(
+            #     stop_last_trials=False
+            # ),
+            # search_alg=None if GRID_SEARCH else OptunaSearch(),
             metric=metric,
             mode=mode,
         ),
         run_config=train.RunConfig(
             storage_path="/home/niko/Repos/atari-cr/output/ray_results",
-            stop=None if GRID_SEARCH else TrialPlateauStopper(
-                metric, mode=mode, num_results=8, grace_period=1000),
+            # stop=None if GRID_SEARCH else TrialPlateauStopper(
+            #     metric, mode=mode, num_results=8, grace_period=1000),
         )
     )
     results = tuner.fit()

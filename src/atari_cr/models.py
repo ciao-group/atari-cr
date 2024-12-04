@@ -279,7 +279,8 @@ class EpisodeRecord():
             # Just mark the fov location for other foveae
             case "gaussian" | "exponential":
                 for i in range(len(frames)):
-                    frames[i] = cv2.drawMarker(frames[i], fov_locs[i], color)
+                    frames[i] = cv2.drawMarker(
+                        frames[i], fov_locs[i].astype(np.int32), color)
             case _:
                 raise ValueError("Invalid fov type")
 
@@ -300,19 +301,28 @@ class TdUpdateInfo(NamedTuple):
     loss: float
 
 class DurationInfo:
+    """ Durations in ms """
     error: float
     mean: float
     median: float
+    hist: list[float]
+    durations: list[float]
 
-    def __init__(self, error: float, mean: float, median: float):
+    def __init__(self, error: float, mean: float, median: float, hist: list[float],
+                 durations: list[float]):
         self.error = error
         self.mean = mean
         self.median = median
+        self.hist = hist
+        self.durations = durations
 
     @staticmethod
     def from_episodes(records: list[EpisodeRecord], env_name: str):
         durations = [0.]
-        annotations = pl.concat([record.annotations for record in records])
+        annotations = (pl.concat([record.annotations for record in records])
+            # Convert seconds to ms
+            .with_columns((pl.col("emma_time") * 1000)))
+        annotations
         # Add to the gaze duration
         for pauses, emma_time in annotations["pauses", "emma_time"].iter_rows():
             durations[-1] += emma_time
@@ -331,4 +341,6 @@ class DurationInfo:
             error,
             durations.mean().item(),
             durations.median().item(),
+            histogram.numpy().tolist(),
+            durations.numpy(),
         )
