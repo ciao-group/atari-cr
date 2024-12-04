@@ -223,7 +223,7 @@ class CRDQN:
                 [self.sensory_action_set[i] for i in sensory_action_indices])
 
             # Perform the action in the environment
-            next_pvm_obs, rewards, dones, _ = self._step(
+            next_pvm_obs, rewards, dones, truncateds, infos = self._step(
                 self.env,
                 self.pvm_buffer,
                 motor_actions,
@@ -293,7 +293,7 @@ class CRDQN:
 
             # Init env
             obs, _ = eval_env.reset()
-            done = False
+            done, truncated = False, False
             eval_pvm_buffer = PVMBuffer(
                 self.pvm_stack,
                 (n_eval_envs, self.frame_stack, *self.obs_size)
@@ -308,7 +308,7 @@ class CRDQN:
                     eval_env.envs[i].add_obs(o)
 
             # One episode in the environment
-            while not done:
+            while not (done or truncated):
                 # Chose an action from the Q network
                 motor_actions, sensory_action_indices \
                     = self.q_network.chose_eval_action(pvm_obs, self.device)
@@ -328,14 +328,14 @@ class CRDQN:
                     [self.sensory_action_set[i] for i in sensory_action_indices])
 
                 # Perform the action in the environment
-                pvm_obs, rewards, dones, infos = self._step(
+                pvm_obs, rewards, dones, truncateds, infos = self._step(
                     eval_env,
                     eval_pvm_buffer,
                     motor_actions,
                     sensory_actions,
                     eval=True
                 )
-                done = dones[0]
+                done, truncated = dones[0], truncateds[0]
 
                 # Add the observation to the env's EpisodeRecord
                 if self.capture_video and \
@@ -447,10 +447,11 @@ class CRDQN:
             parallel training envs.
         """
         # Take an action in the environment
-        next_obs, rewards, dones, _, infos = env.step({
+        next_obs, rewards, dones, truncateds, infos = env.step({
             "motor_action": motor_actions,
             "sensory_action": sensory_actions
         })
+        dones = dones | truncateds
 
         # Log episode returns and handle `terminal_observation`
         if not eval and "final_info" in infos and True in dones:
@@ -484,7 +485,7 @@ class CRDQN:
         # Get the next pvm observation
         next_pvm_obs = pvm_buffer.get_obs(mode="stack_max")
 
-        return next_pvm_obs, rewards, dones, infos
+        return next_pvm_obs, rewards, dones, truncateds, infos
 
     def _log_episode(self, episode_info: EpisodeInfo,
             td_update: Optional[TdUpdateInfo], duration_info: Optional[DurationInfo]):

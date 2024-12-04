@@ -72,8 +72,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.visual_degrees_per_pixel = np.array(VISUAL_DEGREE_SCREEN_SIZE) / \
             np.array(self.get_wrapper_attr("obs_size"))
 
-        # Whether the previous action was a pause action
-        self.prev_pause_action = 0
         # Count and log the number of pauses made and their cost
         self.pause_cost = pause_cost
         self.consecutive_pause_limit = consecutive_pause_limit
@@ -112,6 +110,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         # Actual pause step
         if step_info["pauses"]:
+            self.consecutive_pauses += 1
             done, truncated = False, False
             info = {"raw_reward": 0}
 
@@ -128,13 +127,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             else:
                 # Normal pause
                 reward = -self.pause_cost
-
-            # Log another pause
-            if self.prev_pause_action:
-                self.consecutive_pauses += 1
-            else:
-                self.consecutive_pauses = 0
-            self.prev_pause_action = step_info["pauses"]
 
         else:
             self.consecutive_pauses = 0
@@ -159,7 +151,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         step_info["raw_reward"] = info["raw_reward"]
         step_info["reward"] = reward
         step_info["done"] = done
-        step_info["truncated"] = truncated
+        step_info["truncated"] = int(truncated)
         # Episode info stores cumulative sums of the step info keys
         self.episode_info: EpisodeInfo
         for key in self.episode_info.keys():
