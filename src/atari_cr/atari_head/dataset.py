@@ -242,7 +242,7 @@ class GazeDataset(Dataset):
 
     @staticmethod
     def from_game_data(records: List[EpisodeRecord], test_split = 0.2):
-        """ Create a dataset from an agent's recorded game """
+        """ Create a dataset from an agent's recorded game. """
         frames, saliency, train_indices, val_indices = [], [], [], []
         durations = [0.]
 

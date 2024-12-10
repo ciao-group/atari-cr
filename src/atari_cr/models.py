@@ -188,7 +188,7 @@ class EpisodeRecord():
 
         # The fov_loc is set in a 84x84 grid; the video output is 256x256
         # This scales it down
-        COORD_SCALING = 256 / 84
+        COORD_SCALING = 255 / 83
         fov_locs = self.annotations["fov_x", "fov_y"].to_numpy()
         fov_locs = np.rint(fov_locs.astype(np.float32) * COORD_SCALING)
         fov_size = np.rint(np.array(self.args["fov_size"]) * COORD_SCALING)

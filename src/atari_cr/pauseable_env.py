@@ -32,7 +32,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     """
     def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
             saccade_cost_scale = 0.001, fov: FovType = "window", no_pauses = False,
-            consecutive_pause_limit = 20):
+            consecutive_pause_limit = 50):
         super().__init__(env)
         self.fov_size: Tuple[int, int] = args.fov_size
         self.fov: FovType = fov
@@ -216,14 +216,14 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             gaussian /= gaussian.max()
             masked_state = full_state * gaussian
         elif self.fov == "window":
-            crop = full_state[...,
+            crop = full_state[:,
+                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1],
                 self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
-                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
             ]
             # Fill the area outside the crop with zeros
-            masked_state[...,
+            masked_state[:,
+                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1],
                 self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
-                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1]
             ] = crop
         elif self.fov == "exponential":
             pixel_eccentricities = self._pixel_eccentricities(
@@ -289,22 +289,20 @@ class SlowedFixedFovealEnv(PauseableFixedFovealEnv):
     def step(self, action):
         # Take a motor action
         done, truncated, info = False, False, {}
-        match action["motor_action"]:
-            case self.key_down_action:
-                self.key_is_pressed = True
-                # Take a normal step if 50ms have passed, otherwise NOOP
-                if self.timer >= 50:
-                    self.state, reward, done, truncated, info = \
-                    self.env.step(action=action["motor_action"])
-                    self.timer = 0
-            case self.key_up_action:
-                # NOOP
-                self.key_is_pressed = False
-            # Normal env step
-            case _:
-                self.state, reward, done, truncated, info = \
-                    self.env.step(action=action["motor_action"])
-                self.timer = 0
+        if self.key_is_pressed:
+            # NOOP until the agent is no longer busy
+            reward = 0
+            while self.timer >= 50:
+                self.state, partial_reward, done, truncated, info = \
+                    self.env.step(action=np.int64(0)) # NOOP
+                reward += partial_reward
+                # TODO: Stop on done or truncated
+                # TODO: Aggregate infos
+                self.timer -= 50
+        else:
+            self.state, reward, done, truncated, info = \
+                self.env.step(action=action["motor_action"])
+                # TODO: Sum up saccade times if action is key_up
 
         # Sensory action
         prev_fov_loc = self.fov_loc.copy()

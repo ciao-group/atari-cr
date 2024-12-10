@@ -193,7 +193,7 @@ class CRDQN:
         self.model_dir = os.path.join(self.run_dir, "trained_models")
 
         # Load existing run if there is one
-        if os.path.exists(self.model_dir):
+        if not self.debug and os.path.exists(self.model_dir):
             seeded_models = list(filter(
                 lambda s: f"seed{self.seed}" in s, os.listdir(self.model_dir)))
             if len(seeded_models) > 0:
@@ -374,16 +374,21 @@ class CRDQN:
                         self.model_dir, "pt", self.save_checkpoint, eval_ep)
 
             # AUC calculation
+            duration_info = None
             episode_record = single_eval_env.prev_episode \
                 if isinstance(single_eval_env, PauseableFixedFovealEnv) \
                 else EpisodeRecord.from_record_buffer(
                     single_eval_env.env.prev_record_buffer)
-            if self.evaluator:
-                dataset = GazeDataset.from_game_data([episode_record])
-                loader = dataset.to_loader()
-                aucs.append(self.evaluator.eval(loader)["auc"])
-            # Duration error calculation
-            duration_info = DurationInfo.from_episodes([episode_record], self.env_name)
+            # No evaluation if the episode consists of only pauses
+            if episode_record.annotations["pauses"].sum() < \
+                    len(episode_record.annotations):
+                if self.evaluator:
+                    dataset = GazeDataset.from_game_data([episode_record])
+                    loader = dataset.to_loader()
+                    aucs.append(self.evaluator.eval(loader)["auc"])
+                # Duration error calculation
+                duration_info = DurationInfo.from_episodes(
+                    [episode_record], self.env_name)
 
             eval_env.close()
 
