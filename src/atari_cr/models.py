@@ -78,12 +78,12 @@ class EpisodeRecord():
     """
     def __init__(self, frames: np.ndarray, annotations: pl.DataFrame,
                  args: EpisodeArgs, obs: Optional[np.ndarray] = None):
-        assert len(frames) == len(annotations), "len of annotations needs to match len \
+        assert len(frames) == len(annotations) + 1, "len of annotations needs to match len \
             of frames as every frame should have an annotation"
         self.frames = frames
         self.annotations = annotations
         self.args = args
-        self.obs = obs
+        self._obs = obs
 
     @staticmethod
     def annotations_from_step_infos(step_infos: list[StepInfo]):
@@ -150,7 +150,9 @@ class EpisodeRecord():
 
         # Map keys from the buffer to StepInfo
         step_infos = []
-        for i in range(len(frames)):
+        # The first entry in the record buffer is a transition into the initial state
+        # without action or reward. It is excluded
+        for i in range(1, len(frames)):
             step_info = StepInfo.new()
             step_info["reward"] = buffer["reward"][i]
             step_info["raw_reward"] = buffer["reward"][i]
@@ -189,13 +191,17 @@ class EpisodeRecord():
         # The fov_loc is set in a 84x84 grid; the video output is 256x256
         # This scales it down
         COORD_SCALING = 255 / 83
-        fov_locs = self.annotations["fov_x", "fov_y"].to_numpy()
+        fov_locs = np.concat([
+                self.annotations["fov_x", "fov_y"].to_numpy(),
+                self.annotations["sensory_action_x", "sensory_action_y"].to_numpy()[-1:],
+            ], axis=0
+        )
         fov_locs = np.rint(fov_locs.astype(np.float32) * COORD_SCALING)
         fov_size = np.rint(np.array(self.args["fov_size"]) * COORD_SCALING)
 
         # Draw onto the frames and save them as mp4
         frames = []
-        for i, frame in enumerate(self.frames):
+        for i, frame in enumerate(self.frames[:-1]):
 
             if draw_focus:
                 top_left = fov_locs[i]
@@ -209,6 +215,7 @@ class EpisodeRecord():
                     np.array([0, 0, 255]), [4, 4, 3])
 
             frames.append(frame)
+        frames.append(self.frames[-1])
         EpisodeRecord._save_video(np.stack(frames), video_path)
 
         # Safe annotations and args
@@ -217,11 +224,11 @@ class EpisodeRecord():
             yaml.safe_dump(self.args, f)
 
         # Safe observations together with original frames
-        if with_obs and self.obs is not None:
+        if with_obs and self._obs is not None:
             upscaled_obs = np.stack([cv2.resize(
                     np.broadcast_to(obs[...,np.newaxis], (*obs.shape, 3)),
                     (256, 256)
-                ) for obs in (self.obs * 255).astype(np.uint8)])
+                ) for obs in (self._obs * 255).astype(np.uint8)])
 
             EpisodeRecord.draw_fovea(frames, fov_locs, self.args["fov"], fov_size)
             EpisodeRecord._save_video(np.concatenate([upscaled_obs, frames], axis=2),
@@ -283,6 +290,16 @@ class EpisodeRecord():
                         frames[i], fov_locs[i].astype(np.int32), color)
             case _:
                 raise ValueError("Invalid fov type")
+
+    @property
+    def obs(self):
+        return self._obs
+
+    @obs.setter
+    def obs(self, obs: np.ndarray):
+        """ :param Array[N,84,84] obs: New observations value """
+        self._obs = obs
+        assert len(self.obs) == len(self.frames), "Number of observations must match the number of frames"
 
 class EvalResult(TypedDict):
     min: float

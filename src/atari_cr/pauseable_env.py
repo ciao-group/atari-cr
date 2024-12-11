@@ -29,10 +29,12 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     :param float saccade_cost_scale: How much the agent is punished for bigger eye
         movements
     :param bool no_pause: Whether to disable the pause action
+    :param bool timer: Whether to count the time it takes to look around, progressing
+        the env once the game has generated a new frame at 20Hz.
     """
     def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
             saccade_cost_scale = 0.001, fov: FovType = "window", no_pauses = False,
-            consecutive_pause_limit = 50):
+            consecutive_pause_limit = 50, timer = False):
         super().__init__(env)
         self.fov_size: Tuple[int, int] = args.fov_size
         self.fov: FovType = fov
@@ -81,13 +83,14 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.prev_episode: Optional[EpisodeRecord] = None
         self.env: AtariEnv
 
+        # Timer is None if disabled or the game time otherwise
+        self.timer = 0 if timer else None
+
     def reset(self):
         self.state, info = self.env.reset() # -> [4,84,84;f64]
+        self.frames = [self.unwrapped.render()]
 
         self.timestep = -1
-        self.frames = []
-        # self.obs appended to from outside the environment
-        self.obs = []
         self.step_infos = []
         self.episode_info = EpisodeInfo.new()
         self.consecutive_pauses = 0
@@ -95,18 +98,13 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.fov_loc = np.array(self.fov_init_loc, copy=True).astype(np.int32)
         fov_obs = self._crop_observation(self.state)
 
+        # Timer
+        if self.timer is not None: self.timer = 0
+
         return fov_obs, info
 
     def step(self, action):
-        # Log the state before the action is taken
-        self.timestep += 1
-        step_info = StepInfo.new()
-        step_info["timestep"] = self.timestep
-        step_info["fov_loc"] = self.fov_loc.tolist()
-        step_info["motor_action"] = action["motor_action"]
-        step_info["sensory_action"] = action["sensory_action"]
-        step_info["pauses"] = int(action["motor_action"] == self.pause_action)
-        self.frames.append(self.unwrapped.render())
+        step_info = self._pre_step_logging(action)
 
         # Actual pause step
         if step_info["pauses"]:
@@ -134,21 +132,57 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.state, reward, done, truncated, info = \
                 self.env.step(action=action["motor_action"])
 
-        # Sensory step
+        # Add costs for the time it takes the agent to move its fovea
         prev_fov_loc = self.fov_loc.copy()
-        fov_state = self._fov_step(
-            full_state=self.state, action=action["sensory_action"])
-
-        # Add costs for the time it took the agent to move its fovea
         eccentricity = np.sqrt(np.sum(np.square(
             (self.fov_loc - prev_fov_loc) * self.visual_degrees_per_pixel )))
         _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
         step_info["emma_time"] = total_emma_time
         step_info["saccade_cost"] = self.saccade_cost_scale * total_emma_time
         reward -= step_info["saccade_cost"]
+        if self.timer is not None:
+            # Increment the time by emma time in ms
+            self.timer += total_emma_time * 1000
 
-        # Log the results of taking an action
-        step_info["raw_reward"] = info["raw_reward"]
+        if (self.timer is not None) and (not step_info["pauses"]):
+            # Repeat action as long as the saccade takes to complete
+            while self.timer >= 50:
+                # Only the last state is kept
+                # Rewards are summed up
+                # Raw rewards in info are summed up
+                # Break early if done or truncated
+                self.state, partial_reward, done, truncated, partial_info = \
+                    self.env.step(action=action["motor_action"])
+                reward += partial_reward
+                info["raw_reward"] += partial_info["raw_reward"]
+                self.timer -= 50
+                info["pauses"] = 0
+                if done or truncated: break
+
+        # Sensory step
+        fov_state = self._fov_step(
+            full_state=self.state, action=action["sensory_action"])
+
+        step_info = self._post_step_logging(step_info, info["raw_reward"], reward, done,
+                                            truncated)
+
+        return fov_state, reward, done, truncated, step_info
+
+    def _pre_step_logging(self, action: dict):
+        """ Logs the state before the action is taken. """
+        self.timestep += 1
+        step_info = StepInfo.new()
+        step_info["timestep"] = self.timestep
+        step_info["fov_loc"] = self.fov_loc.tolist()
+        step_info["motor_action"] = action["motor_action"]
+        step_info["sensory_action"] = action["sensory_action"]
+        step_info["pauses"] = int(action["motor_action"] == self.pause_action)
+        self.frames.append(self.unwrapped.render())
+        return step_info
+
+    def _post_step_logging(self, step_info: StepInfo, raw_reward: float, reward: float,
+            done: bool, truncated: bool):
+        step_info["raw_reward"] = raw_reward
         step_info["reward"] = reward
         step_info["done"] = done
         step_info["truncated"] = int(truncated)
@@ -166,15 +200,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.prev_episode = EpisodeRecord(
                 np.stack(self.frames),
                 EpisodeRecord.annotations_from_step_infos(self.step_infos),
-                { "fov_size": self.fov_size, "fov": self.fov },
-                np.stack(self.obs) if self.obs else None
+                { "fov_size": self.fov_size, "fov": self.fov }
             )
-
-        return fov_state, reward, done, truncated, step_info
-
-    def add_obs(self, obs: np.ndarray):
-        """ :param Array[4,84,84] obs: Frame stack, only last frame is saved """
-        self.obs.append(obs[-1])
+        return step_info
 
     def _clip_to_valid_fov(self, loc: np.ndarray):
         """ :param Array[W,H] loc: """

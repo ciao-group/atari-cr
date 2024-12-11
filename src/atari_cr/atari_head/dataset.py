@@ -249,12 +249,9 @@ class GazeDataset(Dataset):
         for record in records:
             # Get the saliency maps and gaze durations
             gaze_lists, gazes = [], [] # List of gazes for all rows, list for one frame
-            pause_indices = []
-            for i, (x, y, pauses, emma_time) in enumerate(record.annotations[
-                "sensory_action_x", "sensory_action_y", "pauses", "emma_time"
-                    ].iter_rows()):
-                # OPTIONAL: Why is the last sensory action not None in the pauseable env
-                # There should be one more fov loc than sensory action
+            for x, y, pauses, emma_time in record.annotations[
+                        "sensory_action_x", "sensory_action_y", "pauses", "emma_time"
+                    ].iter_rows():
                 if x is not None and y is not None:
                     gazes.append([x, y])
                 # Add to the gaze duration
@@ -265,22 +262,19 @@ class GazeDataset(Dataset):
                     gazes = []
                     # Make a new duration for the next frame
                     durations.append(0.)
-                else:
-                    # Keep accumulating gazes and mark this env step for removal
-                    pause_indices.append(i)
 
             # Merge saliency for all the records
             saliency.extend([GazeDataset.create_saliency_map(torch.Tensor(gazes))
                  for gazes in gaze_lists])
 
-            # Drop frames with a pause
-            mask = np.ones(record.frames.shape[0], dtype=bool)
-            mask[pause_indices] = False
-            record.frames = record.frames[mask]
+            # Exclude the last episode frame and drop frames with a pause
+            mask = (record.annotations["pauses"] == 0).to_numpy()
+            record.frames = record.frames[:-1][mask]
 
             # Get train and val indices
             episode_train_indices, episode_val_indices = \
-                GazeDataset._split_episode(len(record.frames), len(frames), test_split)
+                GazeDataset._split_episode(len(record.frames), len(frames),
+                                           test_split)
             train_indices.extend(episode_train_indices)
             val_indices.extend(episode_val_indices)
 

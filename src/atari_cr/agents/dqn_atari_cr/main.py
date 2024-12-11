@@ -123,6 +123,7 @@ def make_train_env(args: ArgParser):
     return gym.vector.SyncVectorEnv(envs)
 
 def make_eval_env(seed, args: ArgParser):
+    """ Return VecEnv with a single environment """
     envs = [make_env(args.seed + seed, args, training=False)]
     return gym.vector.SyncVectorEnv(envs)
 

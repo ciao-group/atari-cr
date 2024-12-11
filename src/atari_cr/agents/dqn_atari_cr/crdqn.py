@@ -286,7 +286,7 @@ class CRDQN:
         episode_infos, out_paths, aucs = [], [], []
         for eval_ep in range(self.n_evals):
             # Create env
-            eval_env = self.eval_env_generator(eval_ep)
+            eval_env = self.eval_env_generator(eval_ep) # VecEnv with a single env in it
             single_eval_env: Union[FixedFovealEnv, PauseableFixedFovealEnv] = \
                 eval_env.envs[0] if isinstance(eval_env, VectorEnv) else eval_env
             n_eval_envs = eval_env.num_envs if isinstance(eval_env, VectorEnv) else 1
@@ -299,13 +299,11 @@ class CRDQN:
                 (n_eval_envs, self.frame_stack, *self.obs_size)
             )
             eval_pvm_buffer.append(obs)
-            pvm_obs = eval_pvm_buffer.get_obs(mode="stack_max")
+            pvm_obs = eval_pvm_buffer.get_obs(mode="stack_max") # -> [1,4,84,84]
 
-            # Add the observation to the env's EpisodeRecord
-            if self.capture_video and \
-                    isinstance(eval_env.envs[0], PauseableFixedFovealEnv):
-                for i, o in enumerate(pvm_obs):
-                    eval_env.envs[i].add_obs(o)
+            # Safe the pvm obs for logging
+            if self.capture_video:
+                pvm_observations = [pvm_obs[0,-1,...]] # -> [1,84,84]
 
             # One episode in the environment
             while not (done or truncated):
@@ -337,11 +335,8 @@ class CRDQN:
                 )
                 done, truncated = dones[0], truncateds[0]
 
-                # Add the observation to the env's EpisodeRecord
-                if self.capture_video and \
-                    isinstance(eval_env.envs[0], PauseableFixedFovealEnv):
-                    for i, o in enumerate(pvm_obs):
-                        eval_env.envs[i].add_obs(o)
+                if self.capture_video:
+                    pvm_observations.append(pvm_obs[0,-1,...]) # -> [N,84,84]
 
             info = infos["final_info"][0]
             if isinstance(eval_env.envs[0], PauseableFixedFovealEnv):
@@ -359,6 +354,7 @@ class CRDQN:
                 # Only save 1/4th of the evals as videos
                 if (self.capture_video) and single_eval_env.record and eval_ep % 4 == 0:
                     if isinstance(single_eval_env, PauseableFixedFovealEnv):
+                        single_eval_env.prev_episode.obs = np.stack(pvm_observations)
                         save_fn = lambda s: single_eval_env.prev_episode.save( # noqa: E731
                             s, with_obs=True)
                         extension = ""

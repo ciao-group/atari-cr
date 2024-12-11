@@ -5,8 +5,6 @@ from PIL import Image
 
 import numpy as np
 
-import numpy as np
-from PIL import Image
 
 from atari_cr.utils import grid_image
 
@@ -33,7 +31,6 @@ class PVMBuffer:
             if self.fov_loc_size is not None: # (1, 2) or (1, 2, 3)
                 self.fov_loc_buffer.append(np.zeros(self.fov_loc_size, dtype=np.float32))
 
-    
     def append(self, x, fov_loc=None) -> None:
         self.buffer.append(x)
         if fov_loc is not None:
@@ -51,10 +48,10 @@ class PVMBuffer:
             return np.mean(np.stack(self.buffer, axis=1), axis=1, keepdims=True)
         elif mode == "stack":
             # [B, T, C, H, W]
-            return np.stack(self.buffer, axis=1) 
+            return np.stack(self.buffer, axis=1)
         elif mode == "stack_channel":
             # [B, T*C, H, W]
-            return np.concatenate(self.buffer, axis=1) 
+            return np.concatenate(self.buffer, axis=1)
         else:
             raise NotImplementedError
 
@@ -106,7 +103,7 @@ class PVMBuffer:
 
         # Put them underneath each other in another grid
         full_grid = grid_image(
-            np.expand_dims(np.stack([raw_grid, padded_pvm_grid]), axis=1), 
+            np.expand_dims(np.stack([raw_grid, padded_pvm_grid]), axis=1),
             line_color=[0, 255, 0],
             line_width=line_width
         )
@@ -116,11 +113,10 @@ class PVMBuffer:
         final_grid = full_grid[:-height_to_cut, :, :]
 
         return Image.fromarray(final_grid, mode="RGB")
-    
+
     def _greyscale_to_rgb(self, x: np.ndarray):
         scaled_array = (x * 255).astype(np.uint8)
         return np.repeat(scaled_array[..., np.newaxis], 3, axis=-1)
-    
+
     def _rgb_buffer(self):
         return self._greyscale_to_rgb(np.stack(self.buffer, axis=1))
-    
