@@ -7,7 +7,7 @@ from tap import Tap
 from active_gym.atari_env import AtariEnv, AtariEnvArgs, RecordWrapper, FixedFovealEnv
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
-from atari_cr.pauseable_env import PauseableFixedFovealEnv, SlowedFixedFovealEnv
+from atari_cr.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
 from atari_cr.models import FovType
 
@@ -70,7 +70,7 @@ class ArgParser(Tap):
     evaluator: str = "" # Path to gaze predictor weights for evaluation
     fov: FovType = "window" # Type of fovea
     og_env: bool = False # Whether to use normal sugarl env
-    slowed_env: bool = False # Whether to use a time sensitve env for pausing
+    timed_env: bool = False # Whether to use a time sensitve env for pausing
 
 def make_env(seed: int, args: ArgParser, training = False):
     def thunk():
@@ -99,14 +99,10 @@ def make_env(seed: int, args: ArgParser, training = False):
         if args.og_env:
             env = RecordWrapper(env, env_args)
             env = FixedFovealEnv(env, env_args)
-        elif args.slowed_env:
-            env = SlowedFixedFovealEnv(
-                env, env_args, args.pause_cost, args.saccade_cost_scale,
-                args.fov, not args.use_pause_env)
         else:
             env = PauseableFixedFovealEnv(
                 env, env_args, args.pause_cost, args.saccade_cost_scale,
-                args.fov, not args.use_pause_env)
+                args.fov, not args.use_pause_env, timer=args.timed_env)
 
         # Env configuration
         env.unwrapped.ale.setFloat(

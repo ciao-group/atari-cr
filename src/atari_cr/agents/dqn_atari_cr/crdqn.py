@@ -336,11 +336,17 @@ class CRDQN:
                 done, truncated = dones[0], truncateds[0]
 
                 if self.capture_video:
+                    # Add an empty observation for every time the agent has skipped
+                    # a frame
+                    skipped_frames = len(infos["final_info"][0]["reward"]) - 1 \
+                        if "final_info" in infos else len(infos["reward"][0]) - 1
+                    for _ in range(skipped_frames):
+                        pvm_observations.append(np.zeros_like(pvm_obs[0,-1,...]))
                     pvm_observations.append(pvm_obs[0,-1,...]) # -> [N,84,84]
 
             info = infos["final_info"][0]
             if isinstance(eval_env.envs[0], PauseableFixedFovealEnv):
-                info = info["episode_info"]
+                info = info["episode_info"][-1]
             episode_infos.append(info)
 
             # At the end of every eval episode:
@@ -460,7 +466,7 @@ class CRDQN:
             episode_info = infos['final_info'][finished_env_idx]
             next_obs[finished_env_idx] = infos["final_observation"][finished_env_idx]
             if isinstance(env.envs[0], PauseableFixedFovealEnv):
-                episode_info = episode_info["episode_info"]
+                episode_info = episode_info["episode_info"][-1]
             else: episode_info["raw_reward"] = episode_info["reward"]
 
             # Calculate gaze duration distribution and deviation from Atari-HEAD

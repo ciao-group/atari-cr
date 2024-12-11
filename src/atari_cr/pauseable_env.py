@@ -144,29 +144,38 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             # Increment the time by emma time in ms
             self.timer += total_emma_time * 1000
 
+        step_info = self._post_step_logging(step_info, info["raw_reward"], reward, done,
+                                            truncated)
+        step_infos = { k: [v] for k, v in step_info.items() }
+
         if (self.timer is not None) and (not step_info["pauses"]):
             # Repeat action as long as the saccade takes to complete
             while self.timer >= 50:
+                step_info = self._pre_step_logging(action)
+                step_info["emma_time"] = 0.050 # Set the duration to 50ms
+
                 # Only the last state is kept
-                # Rewards are summed up
-                # Raw rewards in info are summed up
-                # Break early if done or truncated
-                self.state, partial_reward, done, truncated, partial_info = \
+                self.state, partial_reward, done, truncated, info = \
                     self.env.step(action=action["motor_action"])
+
+                # Sum up rewards
                 reward += partial_reward
-                info["raw_reward"] += partial_info["raw_reward"]
+
+                # Decrement the timer and log the step
                 self.timer -= 50
-                info["pauses"] = 0
+                step_info = self._post_step_logging(step_info,
+                    info["raw_reward"], partial_reward, done, truncated)
+                for key in step_info.keys():
+                    step_infos[key].append(step_info[key])
+
+                # Break early if done or truncated
                 if done or truncated: break
 
         # Sensory step
         fov_state = self._fov_step(
             full_state=self.state, action=action["sensory_action"])
 
-        step_info = self._post_step_logging(step_info, info["raw_reward"], reward, done,
-                                            truncated)
-
-        return fov_state, reward, done, truncated, step_info
+        return fov_state, reward, done, truncated, step_infos
 
     def _pre_step_logging(self, action: dict):
         """ Logs the state before the action is taken. """
@@ -191,6 +200,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         for key in self.episode_info.keys():
             self.episode_info[key] += step_info[key]
         step_info["episode_info"] = self.episode_info.copy()
+        # Exclude these pauses from cumulation
         step_info["consecutive_pauses"] = self.consecutive_pauses
         self.step_infos.append(step_info)
 
