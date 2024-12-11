@@ -282,41 +282,55 @@ class SlowedFixedFovealEnv(PauseableFixedFovealEnv):
         self.key_is_pressed = False
 
     def reset(self):
-        super().reset()
+        self.timer = 0 # Time spent by the agent since last frame
+        return super().reset()
 
-        self.timer = 0 # Time in ms since last new frame
-
-    def step(self, action):
-        # Take a motor action
-        done, truncated, info = False, False, {}
-        if self.key_is_pressed:
-            # NOOP until the agent is no longer busy
-            reward = 0
-            while self.timer >= 50:
-                self.state, partial_reward, done, truncated, info = \
-                    self.env.step(action=np.int64(0)) # NOOP
-                reward += partial_reward
-                # TODO: Stop on done or truncated
-                # TODO: Aggregate infos
-                self.timer -= 50
+    def step(self, action: dict):
+        # Move or pause in the env
+        if action["motor_action"] in [self.key_down_action, self.key_up_action]:
+            # Press or unpress key
+            self.key_is_pressed = (action["motor_action"] == self.key_down_action)
+            # Set default step returns for a pause action
+            reward, done, truncated = 0, False, False
+            info = { "raw_reward": 0, "pauses": 1 }
+            # Set the action to be repeated later to NOOP
+            action["motor_action"] = np.int64(0) # NOOP
         else:
+            # Normal env step
             self.state, reward, done, truncated, info = \
-                self.env.step(action=action["motor_action"])
-                # TODO: Sum up saccade times if action is key_up
+                    self.env.step(action=action["motor_action"])
+            info["pauses"] = 0
+        assert list(info.keys()) == ["raw_reward", "pauses"]
 
-        # Sensory action
+        # Add costs for the time it takes the agent to move its fovea
         prev_fov_loc = self.fov_loc.copy()
-        fov_state = self._fov_step(
-            full_state=self.state, action=action["sensory_action"])
-
-        # Add costs for the time it took the agent to move its fovea
         eccentricity = np.sqrt(np.sum(np.square(
             (self.fov_loc - prev_fov_loc) * self.visual_degrees_per_pixel )))
         _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
+        total_emma_time = total_emma_time.item()
         reward -= self.saccade_cost_scale * total_emma_time
-
         # Increment the time by emma time in ms
         self.timer += total_emma_time * 1000
+        info["duration(ms)"] = self.timer
+
+        if self.key_down_action:
+            # Repeat action as long as the saccade takes to complete
+            while self.timer >= 50:
+                # Only the last state is kept
+                # Rewards are summed up
+                # Raw rewards in info are summed up
+                # Break early if done or truncated
+                self.state, partial_reward, done, truncated, partial_info = \
+                    self.env.step(action=action["motor_action"])
+                reward += partial_reward
+                info["raw_reward"] += partial_info["raw_reward"]
+                self.timer -= 50
+                info["pauses"] = 0
+                if done or truncated: break
+
+        # Sensory action
+        fov_state = self._fov_step(
+            full_state=self.state, action=action["sensory_action"])
 
         return fov_state, reward, done, truncated, info
 

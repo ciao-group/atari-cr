@@ -395,7 +395,7 @@ class CRDQN:
         # Log mean result of eval episodes
         mean_episode_info: EpisodeInfo = \
             pl.DataFrame(episode_infos).mean().row(0, named=True)
-        self._log_episode(mean_episode_info, td_update, duration_info)
+        self._log_episode(mean_episode_info, td_update, duration_info, eval_env=True)
 
         # AUC and windowed AUC
         if self.evaluator:
@@ -475,7 +475,7 @@ class CRDQN:
                     self.env_name
                 )
 
-            self._log_episode(episode_info, td_update, duration_info)
+            self._log_episode(episode_info, td_update, duration_info, eval_env=False)
 
         # Update the latest observation in the pvm buffer
         assert len(env.envs) == 1, \
@@ -493,7 +493,8 @@ class CRDQN:
         return next_pvm_obs, rewards, dones, truncateds, infos
 
     def _log_episode(self, episode_info: EpisodeInfo,
-            td_update: Optional[TdUpdateInfo], duration_info: Optional[DurationInfo]):
+            td_update: Optional[TdUpdateInfo], duration_info: Optional[DurationInfo],
+            eval_env: bool):
         # Prepare the episode infos for the different supported envs
         if isinstance(self.envs[0], FixedFovealEnv):
             new_info = episode_info
@@ -519,6 +520,7 @@ class CRDQN:
             "td/sugarl": sugarl_penalty,
             "td/next_state_value": next_state_value,
             "td/loss": loss,
+            "eval_env": eval_env,
         }
         if isinstance(self.envs[0], PauseableFixedFovealEnv):
             ray_info.update({

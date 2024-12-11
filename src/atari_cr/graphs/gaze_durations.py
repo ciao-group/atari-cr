@@ -2,6 +2,7 @@ import os
 from atari_cr.atari_head.durations import BINS, get_histogram
 import matplotlib.pyplot as plt
 import numpy as np
+from atari_cr.graphs.colors import ColorBlind
 
 AGENT_DURATIONS = np.array([
     13.815511, 1085.2463, 1186.3843, 2882.3455, 1196.609, 1139.8745,
@@ -57,10 +58,10 @@ if __name__ == "__main__":
     # Put a single bar for the highest value
     y = np.zeros(21)
     y[highest_idx] = highest
-    plt.bar(x, y, width=50, color="#FDAE61")
+    plt.bar(x, y, width=50, color=ColorBlind.ORANGE)
 
     # Normal plot
-    plt.bar(x, hist, width=50, color="#74ADD1")
+    plt.bar(x, hist, width=50, color=ColorBlind.BLUE)
 
     # Styling
     plt.xticks(np.arange(0, 1050, 100))
