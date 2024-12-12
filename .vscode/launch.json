@@ -60,7 +60,7 @@
                 "--env", "ms_pacman",
                 // Debug config
                 "--exp_name", "dqn_cr_debug",
-                "--total_timesteps", "100",
+                "--total_timesteps", "1000",
                 "--learning_start", "50",
                 "--debug",
                 // Additional config
@@ -71,7 +71,7 @@
                 "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth",
                 "--fov", "window",
                 // "--fov_size", "20",
-                // "--timed_env", 
+                "--timed_env",
             ],
             "justMyCode": false
         },

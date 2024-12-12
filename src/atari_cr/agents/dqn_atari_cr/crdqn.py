@@ -236,8 +236,11 @@ class CRDQN:
                         rewards, dones, {})
             pvm_obs = next_pvm_obs
 
+            # Add the sum of all substeps across all envs to the timestep
+            self.timestep += sum([len(infos["final_info"][i]["raw_reward"] \
+                if "final_info" in infos else infos["raw_reward"][i]) \
+                    for i in range(self.n_envs)])
             # Only train if a full batch is available
-            self.timestep += self.n_envs
             if self.timestep < self.batch_size:
                 continue
 

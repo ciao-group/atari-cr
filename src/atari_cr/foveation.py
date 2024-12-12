@@ -1,6 +1,5 @@
 """ Borrowed from https://github.com/
     ouyangzhibo/Image_Foveation_Python/blob/master/retina_transform.py """
-from enum import Enum
 from typing import Literal, TypeAlias
 import cv2
 import numpy as np

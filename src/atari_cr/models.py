@@ -1,5 +1,5 @@
 import os
-from typing import Literal, NamedTuple, Optional, TypeAlias, TypedDict
+from typing import NamedTuple, Optional, TypedDict
 
 import cv2
 import numpy as np
@@ -77,8 +77,8 @@ class EpisodeRecord():
     """
     def __init__(self, frames: np.ndarray, annotations: pl.DataFrame,
                  args: EpisodeArgs, obs: Optional[np.ndarray] = None):
-        assert len(frames) == len(annotations) + 1, "len of annotations needs to match len \
-            of frames as every frame should have an annotation"
+        assert len(frames) == len(annotations) + 1, ("len of annotations needs to match"
+            "len of frames as every frame should have an annotation")
         self.frames = frames
         self.annotations = annotations
         self.args = args
