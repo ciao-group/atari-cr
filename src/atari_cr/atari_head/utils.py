@@ -45,7 +45,7 @@ def transform_to_proper_csv(game_dir: str):
             "frame_id",
             "episode_id",
             "score",
-            "duration(ms)",
+            "duration",
             "unclipped_reward",
             "action",
             "gaze_positions"

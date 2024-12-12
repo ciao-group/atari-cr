@@ -9,10 +9,7 @@ from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
-from atari_cr.models import FovType
-
-# OPTIONAL: Remove normal pause cost in favor of a bigger penalty for 30 pauses in a row
-# OPTIONAL: Test realtive actions better
+from atari_cr.foveation import FovType
 
 class ArgParser(Tap):
     exp_name: str = os.path.basename(__file__).rstrip(".py") # Name of this experiment

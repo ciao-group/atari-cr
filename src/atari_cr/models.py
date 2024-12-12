@@ -10,9 +10,8 @@ import yaml
 
 from atari_cr.atari_head.durations import BINS, get_histogram
 from atari_cr.atari_head.utils import open_mp4_as_frame_list
+from atari_cr.foveation import Fovea
 
-
-FovType: TypeAlias = Literal["window", "gaussian", "exponential"]
 
 class EpisodeInfo(TypedDict):
     """
@@ -26,7 +25,7 @@ class EpisodeInfo(TypedDict):
     no_action_pauses: int
     saccade_cost: float
     truncated: int
-    emma_time: float
+    duration: float
 
     @staticmethod
     def new():
@@ -230,7 +229,7 @@ class EpisodeRecord():
                     (256, 256)
                 ) for obs in (self._obs * 255).astype(np.uint8)])
 
-            EpisodeRecord.draw_fovea(frames, fov_locs, self.args["fov"], fov_size)
+            Fovea(self.args["fov"], fov_size).draw(frames, fov_locs)
             EpisodeRecord._save_video(np.concatenate([upscaled_obs, frames], axis=2),
                                       obs_path)
 
@@ -265,32 +264,6 @@ class EpisodeRecord():
 
         return EpisodeRecord(frames, annotations, args, obs)
 
-    @staticmethod
-    def draw_fovea(frames: np.ndarray, fov_locs: np.ndarray, fov_type: FovType,
-                   fov_size: np.ndarray):
-        """ Draw the fovea onto a stack of frames
-
-        :param Array[N,256,256,3] frames:
-        :param Array[N,2] fov_locs:
-        :param Array[2] fov_size:
-        """
-        color = [0,255,0] # Green
-        match(fov_type):
-            # Draw the window for a windowed fovea
-            case "window":
-                for i in range(len(frames)):
-                    top_left = fov_locs[i].astype(np.int32)
-                    bottom_right = (top_left + fov_size).astype(np.int32)
-                    frames[i] = cv2.rectangle(frames[i], top_left, bottom_right,
-                                              color, 1)
-            # Just mark the fov location for other foveae
-            case "gaussian" | "exponential":
-                for i in range(len(frames)):
-                    frames[i] = cv2.drawMarker(
-                        frames[i], fov_locs[i].astype(np.int32), color)
-            case _:
-                raise ValueError("Invalid fov type")
-
     @property
     def obs(self):
         return self._obs
@@ -299,7 +272,8 @@ class EpisodeRecord():
     def obs(self, obs: np.ndarray):
         """ :param Array[N,84,84] obs: New observations value """
         self._obs = obs
-        assert len(self.obs) == len(self.frames), "Number of observations must match the number of frames"
+        assert len(self.obs) == len(self.frames), \
+            "Number of observations must match the number of frames"
 
 class EvalResult(TypedDict):
     min: float
@@ -336,13 +310,10 @@ class DurationInfo:
     @staticmethod
     def from_episodes(records: list[EpisodeRecord], env_name: str):
         durations = [0.]
-        annotations = (pl.concat([record.annotations for record in records])
-            # Convert seconds to ms
-            .with_columns((pl.col("emma_time") * 1000)))
-        annotations
+        annotations = pl.concat([record.annotations for record in records])
         # Add to the gaze duration
-        for pauses, emma_time in annotations["pauses", "emma_time"].iter_rows():
-            durations[-1] += emma_time
+        for pauses, duration in annotations["pauses", "duration"].iter_rows():
+            durations[-1] += duration
             if pauses == 0:
                 # Make a new duration for the next frame
                 durations.append(0.)

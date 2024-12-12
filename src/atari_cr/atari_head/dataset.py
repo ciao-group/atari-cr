@@ -235,7 +235,7 @@ class GazeDataset(Dataset):
 
         # Cast durations to torch tensor
         durations = torch.Tensor([(duration if duration else 0.)
-                                  for duration in list(df["duration(ms)"])])
+                                  for duration in list(df["duration"])])
 
         return GazeDataset(frames, saliency, train_indices, val_indices,
                            durations, class_output=class_output)
@@ -249,13 +249,13 @@ class GazeDataset(Dataset):
         for record in records:
             # Get the saliency maps and gaze durations
             gaze_lists, gazes = [], [] # List of gazes for all rows, list for one frame
-            for x, y, pauses, emma_time in record.annotations[
-                        "sensory_action_x", "sensory_action_y", "pauses", "emma_time"
+            for x, y, pauses, duration in record.annotations[
+                        "sensory_action_x", "sensory_action_y", "pauses", "duration"
                     ].iter_rows():
                 if x is not None and y is not None:
                     gazes.append([x, y])
                 # Add to the gaze duration
-                durations[-1] += emma_time
+                durations[-1] += duration
                 if pauses == 0:
                     # Add all accumulated gazes to the frame that no longer pauses
                     gaze_lists.append(gazes)

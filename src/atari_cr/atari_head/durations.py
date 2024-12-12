@@ -23,11 +23,14 @@ def get_histogram(game: str):
     for csv_file in [f for f in os.listdir(game_dir) if f.endswith(".csv")]:
         csv_path = f"{game_dir}/{csv_file}"
 
-        durations = (pl.scan_csv(csv_path, null_values=["null"])
+        durations = (
+            pl.scan_csv(csv_path, null_values=["null"])
             .select(pl.col("duration(ms)"))
             .drop_nulls()
             .collect()
-            .to_series())
+            .to_series()
+            .to_numpy()
+        )
         durations = torch.Tensor(durations)
         histograms.append(torch.histogram(durations, BINS).hist / len(durations))
 

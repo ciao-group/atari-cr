@@ -6,7 +6,8 @@ from typing import Optional, Tuple
 from torchvision.transforms import Resize
 from active_gym import AtariEnvArgs
 
-from atari_cr.models import EpisodeInfo, EpisodeRecord, StepInfo, FovType
+from atari_cr.foveation import Fovea, FovType
+from atari_cr.models import EpisodeInfo, EpisodeRecord, StepInfo
 from atari_cr.utils import EMMA_fixation_time
 from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE
 from atari_cr.atari_head.dataset import SCREEN_SIZE
@@ -36,22 +37,22 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             saccade_cost_scale = 0.001, fov: FovType = "window", no_pauses = False,
             consecutive_pause_limit = 50, timer = False):
         super().__init__(env)
-        self.fov_size: Tuple[int, int] = args.fov_size
-        self.fov: FovType = fov
+        self.fov = Fovea(fov, args.fov_size)
         self.fov_init_loc: Tuple[int, int] = args.fov_init_loc
-        assert (np.array(self.fov_size) <
+        assert (np.array(self.fov.size) <
                 np.array(env.obs_size)).all()
         self.no_pauses = no_pauses
+        self.timer = timer
 
         # Get sensory action space for the sensory action mode
         self.relative_sensory_actions = args.sensory_action_mode == "relative"
         if self.relative_sensory_actions:
             self.sensory_action_space = np.array(args.sensory_action_space)
-        elif self.fov in ["gaussian", "exponential"]:
+        elif self.fov.type == "exponential":
             self.sensory_action_space = np.array(env.obs_size)
-        elif self.fov == "window":
+        elif self.fov.type == "window":
             self.sensory_action_space = \
-                np.array(env.obs_size) - np.array(self.fov_size)
+                np.array(env.obs_size) - np.array(self.fov.size)
         else:
             raise ValueError("Invalid fov type")
 
@@ -83,9 +84,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.prev_episode: Optional[EpisodeRecord] = None
         self.env: AtariEnv
 
-        # Timer is None if disabled or the game time otherwise
-        self.timer = 0 if timer else None
-
     def reset(self):
         self.state, info = self.env.reset() # -> [4,84,84;f64]
         self.frames = [self.unwrapped.render()]
@@ -98,85 +96,111 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.fov_loc = np.array(self.fov_init_loc, copy=True).astype(np.int32)
         fov_obs = self._crop_observation(self.state)
 
+        # Time that has already passed since the last new frame
+        # This is time that was still needed for the previous action
+        self.time_passed = 0
+
         return fov_obs, info
 
     def step(self, action):
-        step_info = self._pre_step_logging(action)
+        # Calculate the time this step takes and the number of time to repeat the motor
+        # action because of it
+        prev_pause = self.time_passed > 50 # Whether the previous action was a pause
+        step_time = self._step_time(action["sensory_action"])
+        self.time_passed += step_time
+        saccade_cost = self.saccade_cost_scale * step_time
+        reward = -saccade_cost
 
-        # Actual pause step
-        if step_info["pauses"]:
+        if action["motor_action"] == self.pause_action: # Pause step
+            step_info = self._pre_step_logging(action)
+
             self.consecutive_pauses += 1
             done, truncated = False, False
             info = {"raw_reward": 0}
+            # Durations for pause steps are instead counted for the next non-pause
+            duration = 0
 
             # Mask out unwanted pause behavior
             if self.consecutive_pauses > self.consecutive_pause_limit:
                 # Too many pauses in a row
-                reward = MASKED_ACTION_PENTALTY
+                reward += MASKED_ACTION_PENTALTY
                 step_info["prevented_pauses"] = 1
                 truncated = True
             elif np.all(self.fov_loc == action["sensory_action"]):
                 # No action pause
-                reward = MASKED_ACTION_PENTALTY
+                reward += MASKED_ACTION_PENTALTY
                 step_info["no_action_pauses"] = 1
             else:
                 # Normal pause
-                reward = -self.pause_cost
+                reward -= self.pause_cost
 
-        else:
+            step_info = self._post_step_logging(step_info, info["raw_reward"], reward,
+                                                done, truncated, duration, saccade_cost)
+            step_infos = [step_info]
+
+        else: # Normal step
             self.consecutive_pauses = 0
-            # Normal step, the state is saved for the next pause step
-            self.state, reward, done, truncated, info = \
-                self.env.step(action=action["motor_action"])
 
-        # Calculate saccade duration and add a cost for it
-        pixel_distance = action["sensory_action"] if self.relative_sensory_actions \
-            else action["sensory_action"] - self.fov_loc
-        eccentricity = np.sqrt(np.sum(np.square(
-            pixel_distance * self.visual_degrees_per_pixel )))
-        _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
-        step_info["emma_time"] = total_emma_time
-        step_info["saccade_cost"] = self.saccade_cost_scale * total_emma_time
-        reward -= step_info["saccade_cost"]
-        if self.timer is not None:
-            # Increment the time by emma time in ms
-            self.timer = total_emma_time * 1000
-            # The first env step takes 50ms until the next frame appears
-            # Then the motor action is repeated until total emma time is over
-            if not step_info["pauses"]: step_info["emma_time"] = 0.050
+            if not self.timer:
+                # Just make one action if the timer is disabled
+                action_repetitions = 1
+                duration = 0
+            elif prev_pause:
+                # Make one action that had as duration the time of the previous pauses
+                # plus the time of the current action, rounded up to 50ms steps
+                action_repetitions = 1
+                duration = (self.time_passed % 50 + 1) * 50
+            else:
+                # Round the time up to 50ms steps and repeat the action for every 50ms
+                # step
+                action_repetitions = int(self.time_passed // 50 + 1)
+                duration = 50
+            self.time_passed = self.time_passed % 50
 
-        step_info = self._post_step_logging(step_info, info["raw_reward"], reward, done,
-                                            truncated)
-        step_infos = { k: [v] for k, v in step_info.copy().items() }
-
-        if (self.timer is not None) and not step_info["pauses"]:
             # Repeat action as long as the saccade takes to complete
-            while self.timer >= 50:
+            step_infos = []
+            for _ in range(action_repetitions):
                 step_info = self._pre_step_logging(action)
-                step_info["emma_time"] = 0.050 # Set the duration to 50ms
 
                 # Only the last state is kept
                 self.state, partial_reward, done, truncated, info = \
                     self.env.step(action=action["motor_action"])
-
                 # Sum up rewards
                 reward += partial_reward
 
-                # Decrement the timer and log the step
-                self.timer -= 50
-                step_info = self._post_step_logging(step_info,
-                    info["raw_reward"], partial_reward, done, truncated)
-                for key in step_info.keys():
-                    step_infos[key].append(step_info[key])
+                # Log the step
+                step_info = self._post_step_logging(step_info, info["raw_reward"],
+                    partial_reward, done, truncated, duration, saccade_cost)
+                step_infos.append(step_info)
 
                 # Break early if done or truncated
                 if done or truncated: break
+
+        # Cast the step infos to have their values as lists in one dict
+        info = { k: [] for k, v in step_infos[0].items() }
+        for step_info in step_infos:
+            for key in step_info.keys():
+                info[key].append(step_info[key])
 
         # Sensory step
         fov_state = self._fov_step(
             full_state=self.state, action=action["sensory_action"])
 
-        return fov_state, reward, done, truncated, step_infos
+        return fov_state, reward, done, truncated, info
+
+    def _step_time(self, sensory_action: np.ndarray):
+        """
+        Calculate duration of one step as the time the sensory action takes to complete.
+
+        :param Array[2; i32] sensory_action:
+        :returns float: Time in ms
+        """
+        pixel_distance = sensory_action if self.relative_sensory_actions \
+            else sensory_action - self.fov_loc
+        eccentricity = np.sqrt(np.sum(np.square(
+            pixel_distance * self.visual_degrees_per_pixel )))
+        _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
+        return float(total_emma_time * 1000)
 
     def _pre_step_logging(self, action: dict):
         """ Logs the state before the action is taken. """
@@ -191,11 +215,13 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         return step_info
 
     def _post_step_logging(self, step_info: StepInfo, raw_reward: float, reward: float,
-            done: bool, truncated: bool):
+            done: bool, truncated: bool, duration: float, saccade_cost: float):
         step_info["raw_reward"] = raw_reward
         step_info["reward"] = reward
         step_info["done"] = done
         step_info["truncated"] = int(truncated)
+        step_info["duration"] = duration
+        step_info["saccade_cost"] = saccade_cost
         # Episode info stores cumulative sums of the step info keys
         self.episode_info: EpisodeInfo
         for key in self.episode_info.keys():
@@ -211,7 +237,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.prev_episode = EpisodeRecord(
                 np.stack(self.frames),
                 EpisodeRecord.annotations_from_step_infos(self.step_infos),
-                { "fov_size": self.fov_size, "fov": self.fov }
+                { "fov_size": self.fov.size.tolist(), "fov": self.fov.type }
             )
         return step_info
 
@@ -248,7 +274,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         if self.fov == "gaussian":
             distances_from_fov = self._pixel_eccentricities(
                 full_state.shape[-2:], self.fov_loc)
-            sigma = self.fov_size[0] / 2
+            sigma = self.fov.size[0] / 2
             gaussian = np.exp(-np.sum(
                 np.square(distances_from_fov) / (2 * np.square(sigma)),
                 axis=0)) # -> [84,84]
@@ -256,13 +282,13 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             masked_state = full_state * gaussian
         elif self.fov == "window":
             crop = full_state[:,
-                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1],
-                self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
+                self.fov_loc[1]:self.fov_loc[1] + self.fov.size[1],
+                self.fov_loc[0]:self.fov_loc[0] + self.fov.size[0],
             ]
             # Fill the area outside the crop with zeros
             masked_state[:,
-                self.fov_loc[1]:self.fov_loc[1] + self.fov_size[1],
-                self.fov_loc[0]:self.fov_loc[0] + self.fov_size[0],
+                self.fov_loc[1]:self.fov_loc[1] + self.fov.size[1],
+                self.fov_loc[0]:self.fov_loc[0] + self.fov.size[0],
             ] = crop
         elif self.fov == "exponential":
             pixel_eccentricities = self._pixel_eccentricities(
@@ -350,7 +376,7 @@ class SlowedFixedFovealEnv(PauseableFixedFovealEnv):
         reward -= self.saccade_cost_scale * total_emma_time
         # Increment the time by emma time in ms
         self.timer += total_emma_time * 1000
-        info["duration(ms)"] = self.timer
+        info["duration"] = self.timer
 
         if self.key_down_action:
             # Repeat action as long as the saccade takes to complete
