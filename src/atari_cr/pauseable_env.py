@@ -149,7 +149,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 # Make one action that had as duration the time of the previous pauses
                 # plus the time of the current action, rounded up to 50ms steps
                 action_repetitions = 1
-                duration = (self.time_passed % 50 + 1) * 50
+                duration = int((self.time_passed % 50 + 1) * 50)
             else:
                 # Round the time up to 50ms steps and repeat the action for every 50ms
                 # step
@@ -193,14 +193,14 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         Calculate duration of one step as the time the sensory action takes to complete.
 
         :param Array[2; i32] sensory_action:
-        :returns float: Time in ms
+        :returns int: Time in ms
         """
         pixel_distance = sensory_action if self.relative_sensory_actions \
             else sensory_action - self.fov_loc
         eccentricity = np.sqrt(np.sum(np.square(
             pixel_distance * self.visual_degrees_per_pixel )))
         _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
-        return float(total_emma_time * 1000)
+        return int(total_emma_time * 1000)
 
     def _pre_step_logging(self, action: dict):
         """ Logs the state before the action is taken. """

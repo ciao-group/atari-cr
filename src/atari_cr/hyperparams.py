@@ -44,6 +44,7 @@ if __name__ == "__main__":
             "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth",
         "pvm_stack": 3, # from sugarl code
         "fov": "window",
+        "timed_env": True,
         # Already searched
         "action_repeat": 5,
         "fov_size": 20,

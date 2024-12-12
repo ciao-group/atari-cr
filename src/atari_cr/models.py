@@ -5,10 +5,10 @@ import cv2
 import numpy as np
 import polars as pl
 import torch
-import torch.nn.functional as F
 import yaml
+from scipy.stats import wasserstein_distance
 
-from atari_cr.atari_head.durations import BINS, get_histogram
+from atari_cr.atari_head.durations import BINS, get_durations
 from atari_cr.atari_head.utils import open_mp4_as_frame_list
 from atari_cr.foveation import Fovea
 
@@ -323,7 +323,7 @@ class DurationInfo:
         # Calculate histogram and distance to the expected histogram for the given game
         histogram = torch.histogram(durations, BINS).hist
         histogram = histogram / histogram.sum()
-        error = F.mse_loss(histogram, get_histogram(env_name)).item()
+        error = wasserstein_distance(durations, get_durations(env_name))
 
         return DurationInfo(
             error,

@@ -8,9 +8,8 @@ BINS = torch.cat([
     torch.arange(25, 1000, 50, dtype=torch.float32),
     torch.Tensor([torch.inf])])
 
-def get_histogram(game: str):
-    """ Get a histogram for the average episode gaze durations per timestep in one
-    Atari-HEAD game.
+def get_durations(game: str):
+    """ Get all gaze durations in one Atari-HEAD game.
 
     :param str game: Name of the atari game
     :return Tensor[21]:
@@ -19,10 +18,8 @@ def get_histogram(game: str):
     if not os.path.exists(game_dir):
         raise IOError(f"Game directory {game_dir} does not exist")
 
-    histograms = []
-    for csv_file in [f for f in os.listdir(game_dir) if f.endswith(".csv")]:
-        csv_path = f"{game_dir}/{csv_file}"
-
+    all_durations = []
+    for csv_path in [f.path for f in os.scandir(game_dir) if f.name.endswith(".csv")]:
         durations = (
             pl.scan_csv(csv_path, null_values=["null"])
             .select(pl.col("duration(ms)"))
@@ -31,10 +28,19 @@ def get_histogram(game: str):
             .to_series()
             .to_numpy()
         )
-        durations = torch.Tensor(durations)
-        histograms.append(torch.histogram(durations, BINS).hist / len(durations))
+        all_durations.append(torch.Tensor(durations))
+    return torch.concat(all_durations)
 
-    return torch.stack(histograms).mean(dim=0)
+def get_histogram(game: str):
+    """ Get a histogram for the average episode gaze durations per timestep in one
+    Atari-HEAD game.
+
+    :param str game: Name of the atari game
+    :return Tensor[21]:
+    """
+    durations = get_durations(game)
+    return torch.histogram(durations, BINS).hist / len(durations)
+
 
 if __name__ == "__main__":
     h = get_histogram("ms_pacman")
