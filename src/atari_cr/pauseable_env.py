@@ -98,9 +98,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.fov_loc = np.array(self.fov_init_loc, copy=True).astype(np.int32)
         fov_obs = self._crop_observation(self.state)
 
-        # Timer
-        if self.timer is not None: self.timer = 0
-
         return fov_obs, info
 
     def step(self, action):
@@ -132,23 +129,27 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.state, reward, done, truncated, info = \
                 self.env.step(action=action["motor_action"])
 
-        # Add costs for the time it takes the agent to move its fovea
-        prev_fov_loc = self.fov_loc.copy()
+        # Calculate saccade duration and add a cost for it
+        pixel_distance = action["sensory_action"] if self.relative_sensory_actions \
+            else action["sensory_action"] - self.fov_loc
         eccentricity = np.sqrt(np.sum(np.square(
-            (self.fov_loc - prev_fov_loc) * self.visual_degrees_per_pixel )))
+            pixel_distance * self.visual_degrees_per_pixel )))
         _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
         step_info["emma_time"] = total_emma_time
         step_info["saccade_cost"] = self.saccade_cost_scale * total_emma_time
         reward -= step_info["saccade_cost"]
         if self.timer is not None:
             # Increment the time by emma time in ms
-            self.timer += total_emma_time * 1000
+            self.timer = total_emma_time * 1000
+            # The first env step takes 50ms until the next frame appears
+            # Then the motor action is repeated until total emma time is over
+            if not step_info["pauses"]: step_info["emma_time"] = 0.050
 
         step_info = self._post_step_logging(step_info, info["raw_reward"], reward, done,
                                             truncated)
-        step_infos = { k: [v] for k, v in step_info.items() }
+        step_infos = { k: [v] for k, v in step_info.copy().items() }
 
-        if (self.timer is not None) and (not step_info["pauses"]):
+        if (self.timer is not None) and not step_info["pauses"]:
             # Repeat action as long as the saccade takes to complete
             while self.timer >= 50:
                 step_info = self._pre_step_logging(action)

@@ -401,7 +401,7 @@ class CRDQN:
 
         # AUC and windowed AUC
         if self.evaluator:
-            self.auc = sum(aucs) / len(aucs)
+            if aucs: self.auc = sum(aucs) / len(aucs)
             self.auc_window.append(self.auc)
             self.windowed_auc = sum(self.auc_window) / len(self.auc_window)
 
@@ -511,7 +511,7 @@ class CRDQN:
         # Ray logging
         ray_info = {
             "raw_reward": episode_info["raw_reward"],
-            "sfn_loss": self.sfn_loss.item(),
+            "sfn_loss": self.sfn_loss.item() if hasattr(self, "sfn_loss") else None,
             "k_timesteps": self.timestep / 1000,
             "auc": self.auc,
             "windowed_auc": self.windowed_auc,
