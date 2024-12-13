@@ -144,7 +144,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             if not self.timer:
                 # Just make one action if the timer is disabled
                 action_repetitions = 1
-                duration = 0
+                duration = step_time
             elif prev_pause:
                 # Make one action that had as duration the time of the previous pauses
                 # plus the time of the current action, rounded up to 50ms steps

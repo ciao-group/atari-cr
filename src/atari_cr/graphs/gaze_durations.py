@@ -12,7 +12,7 @@ if __name__ == "__main__":
     os.makedirs(output_dir, exist_ok=True)
 
     trial_path = ("output/ray_results/lambda_2024-12-12_18-53-56/"
-              "lambda_ms_pacman_0fb0b_00000_0_seed=0,timed_env=True_2024-12-12_18-53-57")
+              "lambda_ms_pacman_0fb0b_00002_2_seed=0,timed_env=False_2024-12-12_18-53-57")
     agent_durations = eval(
         pl.scan_csv(os.path.join(trial_path, "progress.csv"))
         .tail(1)

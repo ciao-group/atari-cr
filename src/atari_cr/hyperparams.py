@@ -23,7 +23,7 @@ if __name__ == "__main__":
     GRID_SEARCH = True
     concurrent_runs = 3 if DEBUG else 4
     num_samples = 2 * concurrent_runs if DEBUG else 20
-    time_steps = 500_000 if DEBUG else 1_000_000
+    time_steps = 500_000 if DEBUG else 5_000_000
 
     trainable = tune.with_resources(
         lambda config: tuning(config),

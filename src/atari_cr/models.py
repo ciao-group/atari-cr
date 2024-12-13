@@ -309,6 +309,7 @@ class DurationInfo:
 
     @staticmethod
     def from_episodes(records: list[EpisodeRecord], env_name: str):
+        """ Returns None if the episode consists of only pauses """
         durations = [0.]
         annotations = pl.concat([record.annotations for record in records])
         # Add to the gaze duration
@@ -319,6 +320,9 @@ class DurationInfo:
                 durations.append(0.)
         # Drop the last empty duration
         durations = torch.Tensor(durations[:-1])
+
+        # Return None if there are no durations
+        if len(durations) == 0: return None
 
         # Calculate histogram and distance to the expected histogram for the given game
         histogram = torch.histogram(durations, BINS).hist
