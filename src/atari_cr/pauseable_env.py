@@ -9,9 +9,7 @@ from active_gym import AtariEnvArgs
 from atari_cr.foveation import Fovea, FovType
 from atari_cr.models import EpisodeInfo, EpisodeRecord, StepInfo
 from atari_cr.utils import EMMA_fixation_time
-from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE
-from atari_cr.atari_head.dataset import SCREEN_SIZE
-from atari_cr.graphs.eccentricity import A, B, C
+from atari_cr.atari_head.utils import VISUAL_DEGREES_PER_PIXEL
 
 MASKED_ACTION_PENTALTY = -1e9 # Negative reward for masking out actions
 
@@ -35,9 +33,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     """
     def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
             saccade_cost_scale = 0.001, fov: FovType = "window", no_pauses = False,
-            consecutive_pause_limit = 50, timer = False):
+            consecutive_pause_limit = 50, timer = False, periph = False):
         super().__init__(env)
-        self.fov = Fovea(fov, args.fov_size)
+        self.fov = Fovea(fov, args.fov_size, periph)
         self.fov_init_loc: Tuple[int, int] = args.fov_init_loc
         assert (np.array(self.fov.size) <
                 np.array(env.obs_size)).all()
@@ -72,8 +70,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         # How much the agent is punished for large eye movements
         self.saccade_cost_scale = saccade_cost_scale
-        self.visual_degrees_per_pixel = np.array(VISUAL_DEGREE_SCREEN_SIZE) / \
-            np.array(self.get_wrapper_attr("obs_size"))
 
         # Count and log the number of pauses made and their cost
         self.pause_cost = pause_cost
@@ -94,7 +90,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.consecutive_pauses = 0
 
         self.fov_loc = np.array(self.fov_init_loc, copy=True).astype(np.int32)
-        fov_obs = self._crop_observation(self.state)
+        fov_obs, visual_info = self.fov.apply(self.state, [self.fov_loc])
 
         # Time that has already passed since the last new frame
         # This is time that was still needed for the previous action
@@ -198,7 +194,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         pixel_distance = sensory_action if self.relative_sensory_actions \
             else sensory_action - self.fov_loc
         eccentricity = np.sqrt(np.sum(np.square(
-            pixel_distance * self.visual_degrees_per_pixel )))
+            pixel_distance * VISUAL_DEGREES_PER_PIXEL )))
         _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
         return int(total_emma_time * 1000)
 
@@ -259,67 +255,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             action = self.fov_loc + action
         self.fov_loc = self._clip_to_valid_fov(action)
 
-        fov_state = self._crop_observation(full_state)
+        fov_state, visual_info = self.fov.apply(full_state, [self.fov_loc])
 
         return fov_state
-
-    def _crop_observation(self, full_state: np.ndarray):
-        """
-        Get a version of the full_state that is cropped to the fovea around fov_loc if
-        fov is set to 'window'. Otherwise get a mask over the output
-
-        :param Array[4,84,84] full_state: Stack of four greyscale images of type float64
-        """
-        masked_state = np.zeros_like(full_state)
-        if self.fov == "gaussian":
-            distances_from_fov = self._pixel_eccentricities(
-                full_state.shape[-2:], self.fov_loc)
-            sigma = self.fov.size[0] / 2
-            gaussian = np.exp(-np.sum(
-                np.square(distances_from_fov) / (2 * np.square(sigma)),
-                axis=0)) # -> [84,84]
-            gaussian /= gaussian.max()
-            masked_state = full_state * gaussian
-        elif self.fov == "window":
-            crop = full_state[:,
-                self.fov_loc[1]:self.fov_loc[1] + self.fov.size[1],
-                self.fov_loc[0]:self.fov_loc[0] + self.fov.size[0],
-            ]
-            # Fill the area outside the crop with zeros
-            masked_state[:,
-                self.fov_loc[1]:self.fov_loc[1] + self.fov.size[1],
-                self.fov_loc[0]:self.fov_loc[0] + self.fov.size[0],
-            ] = crop
-        elif self.fov == "exponential":
-            pixel_eccentricities = self._pixel_eccentricities(
-                full_state.shape[-2:], self.fov_loc)
-            # Convert from pixels to visual degrees
-            eccentricities = (pixel_eccentricities.transpose([1,2,0]) *\
-                (np.array(VISUAL_DEGREE_SCREEN_SIZE) / np.array(SCREEN_SIZE))
-                ).transpose(2,0,1)
-            # Absolute 1D distances
-            abs_distances = np.sqrt(np.square(eccentricities).sum(axis=0))
-
-            mask = A * np.exp(B * abs_distances) + C
-            mask /= mask.max()
-            masked_state = full_state * mask
-
-        return masked_state
-
-    @staticmethod
-    def _pixel_eccentricities(screen_size: tuple[int, int], fov_loc: tuple[int, int]):
-        """
-        Returns a tensor containing x and y distances from the fov_loc for every
-        possible x and y coord. Used for broadcasted calculations.
-
-        :returns Array[2,W,H]:
-        """
-        x = np.arange(screen_size[0])
-        y = np.arange(screen_size[1])
-        mesh = np.stack(np.meshgrid(x, y, indexing="xy")) # -> [2,84,84]
-        fov_loc = np.broadcast_to(np.array(
-            fov_loc)[..., np.newaxis, np.newaxis], [2,*screen_size])
-        return mesh - fov_loc # -> [2,84,84]
 
 class SlowedFixedFovealEnv(PauseableFixedFovealEnv):
     """ Pauseable like in Atari-HEAD with the option to make the game run at a constant
@@ -370,7 +308,7 @@ class SlowedFixedFovealEnv(PauseableFixedFovealEnv):
         # Add costs for the time it takes the agent to move its fovea
         prev_fov_loc = self.fov_loc.copy()
         eccentricity = np.sqrt(np.sum(np.square(
-            (self.fov_loc - prev_fov_loc) * self.visual_degrees_per_pixel )))
+            (self.fov_loc - prev_fov_loc) * VISUAL_DEGREES_PER_PIXEL )))
         _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
         total_emma_time = total_emma_time.item()
         reward -= self.saccade_cost_scale * total_emma_time

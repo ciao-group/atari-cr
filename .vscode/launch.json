@@ -69,9 +69,10 @@
                 "--action_repeat", "5",
                 "--evaluator", 
                 "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth",
-                "--fov", "window",
-                // "--fov_size", "20",
+                "--fov", "exponential",
+                "--fov_size", "32",
                 "--timed_env",
+                "--periph",
             ],
             "justMyCode": false
         },

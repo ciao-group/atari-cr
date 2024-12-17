@@ -68,6 +68,7 @@ class ArgParser(Tap):
     fov: FovType = "window" # Type of fovea
     og_env: bool = False # Whether to use normal sugarl env
     timed_env: bool = False # Whether to use a time sensitve env for pausing
+    periph: bool = False # Whether to enable periphery for the windowed fovea
 
 def make_env(seed: int, args: ArgParser, training = False):
     def thunk():
@@ -99,7 +100,8 @@ def make_env(seed: int, args: ArgParser, training = False):
         else:
             env = PauseableFixedFovealEnv(
                 env, env_args, args.pause_cost, args.saccade_cost_scale,
-                args.fov, not args.use_pause_env, timer=args.timed_env)
+                args.fov, not args.use_pause_env, timer=args.timed_env,
+                periph=args.periph)
 
         # Env configuration
         env.unwrapped.ale.setFloat(

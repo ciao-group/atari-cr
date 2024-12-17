@@ -59,7 +59,7 @@ class CRDQN:
             capture_video = True,
             agent_id = 0,
             debug = False,
-            evaluator: Optional[GazePredictor] = None
+            evaluator: Optional[GazePredictor] = None,
         ):
         """
         :param env `gymnasium.Env`:

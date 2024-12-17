@@ -8,9 +8,8 @@ import polars as pl
 
 from atari_cr.models import EpisodeRecord
 from atari_cr.module_overrides import tqdm
-from atari_cr.atari_head.utils import VISUAL_DEGREE_SCREEN_SIZE, preprocess
+from atari_cr.atari_head.utils import SCREEN_SIZE, VISUAL_DEGREE_SCREEN_SIZE, preprocess
 
-SCREEN_SIZE = [84, 84]
 # Screen size from https://github.com/corgiTrax/Gaze-Data-Processor/blob/master/data_visualizer.py
 DATASET_SCREEN_SIZE = [160, 210]
 
@@ -323,7 +322,7 @@ class GazeDataset(Dataset):
         sigmas = (
             torch.Tensor(SCREEN_SIZE).to(dtype)
             / torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE).to(dtype)
-        ).to(DEVICE)
+        ).to(DEVICE) # 1.883, 2.947
         # Update the sigma to move percentiles for auc calculation
         # into the range of float64
         sigmas *= 4

@@ -36,7 +36,7 @@ if __name__ == "__main__":
         "total_timesteps": time_steps,
         "no_pvm_visualization": True,
         "use_pause_env": True,
-        "env": "ms_pacman",
+        "env": "ms_pacman", # Other: breakout ms_pacman seaquest road_runner
         "exp_name": "tuning",
         "learning_start": 5_000, # Instead of 80k to prevent masked actions faster
         "debug": DEBUG,
@@ -55,8 +55,7 @@ if __name__ == "__main__":
         "pause_cost": 0.,
         "saccade_cost_scale": 0.,
         # Searchable
-        "seed": tune.grid_search([0,1]),
-        "timed_env": tune.grid_search([True, False])
+        "env": tune.grid_search(["breakout", "seaquest", "road_runner"])
     }
 
     metric, mode = ("human_error", "min") if GAZE_TARGET else ("raw_reward", "max")

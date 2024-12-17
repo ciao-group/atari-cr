@@ -4,9 +4,11 @@ import numpy as np
 import polars as pl
 import torch
 
+SCREEN_SIZE = (84, 84)
 # Screen Size in visual degrees: 44,6 x 28,5
 # Visual Degrees per Pixel with 84 x 84 pixels: 0,5310 x 0,3393
 VISUAL_DEGREE_SCREEN_SIZE = (44.6, 28.5)
+VISUAL_DEGREES_PER_PIXEL = np.array(VISUAL_DEGREE_SCREEN_SIZE) / np.array(SCREEN_SIZE)
 
 def transform_to_proper_csv(game_dir: str):
     """
