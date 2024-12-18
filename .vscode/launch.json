@@ -73,6 +73,8 @@
                 "--fov_size", "32",
                 "--timed_env",
                 "--periph",
+                "--pause_feat",
+                "--s_action_feat"
             ],
             "justMyCode": false
         },

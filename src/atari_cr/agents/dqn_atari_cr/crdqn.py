@@ -60,6 +60,8 @@ class CRDQN:
             agent_id = 0,
             debug = False,
             evaluator: Optional[GazePredictor] = None,
+            pause_feat = False,
+            s_action_feat = False,
         ):
         """
         :param env `gymnasium.Env`:
@@ -151,22 +153,29 @@ class CRDQN:
             f"Set up cuda to run. Current device: {self.device.type}"
 
         # Q networks
-        self.q_network = QNetwork(self.env, self.sensory_action_set).to(self.device)
+        self.q_network = QNetwork(
+            self.env, self.sensory_action_set, pause_feat, s_action_feat
+        ).to(self.device)
         self.optimizer = Adam(self.q_network.parameters(), lr=learning_rate)
         self.target_network = QNetwork(
-            self.env, self.sensory_action_set).to(self.device)
+            self.env, self.sensory_action_set, pause_feat, s_action_feat
+        ).to(self.device)
         self.target_network.load_state_dict(self.q_network.state_dict())
 
         # Self Prediction Networks; used to judge the quality of sensory actions
         self.sfn = SelfPredictionNetwork(self.env).to(self.device)
         self.sfn_optimizer = Adam(self.sfn.parameters(), lr=learning_rate)
 
+        init_sensory_action = np.where(
+            (np.array(self.sensory_action_set) == self.env.envs[0].fov_init_loc)
+            .all(axis=1))[0]
         # Replay Buffer aka. Long Term Memory
         self.rb = DoubleActionReplayBuffer(
             replay_buffer_size,
             self.env.single_observation_space,
             self.env.single_action_space["motor_action"],
             Discrete(len(self.sensory_action_set)),
+            init_sensory_action,
             self.device,
             n_envs=self.env.num_envs if isinstance(self.env, VectorEnv) else 1,
             optimize_memory_usage=True,
@@ -216,12 +225,16 @@ class CRDQN:
             # Chose action from q network
             self.epsilon = self._epsilon_schedule(n)
             motor_actions, sensory_action_indices = self.q_network.chose_action(
-                self.env, pvm_obs, self.epsilon, self.device)
+                self.env, pvm_obs, self.epsilon, self.device,
+                torch.Tensor([e.consecutive_pauses for e in self.env.envs]),
+                torch.Tensor([e.fov_loc for e in self.env.envs]))
 
             # Transform the action to an absolute fovea position
             sensory_actions = np.array(
                 [self.sensory_action_set[i] for i in sensory_action_indices])
 
+            # Consecutive pauses as part of the observation
+            consecutive_pauses = np.array([e.consecutive_pauses for e in self.env.envs])
             # Perform the action in the environment
             next_pvm_obs, rewards, dones, truncateds, infos = self._step(
                 self.env,
@@ -233,7 +246,7 @@ class CRDQN:
 
             # Add new pvm ovbervation to the buffer
             self.rb.add(pvm_obs, next_pvm_obs, motor_actions, sensory_action_indices,
-                        rewards, dones, {})
+                        rewards, dones, consecutive_pauses)
             pvm_obs = next_pvm_obs
 
             # Add the sum of all substeps across all envs to the timestep
@@ -312,7 +325,9 @@ class CRDQN:
             while not (done or truncated):
                 # Chose an action from the Q network
                 motor_actions, sensory_action_indices \
-                    = self.q_network.chose_eval_action(pvm_obs, self.device)
+                    = self.q_network.chose_eval_action(pvm_obs, self.device,
+                        torch.Tensor([e.consecutive_pauses for e in eval_env.envs]),
+                        torch.Tensor([e.fov_loc for e in eval_env.envs]))
 
                 # Forcefully do a pause some of the time in debug mode
                 if isinstance(single_eval_env, PauseableFixedFovealEnv) and self.debug \
@@ -515,7 +530,7 @@ class CRDQN:
         ray_info = {
             "raw_reward": episode_info["raw_reward"],
             "sfn_loss": self.sfn_loss.item() if hasattr(self, "sfn_loss") else None,
-            "k_timesteps": self.timestep / 1000,
+            "timestep": self.timestep,
             "auc": self.auc,
             "windowed_auc": self.windowed_auc,
             "truncated": episode_info["truncated"],
@@ -574,11 +589,16 @@ class CRDQN:
         :param NDArray[Shape[self.batch_size], Float] observation_quality: A batch of
             probabilities of the SFN predicting the action that the agent selected
         """
+        # Cast sensory action ids to coordinates and remove the env axis
+        prev_sensory_actions = \
+            torch.Tensor(self.sensory_action_set).to(self.device)[data.prev_sensory_actions][:,0,:]
+
         # Target network prediction
         with torch.no_grad():
             # Assign a value to every possible action in the next state for one batch
             motor_target, sensory_target = self.target_network(
-                Resize(self.obs_size)(data.next_observations))
+                Resize(self.obs_size)(data.next_observations),
+                data.consecutive_pauses, prev_sensory_actions)
                 # -> [32, 19], [32, 19]
             # Get the maximum action value for one batch
             motor_target_max, _ = motor_target.max(dim=1) # -> [32]
@@ -595,8 +615,8 @@ class CRDQN:
 
         # Q network prediction
         old_motor_q_val, old_sensory_q_val = self.q_network(
-            Resize(self.obs_size)(data.observations))
-            # -> [32], [32]
+            Resize(self.obs_size)(data.observations), data.consecutive_pauses,
+            prev_sensory_actions) # -> [32], [32]
         old_motor_val = old_motor_q_val.gather(1, data.motor_actions).squeeze()
         old_sensory_val = old_sensory_q_val.gather(1, data.sensory_actions).squeeze()
         old_val = old_motor_val + old_sensory_val # -> [32]
@@ -620,5 +640,7 @@ class CRDQN:
         """
         Maps the current number of timesteps to a value of epsilon.
         """
-        return linear_schedule(*self.epsilon_interval,
-            self.exploration_fraction * total_timesteps, self.timestep)
+        # End exploration halfway through the trial
+        total_timesteps //= 2
+        return max(0, linear_schedule(*self.epsilon_interval,
+            self.exploration_fraction * total_timesteps, self.timestep))

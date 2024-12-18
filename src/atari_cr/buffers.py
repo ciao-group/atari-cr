@@ -43,7 +43,7 @@ class ReplayBufferSamples(NamedTuple):
     next_observations: th.Tensor
     dones: th.Tensor
     rewards: th.Tensor
-
+    consecutive_pauses: th.Tensor
 
 class DictReplayBufferSamples(NamedTuple):
     observations: TensorDict
@@ -59,6 +59,8 @@ class DoubleActionReplayBufferSamples(NamedTuple):
     next_observations: th.Tensor
     dones: th.Tensor
     rewards: th.Tensor
+    consecutive_pauses: th.Tensor
+    prev_sensory_actions: th.Tensor
 
 class DoubleActionWithFovlocReplayBufferSamples(NamedTuple):
     observations: th.Tensor
@@ -87,6 +89,7 @@ class DoubleActionReplayBuffer(BaseBuffer):
     :param handle_timeout_termination: Handle timeout termination (due to timelimit)
         separately and treat the task as infinite horizon task.
         https://github.com/DLR-RM/stable-baselines3/issues/284
+    :param int init_sensory_action: -1th sensory action
     """
 
     def __init__(
@@ -95,6 +98,7 @@ class DoubleActionReplayBuffer(BaseBuffer):
         observation_space: spaces.Space,
         motor_action_space: spaces.Space,
         sensory_action_space: spaces.Space,
+        init_sensory_action: int,
         device: Union[th.device, str] = "auto",
         n_envs: int = 1,
         optimize_memory_usage: bool = False,
@@ -106,6 +110,7 @@ class DoubleActionReplayBuffer(BaseBuffer):
         self.motor_action_space = motor_action_space
         self.sensory_action_space = sensory_action_space
         self.obs_shape = get_obs_shape(observation_space)
+        self.init_sensory_action = init_sensory_action # Used as -1th sensory action
 
         self.motor_action_dim = get_action_dim(motor_action_space)
         self.sensory_action_dim = get_action_dim(sensory_action_space)
@@ -121,8 +126,8 @@ class DoubleActionReplayBuffer(BaseBuffer):
         if psutil is not None:
             mem_available = psutil.virtual_memory().available
 
-        # there is a bug if both optimize_memory_usage and handle_timeout_termination are true
-        # see https://github.com/DLR-RM/stable-baselines3/issues/934
+        # there is a bug if both optimize_memory_usage and handle_timeout_termination
+        # are true see https://github.com/DLR-RM/stable-baselines3/issues/934
         if optimize_memory_usage and handle_timeout_termination:
             raise ValueError(
                 "ReplayBuffer does not support optimize_memory_usage = True "
@@ -137,7 +142,9 @@ class DoubleActionReplayBuffer(BaseBuffer):
             # `observations` contains also the next observation
             self.next_observations = None
         else:
-            self.next_observations = np.zeros((self.buffer_size, self.n_envs) + self.obs_shape, dtype=observation_space.dtype)
+            self.next_observations = np.zeros(
+                (self.buffer_size, self.n_envs) + self.obs_shape,
+                dtype=observation_space.dtype)
 
         self.motor_actions = np.zeros((self.buffer_size, self.n_envs, self.motor_action_dim), dtype=motor_action_space.dtype)
         self.sensory_actions = np.zeros((self.buffer_size, self.n_envs, self.sensory_action_dim), dtype=sensory_action_space.dtype)
@@ -145,6 +152,8 @@ class DoubleActionReplayBuffer(BaseBuffer):
         self.rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.dones = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.infos = [None] * self.buffer_size
+        self.consecutive_pauses = np.zeros(
+            (self.buffer_size, self.n_envs), dtype=np.float32)
 
         # Handle timeouts termination properly if needed
         # see https://github.com/DLR-RM/stable-baselines3/issues/284
@@ -174,16 +183,11 @@ class DoubleActionReplayBuffer(BaseBuffer):
         sensory_action: np.ndarray,
         reward: np.ndarray,
         done: np.ndarray,
-        infos: Dict[str, Any],
+        consecutive_pauses: np.ndarray,
     ) -> None:
 
         # Reshape needed when using multiple envs with discrete observations
         # as numpy cannot broadcast (n_discrete,) to (n_discrete, 1)
-        if isinstance(self.observation_space, spaces.Discrete):
-            obs = obs.reshape((self.n_envs,) + self.obs_shape)
-            next_obs = next_obs.reshape((self.n_envs,) + self.obs_shape)
-
-        # Same, for actions
         motor_action = motor_action.reshape((self.n_envs, self.motor_action_dim))
         sensory_action = sensory_action.reshape((self.n_envs, self.sensory_action_dim))
 
@@ -199,7 +203,7 @@ class DoubleActionReplayBuffer(BaseBuffer):
         self.sensory_actions[self.pos] = np.array(sensory_action).copy()
         self.rewards[self.pos] = np.array(reward).copy()
         self.dones[self.pos] = np.array(done).copy()
-        self.infos[self.pos] = copy.deepcopy(infos)
+        self.consecutive_pauses[self.pos] = consecutive_pauses.copy()
 
         if self.handle_timeout_termination:
             self.timeouts[self.pos] = np.array([False])
@@ -209,7 +213,8 @@ class DoubleActionReplayBuffer(BaseBuffer):
             self.full = True
             self.pos = 0
 
-    def sample(self, batch_size: int, env: Optional[VectorEnv] = None) -> DoubleActionReplayBufferSamples:
+    def sample(self, batch_size: int, env: Optional[VectorEnv] = None
+            ) -> DoubleActionReplayBufferSamples:
         """
         Sample elements from the replay buffer.
         Custom sampling when using memory efficient variant,
@@ -225,22 +230,33 @@ class DoubleActionReplayBuffer(BaseBuffer):
         # Do not sample the element with index `self.pos` as the transitions is invalid
         # (we use only one array to store `obs` and `next_obs`)
         if self.full:
-            batch_inds = (np.random.randint(1, self.buffer_size, size=batch_size) + self.pos) % self.buffer_size
+            batch_inds = (np.random.randint(
+                1, self.buffer_size, size=batch_size) + self.pos) % self.buffer_size
         else:
             batch_inds = np.random.randint(0, self.pos, size=batch_size)
         return self._get_samples(batch_inds, env=env)
 
-    def _get_samples(self, batch_inds: np.ndarray, env: Optional[VectorEnv] = None) -> ReplayBufferSamples:
+    def _get_samples(self, batch_inds: np.ndarray, env: Optional[VectorEnv] = None
+            ) -> ReplayBufferSamples:
         """
-        :param Array[batch_size] batch_inds: A batch of indices into the buffer to sample a batch of data points
+        :param Array[batch_size] batch_inds: A batch of indices into the buffer to
+            sample a batch of data points
         """
-        # Sample randomly the env indices, indicating from which env to sample in the vec env
+        # Sample random env indices, indicating from which env to sample in the vec env
         env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
 
         if self.optimize_memory_usage:
-            next_obs = self._normalize_obs(self.observations[(batch_inds + 1) % self.buffer_size, env_indices, :], env)
+            next_obs = self._normalize_obs(
+                self.observations[(batch_inds + 1) % self.buffer_size, env_indices, :],
+                env)
         else:
-            next_obs = self._normalize_obs(self.next_observations[batch_inds, env_indices, :], env)
+            next_obs = self._normalize_obs(
+                self.next_observations[batch_inds, env_indices, :], env)
+
+        # Insert the init_sensory_action for the first time step
+        init_inds = np.where(batch_inds == 0)
+        prev_sensory_actions = self.sensory_actions[batch_inds-1, env_indices, :]
+        prev_sensory_actions[init_inds] = self.init_sensory_action
 
         data = (
             self._normalize_obs(self.observations[batch_inds, env_indices, :], env),
@@ -249,8 +265,12 @@ class DoubleActionReplayBuffer(BaseBuffer):
             next_obs,
             # Only use dones that are not due to timeouts
             # deactivated by default (timeouts is initialized as an array of False)
-            (self.dones[batch_inds, env_indices] * (1 - self.timeouts[batch_inds, env_indices])).reshape(-1, 1),
-            self._normalize_reward(self.rewards[batch_inds, env_indices].reshape(-1, 1), env),
+            (self.dones[batch_inds, env_indices]
+             * (1 - self.timeouts[batch_inds, env_indices])).reshape(-1, 1),
+            self._normalize_reward(
+                self.rewards[batch_inds, env_indices].reshape(-1, 1), env),
+            self.consecutive_pauses[batch_inds, env_indices],
+            prev_sensory_actions
         )
 
         return DoubleActionReplayBufferSamples(*tuple(map(self.to_torch, data)))

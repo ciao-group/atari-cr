@@ -69,6 +69,8 @@ class ArgParser(Tap):
     og_env: bool = False # Whether to use normal sugarl env
     timed_env: bool = False # Whether to use a time sensitve env for pausing
     periph: bool = False # Whether to enable periphery for the windowed fovea
+    pause_feat: bool = False # Whether to tell the policy how many pauses have been made
+    s_action_feat: bool = False # Whether to give the prev sensory action to the policy
 
 def make_env(seed: int, args: ArgParser, training = False):
     def thunk():
@@ -163,6 +165,8 @@ def main(args: ArgParser):
         capture_video=args.capture_video,
         debug=args.debug,
         evaluator=evaluator,
+        pause_feat=args.pause_feat,
+        s_action_feat=args.s_action_feat,
     )
     eval_returns, out_paths = agent.learn(
         n=args.total_timesteps,
