@@ -137,15 +137,12 @@ class CRDQN:
         # How far can the fovea move from left to right and from top to bottom
         max_sensory_action_step = np.array(self.obs_size) - np.array(
             [self.fov_size, self.fov_size])
-        sensory_action_step_size = max_sensory_action_step // \
-            sensory_action_space_quantization
-        sensory_action_x_set = list(range(0, max_sensory_action_step[0],
-            sensory_action_step_size[0]))[:sensory_action_space_quantization[0]]
-        sensory_action_y_set = list(range(0, max_sensory_action_step[1],
-            sensory_action_step_size[1]))[:sensory_action_space_quantization[1]]
+        discrete_coords = [np.linspace(0, max_sensory_action_step[i],
+            sensory_action_space_quantization[i], endpoint=False).astype(int)
+            for i in [0,1]]
         # Discrete action set as cross product of possible x and y steps
-        self.sensory_action_set = [np.array(a)
-            for a in list(product(sensory_action_x_set, sensory_action_y_set))]
+        self.sensory_action_set = np.stack(
+            np.meshgrid(*discrete_coords)).T.reshape((-1,2))
 
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() and cuda else "cpu")
@@ -154,11 +151,11 @@ class CRDQN:
 
         # Q networks
         self.q_network = QNetwork(
-            self.env, self.sensory_action_set, pause_feat, s_action_feat
+            self.env, len(self.sensory_action_set), pause_feat, s_action_feat
         ).to(self.device)
         self.optimizer = Adam(self.q_network.parameters(), lr=learning_rate)
         self.target_network = QNetwork(
-            self.env, self.sensory_action_set, pause_feat, s_action_feat
+            self.env, len(self.sensory_action_set), pause_feat, s_action_feat
         ).to(self.device)
         self.target_network.load_state_dict(self.q_network.state_dict())
 
@@ -167,7 +164,7 @@ class CRDQN:
         self.sfn_optimizer = Adam(self.sfn.parameters(), lr=learning_rate)
 
         init_sensory_action = np.where(
-            (np.array(self.sensory_action_set) == self.env.envs[0].fov_init_loc)
+            (self.sensory_action_set == self.env.envs[0].fov_init_loc)
             .all(axis=1))[0]
         # Replay Buffer aka. Long Term Memory
         self.rb = DoubleActionReplayBuffer(
@@ -222,16 +219,17 @@ class CRDQN:
         td_update = None
 
         while self.timestep < n:
+            # Cast sensory action ids to coordinates and remove the env axis
+            prev_sensory_actions, consecutive_pauses = self._preprocess_features()
+
             # Chose action from q network
             self.epsilon = self._epsilon_schedule(n)
-            motor_actions, sensory_action_indices = self.q_network.chose_action(
-                self.env, pvm_obs, self.epsilon, self.device,
-                torch.Tensor([e.consecutive_pauses for e in self.env.envs]),
-                torch.Tensor([e.fov_loc for e in self.env.envs]))
+            motor_actions, sensory_action_ids = self.q_network.chose_action(
+                pvm_obs, self.device, consecutive_pauses, prev_sensory_actions,
+                self.epsilon)
 
             # Transform the action to an absolute fovea position
-            sensory_actions = np.array(
-                [self.sensory_action_set[i] for i in sensory_action_indices])
+            sensory_actions = self.sensory_action_set[sensory_action_ids]
 
             # Consecutive pauses as part of the observation
             consecutive_pauses = np.array([e.consecutive_pauses for e in self.env.envs])
@@ -245,7 +243,7 @@ class CRDQN:
             )
 
             # Add new pvm ovbervation to the buffer
-            self.rb.add(pvm_obs, next_pvm_obs, motor_actions, sensory_action_indices,
+            self.rb.add(pvm_obs, next_pvm_obs, motor_actions, sensory_action_ids,
                         rewards, dones, consecutive_pauses)
             pvm_obs = next_pvm_obs
 
@@ -323,11 +321,12 @@ class CRDQN:
 
             # One episode in the environment
             while not (done or truncated):
+                prev_sensory_actions, consecutive_pauses = self._preprocess_features()
+
                 # Chose an action from the Q network
-                motor_actions, sensory_action_indices \
-                    = self.q_network.chose_eval_action(pvm_obs, self.device,
-                        torch.Tensor([e.consecutive_pauses for e in eval_env.envs]),
-                        torch.Tensor([e.fov_loc for e in eval_env.envs]))
+                motor_actions, sensory_action_ids \
+                    = self.q_network.chose_action(pvm_obs, self.device,
+                        consecutive_pauses, prev_sensory_actions)
 
                 # Forcefully do a pause some of the time in debug mode
                 if isinstance(single_eval_env, PauseableFixedFovealEnv) and self.debug \
@@ -335,13 +334,12 @@ class CRDQN:
                     motor_actions = np.full(
                         motor_actions.shape, single_eval_env.pause_action)
                     # Also change the sensory_action
-                    sensory_action_indices = np.full(
-                        sensory_action_indices.shape,
+                    sensory_action_ids = np.full(
+                        sensory_action_ids.shape,
                         np.random.randint(len(self.sensory_action_set)))
 
                 # Translate the action to an absolute fovea position
-                sensory_actions = np.array(
-                    [self.sensory_action_set[i] for i in sensory_action_indices])
+                sensory_actions = self.sensory_action_set[sensory_action_ids]
 
                 # Perform the action in the environment
                 pvm_obs, rewards, dones, truncateds, infos = self._step(
@@ -521,11 +519,6 @@ class CRDQN:
             episode_info = EpisodeInfo.new()
             episode_info.update(new_info)
 
-        # Last TD update that happened before the episode ended
-        old_value, td_target, td_reward, sugarl_penalty, next_state_value, loss \
-            = td_update if td_update is not None else \
-                [None] * len(TdUpdateInfo.__annotations__)
-
         # Ray logging
         ray_info = {
             "raw_reward": episode_info["raw_reward"],
@@ -534,14 +527,10 @@ class CRDQN:
             "auc": self.auc,
             "windowed_auc": self.windowed_auc,
             "truncated": episode_info["truncated"],
-            "td/old": old_value,
-            "td/target": td_target,
-            "td/reward": td_reward,
-            "td/sugarl": sugarl_penalty,
-            "td/next_state_value": next_state_value,
-            "td/loss": loss,
             "eval_env": eval_env,
         }
+        if td_update:
+            ray_info.update({f"td/{k}": v for k,v in td_update._asdict().items()})
         if isinstance(self.envs[0], PauseableFixedFovealEnv):
             ray_info.update({
                 "pauses": episode_info["pauses"],
@@ -590,15 +579,15 @@ class CRDQN:
             probabilities of the SFN predicting the action that the agent selected
         """
         # Cast sensory action ids to coordinates and remove the env axis
-        prev_sensory_actions = \
-            torch.Tensor(self.sensory_action_set).to(self.device)[data.prev_sensory_actions][:,0,:]
+        prev_sensory_actions, consecutive_pauses = \
+            self._preprocess_features(data)
 
         # Target network prediction
         with torch.no_grad():
             # Assign a value to every possible action in the next state for one batch
             motor_target, sensory_target = self.target_network(
                 Resize(self.obs_size)(data.next_observations),
-                data.consecutive_pauses, prev_sensory_actions)
+                consecutive_pauses, prev_sensory_actions)
                 # -> [32, 19], [32, 19]
             # Get the maximum action value for one batch
             motor_target_max, _ = motor_target.max(dim=1) # -> [32]
@@ -631,9 +620,11 @@ class CRDQN:
         if (self.timestep // self.n_envs) % self.target_network_frequency == 0:
             self.target_network.load_state_dict(self.q_network.state_dict())
 
-        r: TdUpdateInfo = (old_val.mean().item(), td_target.mean().item(),
+        r = TdUpdateInfo(old_val.mean().item(), td_target.mean().item(),
                 data.rewards.flatten().mean().item(), sugarl_penalty.mean().item(),
-                next_state_value.mean().item(), loss.mean().item())
+                next_state_value.mean().item(), loss.mean().item(),
+                motor_target_max.mean().item(), sensory_target_max.mean().item())
+
         return r
 
     def _epsilon_schedule(self, total_timesteps: int):
@@ -644,3 +635,24 @@ class CRDQN:
         total_timesteps //= 2
         return max(0, linear_schedule(*self.epsilon_interval,
             self.exploration_fraction * total_timesteps, self.timestep))
+
+    def _preprocess_features(self,
+                             data: Optional[DoubleActionReplayBufferSamples] = None):
+        if data:
+            prev_sensory_actions = torch.Tensor(self.sensory_action_set).to(
+                self.device)[data.prev_sensory_actions][:,0,:]
+            consecutive_pauses = torch.Tensor(data.consecutive_pauses).to(self.device)
+        else:
+            # Cast sensory action ids to coordinates and remove the env axis
+            prev_sensory_actions = \
+                torch.Tensor(np.array(self.env.envs[0].fov_loc)).to(self.device)
+            # Same for the pauses
+            consecutive_pauses = \
+                torch.Tensor(np.array([self.env.envs[0].consecutive_pauses])).to(self.device)
+
+        # Normalize the sensory actions between 0 and 1
+        prev_sensory_actions /= \
+            torch.Tensor(self.sensory_action_set.max(axis=0)).to(self.device)
+        consecutive_pauses /= self.env.envs[0].consecutive_pause_limit
+
+        return prev_sensory_actions, consecutive_pauses

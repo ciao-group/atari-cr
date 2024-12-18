@@ -60,7 +60,7 @@
                 "--env", "ms_pacman",
                 // Debug config
                 "--exp_name", "dqn_cr_debug",
-                "--total_timesteps", "1000",
+                "--total_timesteps", "100000",
                 "--learning_start", "50",
                 "--debug",
                 // Additional config

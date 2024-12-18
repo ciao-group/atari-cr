@@ -290,6 +290,8 @@ class TdUpdateInfo(NamedTuple):
     sugarl_penalty: float
     next_state_value: float
     loss: float
+    motor_target_max: float
+    sensory_target_max: float
 
 class DurationInfo:
     """ Durations in ms """
