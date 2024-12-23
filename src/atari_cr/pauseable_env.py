@@ -11,7 +11,7 @@ from atari_cr.models import EpisodeInfo, EpisodeRecord, StepInfo
 from atari_cr.utils import EMMA_fixation_time
 from atari_cr.atari_head.utils import VISUAL_DEGREES_PER_PIXEL
 
-MASKED_ACTION_PENTALTY = -1e9 # Negative reward for masking out actions
+MASKED_ACTION_PENALTY = -100 # Negative reward for masking out actions
 
 
 class PauseableFixedFovealEnv(gym.Wrapper):
@@ -119,12 +119,12 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             # Mask out unwanted pause behavior
             if self.consecutive_pauses > self.consecutive_pause_limit:
                 # Too many pauses in a row
-                reward += MASKED_ACTION_PENTALTY
+                reward += MASKED_ACTION_PENALTY
                 step_info["prevented_pauses"] = 1
                 truncated = True
             elif np.all(self.fov_loc == action["sensory_action"]):
                 # No action pause
-                reward += MASKED_ACTION_PENTALTY
+                reward += MASKED_ACTION_PENALTY
                 step_info["no_action_pauses"] = 1
             else:
                 # Normal pause

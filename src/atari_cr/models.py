@@ -120,7 +120,7 @@ class EpisodeRecord():
     def _save_video(frames: np.ndarray, video_path: str, greyscale = False):
         """ Saves a numpy array as .mp4 """
         size = frames[0].shape[:2][::-1]
-        fps = 30
+        fps = 12 # 60 / frame_skip
         video_writer = cv2.VideoWriter(
             video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, size,
             isColor=not greyscale)

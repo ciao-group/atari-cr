@@ -103,6 +103,7 @@ class DoubleActionReplayBuffer(BaseBuffer):
         n_envs: int = 1,
         optimize_memory_usage: bool = False,
         handle_timeout_termination: bool = True,
+        td_steps = 1,
     ):
 
         self.buffer_size = buffer_size
@@ -111,6 +112,7 @@ class DoubleActionReplayBuffer(BaseBuffer):
         self.sensory_action_space = sensory_action_space
         self.obs_shape = get_obs_shape(observation_space)
         self.init_sensory_action = init_sensory_action # Used as -1th sensory action
+        self.td_steps = td_steps
 
         self.motor_action_dim = get_action_dim(motor_action_space)
         self.sensory_action_dim = get_action_dim(sensory_action_space)
@@ -227,13 +229,20 @@ class DoubleActionReplayBuffer(BaseBuffer):
         """
         if not self.optimize_memory_usage:
             return super().sample(batch_size=batch_size, env=env)
-        # Do not sample the element with index `self.pos` as the transitions is invalid
-        # (we use only one array to store `obs` and `next_obs`)
         if self.full:
-            batch_inds = (np.random.randint(
-                1, self.buffer_size, size=batch_size) + self.pos) % self.buffer_size
+            possible_indices = np.arange(self.buffer_size + 1 - self.td_steps)
+            # Do not sample the element with index `self.pos` as the transitions is
+            # invalid (we use only one array to store `obs` and `next_obs`)
+            current_inds = np.arange(
+                self.pos + 1 - self.td_steps, max(self.pos, possible_indices.max()) + 1)
+            possible_indices = \
+                np.delete(possible_indices, current_inds)
+            batch_inds = np.random.choice(
+                possible_indices, size=batch_size, replace=True)
         else:
-            batch_inds = np.random.randint(0, self.pos, size=batch_size)
+            assert self.pos - self.td_steps >= 0, ("Not enough entries in the replay"
+                "buffer. Increase learning_start or decrease td_steps")
+            batch_inds = np.random.randint(0, self.pos - (self.td_steps - 1), size=batch_size)
         return self._get_samples(batch_inds, env=env)
 
     def _get_samples(self, batch_inds: np.ndarray, env: Optional[VectorEnv] = None
@@ -268,7 +277,7 @@ class DoubleActionReplayBuffer(BaseBuffer):
             (self.dones[batch_inds, env_indices]
              * (1 - self.timeouts[batch_inds, env_indices])).reshape(-1, 1),
             self._normalize_reward(
-                self.rewards[batch_inds, env_indices].reshape(-1, 1), env),
+                self.rewards[batch_inds[:, None] + np.arange(self.td_steps)], env),
             self.consecutive_pauses[batch_inds, env_indices],
             prev_sensory_actions
         )

@@ -62,6 +62,8 @@ class CRDQN:
             evaluator: Optional[GazePredictor] = None,
             pause_feat = False,
             s_action_feat = False,
+            td_steps = 1,
+            checkpoint=""
         ):
         """
         :param env `gymnasium.Env`:
@@ -124,6 +126,8 @@ class CRDQN:
         self.agent_id = agent_id
         self.debug = debug
         self.evaluator = evaluator
+        self.td_steps = td_steps
+        self.checkpoint = checkpoint
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.timestep = 0
@@ -151,11 +155,13 @@ class CRDQN:
 
         # Q networks
         self.q_network = QNetwork(
-            self.env, len(self.sensory_action_set), pause_feat, s_action_feat
+            self.env, len(self.sensory_action_set), pause_feat, s_action_feat,
+            self.env.envs[0].pause_action
         ).to(self.device)
         self.optimizer = Adam(self.q_network.parameters(), lr=learning_rate)
         self.target_network = QNetwork(
-            self.env, len(self.sensory_action_set), pause_feat, s_action_feat
+            self.env, len(self.sensory_action_set), pause_feat, s_action_feat,
+            self.env.envs[0].pause_action
         ).to(self.device)
         self.target_network.load_state_dict(self.q_network.state_dict())
 
@@ -177,6 +183,7 @@ class CRDQN:
             n_envs=self.env.num_envs if isinstance(self.env, VectorEnv) else 1,
             optimize_memory_usage=True,
             handle_timeout_termination=False,
+            td_steps=td_steps,
         )
 
         # PVM Buffer aka. Short Term Memory, combining multiple observations
@@ -199,7 +206,11 @@ class CRDQN:
         self.model_dir = os.path.join(self.run_dir, "trained_models")
 
         # Load existing run if there is one
-        if not self.debug and os.path.exists(self.model_dir):
+        if self.checkpoint:
+            self.load_checkpoint(self.checkpoint)
+            n += self.timestep
+            self.learning_start += self.timestep
+        elif not self.debug and os.path.exists(self.model_dir):
             seeded_models = list(filter(
                 lambda s: f"seed{self.seed}" in s, os.listdir(self.model_dir)))
             if len(seeded_models) > 0:
@@ -225,8 +236,9 @@ class CRDQN:
             # Chose action from q network
             self.epsilon = self._epsilon_schedule(n)
             motor_actions, sensory_action_ids = self.q_network.chose_action(
-                pvm_obs, self.device, consecutive_pauses, prev_sensory_actions,
-                self.epsilon)
+                pvm_obs, self.device,
+                self._sensory_action_ids(np.array([e.fov_loc for e in self.env.envs])),
+                consecutive_pauses, prev_sensory_actions, self.epsilon)
 
             # Transform the action to an absolute fovea position
             sensory_actions = self.sensory_action_set[sensory_action_ids]
@@ -260,8 +272,14 @@ class CRDQN:
                 self._save_output(self.model_dir, "pt", self.save_checkpoint)
 
             # Training from the replay buffer
-            if self.timestep % self.train_frequency == 0:
-                td_update = self.train()
+            if self.timestep % self.train_frequency == 0 \
+                    and self.timestep > self.learning_start:
+                # Replay buffer sampling
+                # Counter-balance the true global transitions used for training
+                data = self.rb.sample(self.batch_size // self.n_envs)
+                # SFN and DQN training
+                observation_quality = self._train_sfn(data)
+                td_update = self._train_dqn(data, observation_quality)
 
             # Evaluation
             if (self.timestep % self.eval_frequency == 0 and
@@ -275,22 +293,6 @@ class CRDQN:
         self.env.close()
 
         return eval_returns, out_paths
-
-    def train(self):
-        """
-        Performs one training iteration from the replay buffer
-        """
-        # Replay buffer sampling
-        # Counter-balance the true global transitions used for training
-        data = self.rb.sample(self.batch_size // self.n_envs)
-
-        # SFN training
-        observation_quality = self._train_sfn(data)
-
-        # DQN training
-        if self.timestep > self.learning_start:
-            td_update = self._train_dqn(data, observation_quality)
-            return td_update
 
     def evaluate(self, td_update: TdUpdateInfo, file_output = True):
         # Set networks to eval mode
@@ -315,7 +317,7 @@ class CRDQN:
             eval_pvm_buffer.append(obs)
             pvm_obs = eval_pvm_buffer.get_obs(mode="stack_max") # -> [1,4,84,84]
 
-            # Safe the pvm obs for logging
+            # Save the pvm obs for logging
             if self.capture_video:
                 pvm_observations = [pvm_obs[0,-1,...]] # -> [1,84,84]
 
@@ -325,8 +327,12 @@ class CRDQN:
 
                 # Chose an action from the Q network
                 motor_actions, sensory_action_ids \
-                    = self.q_network.chose_action(pvm_obs, self.device,
-                        consecutive_pauses, prev_sensory_actions)
+                    = self.q_network.chose_action(
+                        pvm_obs, self.device,
+                        self._sensory_action_ids(
+                            np.array([e.fov_loc for e in eval_env.envs])),
+                        consecutive_pauses, prev_sensory_actions
+                    )
 
                 # Forcefully do a pause some of the time in debug mode
                 if isinstance(single_eval_env, PauseableFixedFovealEnv) and self.debug \
@@ -352,12 +358,12 @@ class CRDQN:
                 done, truncated = dones[0], truncateds[0]
 
                 if self.capture_video:
-                    # Add an empty observation for every time the agent has skipped
-                    # a frame
+                    # Add the last observation again for every time the agent has
+                    # skipped a frame
                     skipped_frames = len(infos["final_info"][0]["reward"]) - 1 \
                         if "final_info" in infos else len(infos["reward"][0]) - 1
                     for _ in range(skipped_frames):
-                        pvm_observations.append(np.zeros_like(pvm_obs[0,-1,...]))
+                        pvm_observations.append(pvm_observations[-1])
                     pvm_observations.append(pvm_obs[0,-1,...]) # -> [N,84,84]
 
             info = infos["final_info"][0]
@@ -596,11 +602,13 @@ class CRDQN:
             # Reward function
             sugarl_penalty = torch.zeros([32]).to(self.device) if self.ignore_sugarl \
                 else (1 - observation_quality) * self.sugarl_r_scale # -> [32]
-            next_state_value = self.gamma * (motor_target_max + sensory_target_max) * (
-                    1 - data.dones.flatten())
+            next_state_value = \
+                torch.pow(torch.Tensor([self.gamma]).to(self.device), self.td_steps) * (
+                motor_target_max + sensory_target_max) * (1 - data.dones.flatten())
             # reward - sugarl + (gamma * target_max if not terminal)
-            td_target = data.rewards.flatten() - sugarl_penalty \
-                + next_state_value # -> [32]
+            gammas = torch.pow(self.gamma, torch.arange(self.td_steps)).to(self.device)
+            td_target = (data.rewards[...,0] * gammas).sum(dim=1) \
+                - sugarl_penalty + next_state_value # -> [32]
 
         # Q network prediction
         old_motor_q_val, old_sensory_q_val = self.q_network(
@@ -656,3 +664,13 @@ class CRDQN:
         consecutive_pauses /= self.env.envs[0].consecutive_pause_limit
 
         return prev_sensory_actions, consecutive_pauses
+
+    def _sensory_action_ids(self, coords: np.ndarray):
+        """
+        Return the sensory action ids for a given batch of coordinates
+
+        :param Array[B,2] coords:
+        :return Array[B]:
+        """
+        return np.array([np.where((self.sensory_action_set == c).all(axis=1))[0].item()
+                         for c in coords])

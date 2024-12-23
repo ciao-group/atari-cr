@@ -51,6 +51,7 @@ class ArgParser(Tap):
     # Eval args
     eval_frequency: int = -1 # How many steps to take in the env before a new evaluation
     eval_num: int = 10 # How envs are created for evaluation
+    checkpoint: str = "" # Checkpoint to resume training
 
     # Pause args
     use_pause_env: bool = False # Whether to allow pauses for more observations per step
@@ -71,6 +72,7 @@ class ArgParser(Tap):
     periph: bool = False # Whether to enable periphery for the windowed fovea
     pause_feat: bool = False # Whether to tell the policy how many pauses have been made
     s_action_feat: bool = False # Whether to give the prev sensory action to the policy
+    td_steps: int = 1 # Number of steps for n-step TD learning
 
 def make_env(seed: int, args: ArgParser, training = False):
     def thunk():
@@ -167,6 +169,8 @@ def main(args: ArgParser):
         evaluator=evaluator,
         pause_feat=args.pause_feat,
         s_action_feat=args.s_action_feat,
+        td_steps=args.td_steps,
+        checkpoint=args.checkpoint,
     )
     eval_returns, out_paths = agent.learn(
         n=args.total_timesteps,

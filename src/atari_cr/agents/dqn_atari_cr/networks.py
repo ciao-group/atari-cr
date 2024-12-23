@@ -5,15 +5,16 @@ import torch
 from torch import nn
 from torchvision.transforms import Resize
 import numpy as np
-import gymnasium as gym
 from gymnasium import spaces
 
 
 class QNetwork(nn.Module):
-    def __init__(self, env, sensory_out_dim: int, pause_feat: bool, s_action_feat: bool):
+    def __init__(self, env, sensory_out_dim: int, pause_feat: bool,
+                 s_action_feat: bool, pause_action: int):
         super().__init__()
         self.pause_feat = pause_feat
         self.s_action_feat = s_action_feat
+        self.pause_action = pause_action
 
         # Get the size of the different network heads
         assert isinstance(env.single_action_space, spaces.Dict)
@@ -51,7 +52,8 @@ class QNetwork(nn.Module):
         """
         :param Tensor[B,4,84,84] x:
         :param Tensor[B] consecutive_pauses:
-        :param Tensor[B,2] s_action: Coordinates of the previous sensory action. Normalized between 0 and 1
+        :param Tensor[B,2] s_action: Coordinates of the previous sensory action.
+            Normalized between 0 and 1
         """
         # assert consecutive_pauses.max() <= 1 and s_actions.max() <= 1
         x = self.conv_backbone(x) # -> [B,3136]
@@ -67,7 +69,7 @@ class QNetwork(nn.Module):
 
         return self.motor_action_head(x), self.sensory_action_head(x)
 
-    def chose_action(self, pvm_obs: np.ndarray, device,
+    def chose_action(self, pvm_obs: np.ndarray, device, sensory_noops: np.ndarray,
             consecutive_pauses: Optional[np.ndarray] = None,
             prev_pause_actions: Optional[torch.Tensor] = None, epsilon = 0.):
         """
@@ -79,6 +81,8 @@ class QNetwork(nn.Module):
         :param Tensor[B;i64] consecutive_pauses: Pause count for every env
         :param Tensor[B,2] prev_pause_actions: Coordinates of the previous sensory
             action. Normalized between 0 and 1
+        :param Array[B] sensory_noops: IDs of sensory actions that would not move the
+            fovea.
         """
         # Execute random motor and sensory action with probability epsilon
         if random.random() < epsilon:
@@ -89,7 +93,13 @@ class QNetwork(nn.Module):
             motor_q_values, sensory_q_values = self(
                 resize(torch.from_numpy(pvm_obs)).to(device),
                 consecutive_pauses, prev_pause_actions)
+
             motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
+
+            # # Mask out no action pauses where the fovea does not move
+            # pause_inds = np.where(motor_actions == self.pause_action)[0]
+            # sensory_q_values[pause_inds, sensory_noops] = torch.finfo(torch.float32).min
+
             sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
 
         return motor_actions, sensory_actions
