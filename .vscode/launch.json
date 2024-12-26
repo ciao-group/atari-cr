@@ -60,7 +60,7 @@
                 "--env", "ms_pacman",
                 // Debug config
                 "--exp_name", "dqn_cr_debug",
-                "--total_timesteps", "1000",
+                "--total_timesteps", "10000",
                 "--learning_start", "50",
                 // "--debug",
                 // Additional config
@@ -77,7 +77,7 @@
                 "--s_action_feat",
                 "--td_steps", "4",
                 "--gamma", "0.90",
-                "--checkpoint", "/tmp/ray/session_latest/artifacts/2024-12-21_11-21-16/lambda_2024-12-21_11-21-15/working_dirs/lambda_ms_pacman_50257_00001_1_pause_feat=False,s_action_feat=True_2024-12-21_11-21-16/output/runs/tuning/ms_pacman/trained_models/seed0_step5000012_eval00.pt",
+                "--checkpoint", "/tmp/ray/session_2024-12-21_11-21-15_517073_269583/artifacts/2024-12-21_11-21-16/lambda_2024-12-21_11-21-15/working_dirs/lambda_ms_pacman_50257_00001_1_pause_feat=False,s_action_feat=True_2024-12-21_11-21-16/output/runs/tuning/ms_pacman/trained_models/seed0_step5000012_eval00.pt",
                 "--sensory_action_x_size", "8",
                 "--sensory_action_y_size", "8",
             ],

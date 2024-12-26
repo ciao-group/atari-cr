@@ -234,9 +234,10 @@ class DoubleActionReplayBuffer(BaseBuffer):
             # Do not sample the element with index `self.pos` as the transitions is
             # invalid (we use only one array to store `obs` and `next_obs`)
             current_inds = np.arange(
-                self.pos + 1 - self.td_steps, max(self.pos, possible_indices.max()) + 1)
-            possible_indices = \
-                np.delete(possible_indices, current_inds)
+                self.pos + 1 - self.td_steps, min(self.pos, possible_indices.max()) + 1)
+            if len(current_inds) > 0:
+                possible_indices = \
+                    np.delete(possible_indices, current_inds)
             batch_inds = np.random.choice(
                 possible_indices, size=batch_size, replace=True)
         else:
@@ -256,11 +257,13 @@ class DoubleActionReplayBuffer(BaseBuffer):
 
         if self.optimize_memory_usage:
             next_obs = self._normalize_obs(
-                self.observations[(batch_inds + 1) % self.buffer_size, env_indices, :],
+                self.observations[(batch_inds + self.td_steps) %
+                                  self.buffer_size, env_indices, :],
                 env)
         else:
             next_obs = self._normalize_obs(
-                self.next_observations[batch_inds, env_indices, :], env)
+                self.next_observations[batch_inds - 1 + self.td_steps, env_indices, :],
+                env)
 
         # Insert the init_sensory_action for the first time step
         init_inds = np.where(batch_inds == 0)
@@ -272,10 +275,7 @@ class DoubleActionReplayBuffer(BaseBuffer):
             self.motor_actions[batch_inds, env_indices, :],
             self.sensory_actions[batch_inds, env_indices, :],
             next_obs,
-            # Only use dones that are not due to timeouts
-            # deactivated by default (timeouts is initialized as an array of False)
-            (self.dones[batch_inds, env_indices]
-             * (1 - self.timeouts[batch_inds, env_indices])).reshape(-1, 1),
+            self.dones[batch_inds[:, None] + np.arange(self.td_steps)],
             self._normalize_reward(
                 self.rewards[batch_inds[:, None] + np.arange(self.td_steps)], env),
             self.consecutive_pauses[batch_inds, env_indices],

@@ -23,7 +23,7 @@ if __name__ == "__main__":
     GRID_SEARCH = True
     concurrent_runs = 3 if DEBUG else 4
     num_samples = 2 * concurrent_runs if DEBUG else 20
-    time_steps = 500_000 if DEBUG else 5_000_000
+    time_steps = 500_000 if DEBUG else 1_000_000
 
     trainable = tune.with_resources(
         lambda config: tuning(config),
@@ -45,7 +45,7 @@ if __name__ == "__main__":
         "pvm_stack": 3, # from sugarl code
         "fov": "window",
         "timed_env": True,
-        "gamma": 0.90,
+        "gamma": 0.95,
         "td_steps": 4,
         # Already searched
         "action_repeat": 5,
@@ -53,12 +53,13 @@ if __name__ == "__main__":
         "sensory_action_space_quantization": 8, # from 12-03
         "saccade_cost_scale": 0.0002, # lowered from 0.0015 (9-16) for more pauses
         "pause_cost": 0.2, # from 9-16
+        "s_action_feat": False,
+        "pause_feat": False,
         # Fixed overrides
         "pause_cost": 0.,
         "saccade_cost_scale": 0.,
         # Searchable
-        "s_action_feat": tune.grid_search([True, False]),
-        "pause_feat": tune.grid_search([True, False]),
+        "td_steps": tune.grid_search([128,64,48,32,16,8,4,1]),
     }
 
     metric, mode = ("human_error", "min") if GAZE_TARGET else ("raw_reward", "max")

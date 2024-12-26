@@ -595,20 +595,27 @@ class CRDQN:
                 Resize(self.obs_size)(data.next_observations),
                 consecutive_pauses, prev_sensory_actions)
                 # -> [32, 19], [32, 19]
-            # Get the maximum action value for one batch
-            motor_target_max, _ = motor_target.max(dim=1) # -> [32]
-            sensory_target_max, _ = sensory_target.max(dim=1) # -> [32]
+            # Get the next state value as the sum of max motor and sensory q values
+            motor_target_max = motor_target.max(dim=1)[0]
+            sensory_target_max = sensory_target.max(dim=1)[0]
+            next_state_value = motor_target_max + sensory_target_max
+
+            # Calculate the discount factors gamma
+            gamma = torch.Tensor([self.gamma]).to(self.device)
+            gamma = torch.pow(gamma, torch.arange(self.td_steps + 1).to(self.device))
+            # Rewards after termination are set to 0
+            gamma = torch.expand_copy(gamma, [data.dones.shape[0], *gamma.shape])
+            for i, dones in enumerate(data.dones[...,0]):
+                for j, done in enumerate(dones):
+                    if done:
+                        gamma[i, j+1:] = 0.
+                        break
 
             # Reward function
             sugarl_penalty = torch.zeros([32]).to(self.device) if self.ignore_sugarl \
                 else (1 - observation_quality) * self.sugarl_r_scale # -> [32]
-            next_state_value = \
-                torch.pow(torch.Tensor([self.gamma]).to(self.device), self.td_steps) * (
-                motor_target_max + sensory_target_max) * (1 - data.dones.flatten())
-            # reward - sugarl + (gamma * target_max if not terminal)
-            gammas = torch.pow(self.gamma, torch.arange(self.td_steps)).to(self.device)
-            td_target = (data.rewards[...,0] * gammas).sum(dim=1) \
-                - sugarl_penalty + next_state_value # -> [32]
+            td_target = (data.rewards[...,0] * gamma[:,:-1]).sum(dim=1) \
+                 + next_state_value * gamma[:,-1] - sugarl_penalty # -> [32]
 
         # Q network prediction
         old_motor_q_val, old_sensory_q_val = self.q_network(
