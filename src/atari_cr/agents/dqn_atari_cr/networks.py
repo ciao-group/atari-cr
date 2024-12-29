@@ -50,7 +50,8 @@ class QNetwork(nn.Module):
     def forward(self, x, consecutive_pauses: Optional[torch.Tensor] = None,
                 s_actions: Optional[torch.Tensor] = None):
         """
-        :param Tensor[B,4,84,84] x:
+        :param Tensor[B,4,84,84;f32] x: Stack of greyscale frames with values between
+            0 and 1
         :param Tensor[B] consecutive_pauses:
         :param Tensor[B,2] s_action: Coordinates of the previous sensory action.
             Normalized between 0 and 1

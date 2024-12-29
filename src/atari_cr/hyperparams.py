@@ -23,7 +23,7 @@ if __name__ == "__main__":
     GRID_SEARCH = True
     concurrent_runs = 3 if DEBUG else 4
     num_samples = 2 * concurrent_runs if DEBUG else 20
-    time_steps = 500_000 if DEBUG else 1_000_000
+    time_steps = 500_000 if DEBUG else 2_000_000
 
     trainable = tune.with_resources(
         lambda config: tuning(config),
@@ -46,7 +46,6 @@ if __name__ == "__main__":
         "fov": "window",
         "timed_env": True,
         "gamma": 0.95,
-        "td_steps": 4,
         # Already searched
         "action_repeat": 5,
         "fov_size": 20,
@@ -55,11 +54,14 @@ if __name__ == "__main__":
         "pause_cost": 0.2, # from 9-16
         "s_action_feat": False,
         "pause_feat": False,
+        "td_steps": 4, # from 12-26
         # Fixed overrides
         "pause_cost": 0.,
         "saccade_cost_scale": 0.,
         # Searchable
-        "td_steps": tune.grid_search([128,64,48,32,16,8,4,1]),
+        "mean_pvm": tune.grid_search([False, True]),
+        "fov": tune.grid_search(["window", "exponential"]),
+        "periph": tune.grid_search([False, True]),
     }
 
     metric, mode = ("human_error", "min") if GAZE_TARGET else ("raw_reward", "max")

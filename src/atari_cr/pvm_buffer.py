@@ -14,13 +14,15 @@ class PVMBuffer:
     Persistence-of-Vision memory (Section 3.3)
     """
 
-    def __init__(self, max_len: int, obs_size: Tuple, fov_loc_size: Tuple = None) -> None:
+    def __init__(self, max_len: int, obs_size: Tuple,
+                 fov_loc_size: Tuple = None, mean_pvm=False) -> None:
         self.max_len = max_len
         self.obs_size = obs_size
         self.fov_loc_size = fov_loc_size
         self.buffer = None
         self.fov_loc_buffer = None
         self.init_pvm_buffer()
+        self.mean_pvm = mean_pvm
 
 
     def init_pvm_buffer(self) -> None:
@@ -32,6 +34,12 @@ class PVMBuffer:
                 self.fov_loc_buffer.append(np.zeros(self.fov_loc_size, dtype=np.float32))
 
     def append(self, x, fov_loc=None) -> None:
+        """ :param list[Tensor[4,84,84;f32]] x """
+        if self.mean_pvm:
+            # Rescale the obs to be between -1 and 1
+            # -1 for black, 1 for white, 0 for uncertain pixels
+            x = [2 * (t - 0.5) for t in x]
+
         self.buffer.append(x)
         if fov_loc is not None:
             self.fov_loc_buffer.append(fov_loc)
@@ -45,7 +53,7 @@ class PVMBuffer:
             return np.amax(np.stack(self.buffer, axis=1), axis=1)
         elif mode == "stack_mean":
             # [B, 1, C, H, W]
-            return np.mean(np.stack(self.buffer, axis=1), axis=1, keepdims=True)
+            return np.mean(np.stack(self.buffer, axis=1), axis=1)
         elif mode == "stack":
             # [B, T, C, H, W]
             return np.stack(self.buffer, axis=1)
@@ -96,7 +104,7 @@ class PVMBuffer:
         raw_grid = grid_image(self._rgb_buffer()[0], line_width=line_width)
 
         # Get the pvm observation as a grid representation of the same size
-        pvm_obs = self.get_obs()
+        pvm_obs = self.get_obs("stack_mean" if self.mean_pvm else "stack_max")
         pvm_grid = grid_image(self._greyscale_to_rgb(pvm_obs), line_width=line_width)
         padded_pvm_grid = np.zeros(raw_grid.shape)
         padded_pvm_grid[:pvm_grid.shape[0], :, :] = pvm_grid

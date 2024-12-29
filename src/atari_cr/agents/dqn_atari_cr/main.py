@@ -26,7 +26,7 @@ class ArgParser(Tap):
     sticky_action_prob: float = 0.0 # Probability an action is repeated next timestep
 
     # Fovea settings
-    fov_size: int = 20 # The size of the fovea
+    fov_size: int = 20 # UNUSED # The size of the fovea
     fov_init_loc: int = 0 # Where to initialize the fovea
     relative_sensory_actions: bool = False # Relative or absolute sensory actions
     sensory_action_space: int = 10 # Maximum distance in one sensory step
@@ -73,6 +73,7 @@ class ArgParser(Tap):
     pause_feat: bool = False # Whether to tell the policy how many pauses have been made
     s_action_feat: bool = False # Whether to give the prev sensory action to the policy
     td_steps: int = 1 # Number of steps for n-step TD learning
+    mean_pvm: bool = False # Whether to combine obs in pvm using mean instead of max
 
 def make_env(seed: int, args: ArgParser, training = False):
     def thunk():
@@ -105,7 +106,7 @@ def make_env(seed: int, args: ArgParser, training = False):
             env = PauseableFixedFovealEnv(
                 env, env_args, args.pause_cost, args.saccade_cost_scale,
                 args.fov, not args.use_pause_env, timer=args.timed_env,
-                periph=args.periph)
+                periph=args.periph, fov_weighting=args.mean_pvm)
 
         # Env configuration
         env.unwrapped.ale.setFloat(
@@ -171,6 +172,7 @@ def main(args: ArgParser):
         s_action_feat=args.s_action_feat,
         td_steps=args.td_steps,
         checkpoint=args.checkpoint,
+        mean_pvm=args.mean_pvm,
     )
     eval_returns, out_paths = agent.learn(
         n=args.total_timesteps,
@@ -181,4 +183,6 @@ def main(args: ArgParser):
 
 if __name__ == "__main__":
     args = ArgParser().parse_args()
+    # Align windowed fov size with exponential fov size
+    args.fov_size = 31 if args.periph else 37
     main(args)

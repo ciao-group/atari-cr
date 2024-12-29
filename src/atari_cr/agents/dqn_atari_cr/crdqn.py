@@ -1,6 +1,5 @@
 from collections import deque
 from typing import Optional, Union, Callable, Tuple, List
-from itertools import product
 import os
 import time
 import polars as pl
@@ -63,7 +62,8 @@ class CRDQN:
             pause_feat = False,
             s_action_feat = False,
             td_steps = 1,
-            checkpoint=""
+            checkpoint="",
+            mean_pvm=False,
         ):
         """
         :param env `gymnasium.Env`:
@@ -128,6 +128,7 @@ class CRDQN:
         self.evaluator = evaluator
         self.td_steps = td_steps
         self.checkpoint = checkpoint
+        self.mean_pvm = mean_pvm
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.timestep = 0
@@ -188,7 +189,7 @@ class CRDQN:
 
         # PVM Buffer aka. Short Term Memory, combining multiple observations
         self.pvm_buffer = PVMBuffer(
-            pvm_stack, (self.n_envs, frame_stack, *self.obs_size))
+            pvm_stack, (self.n_envs, frame_stack, *self.obs_size), mean_pvm=mean_pvm)
 
         self.auc = 0.7
         self.auc_window = deque(maxlen=5)
@@ -223,7 +224,8 @@ class CRDQN:
         self.start_time = time.time()
         obs, infos = self.env.reset()
         self.pvm_buffer.append(obs)
-        pvm_obs = self.pvm_buffer.get_obs(mode="stack_max") # -> [1,4,84,84]
+        pvm_obs = self.pvm_buffer.get_obs(mode="stack_mean" if self.mean_pvm
+                                          else "stack_max") # -> [1,4,84,84]
 
         # Init return value
         eval_returns = []
@@ -315,7 +317,8 @@ class CRDQN:
                 (n_eval_envs, self.frame_stack, *self.obs_size)
             )
             eval_pvm_buffer.append(obs)
-            pvm_obs = eval_pvm_buffer.get_obs(mode="stack_max") # -> [1,4,84,84]
+            pvm_obs = eval_pvm_buffer.get_obs(mode="stack_mean" if self.mean_pvm
+                                          else "stack_max") # -> [1,4,84,84]
 
             # Save the pvm obs for logging
             if self.capture_video:
@@ -512,7 +515,8 @@ class CRDQN:
             pvm_buffer.append(next_obs)
 
         # Get the next pvm observation
-        next_pvm_obs = pvm_buffer.get_obs(mode="stack_max")
+        next_pvm_obs = pvm_buffer.get_obs(mode="stack_mean" if self.mean_pvm
+                                          else "stack_max")
 
         return next_pvm_obs, rewards, dones, truncateds, infos
 

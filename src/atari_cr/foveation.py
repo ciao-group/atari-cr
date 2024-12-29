@@ -120,25 +120,31 @@ def foveat_img(im, fixs: list[tuple[int,int]]):
     # generate periphery image
     im_fov = (As.transpose(3,0,1,2) * Ms).sum(axis=1).transpose(1,2,0)
 
-    # What fraction of information is still in the image
-    # Every layer had 1/4 of the previous layers pixels aka. information
-    visual_info = sum([np.mean(M) / (np.pow(4,i)) for i,M in enumerate(Ms)])
+    # Relative resolution of each pixel
+    resolutions = np.stack(Ms / np.pow(4,np.arange(len(Ms)))[:,None,None]).sum(axis=0)
 
-    im_fov = im_fov.astype(np.uint8)
-    return im_fov, visual_info
+    im_fov = np.rint(im_fov).astype(np.uint8)
+    return im_fov, resolutions
 
 FovType: TypeAlias = Literal["window", "gaussian", "exponential"]
 
 class Fovea():
-    def __init__(self, type: FovType, size: tuple[int, int], periph = False):
+    """
+    :param bool weighting: Whether to also apply the relative resolution of a pixel
+        as a weighting, putting more emphasis on high resolution pixels in neural
+        networks
+    """
+    def __init__(self, type: FovType, size: tuple[int, int], periph = False,
+                 weighting = False):
         self.type = type
         self.size = np.array(size, dtype=np.int32)
         self.periph = periph
+        self.weighting = weighting
 
     def apply(self, img_stack: np.ndarray, fixations: list[tuple[int, int]]):
-        """ Applies the fovea to a stack of images
+        """ Applies the fovea to a stack of images in place
 
-        :param Array[4,84,84;f64] img: Stack of four greyscale images
+        :param Array[4,84,84;f64] img_stack: Stack of four greyscale images
         """
         match self.type:
             case "window":
@@ -154,7 +160,7 @@ class Fovea():
                     visual_info = float(((w * h) + 15 * (self.size[0] * self.size[1]))
                         / (16 * w * h))
                 else: # Fill the area outside the crop with zeros
-                    masked_state = np.zeros_like(img_stack)
+                    masked_state = np.full_like(img_stack, 0.5)
                     visual_info = float((self.size[0] * self.size[1]) / (w * h))
 
                 for fixation in fixations:
@@ -188,9 +194,15 @@ class Fovea():
             case "exponential":
                 visual_infos = np.empty(len(img_stack))
                 for i, img in enumerate(img_stack):
-                    img = (img[...,np.newaxis] * 255).astype(np.uint8)
-                    img, visual_info = foveat_img(img, fixations)
-                    img_stack[i] = (img[...,0]).astype(np.float64) / 255
+                    # Scale images between -1 and 1
+                    img = (img[...,None] * 255).astype(np.uint8)
+                    img, resolutions = foveat_img(img.copy(), fixations)
+                    visual_info = resolutions.mean().item()
+                    img = (img[...,0]).astype(np.float64) / 255
+                    if self.weighting:
+                        # 0 weighted values are pushed towards 0.5
+                        img = (img - 0.5) * resolutions + 0.5
+                    img_stack[i] = img
                     visual_infos[i] = visual_info
                 visual_info = visual_infos.mean().item()
                 return img_stack, visual_info

@@ -33,9 +33,10 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     """
     def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
             saccade_cost_scale = 0.001, fov: FovType = "window", no_pauses = False,
-            consecutive_pause_limit = 50, timer = False, periph = False):
+            consecutive_pause_limit = 50, timer = False, periph = False,
+            fov_weighting=False):
         super().__init__(env)
-        self.fov = Fovea(fov, args.fov_size, periph)
+        self.fov = Fovea(fov, args.fov_size, periph, weighting=fov_weighting)
         self.fov_init_loc: Tuple[int, int] = args.fov_init_loc
         assert (np.array(self.fov.size) <
                 np.array(env.obs_size)).all()
@@ -82,6 +83,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
     def reset(self):
         self.state, info = self.env.reset() # -> [4,84,84;f64]
+        assert self.state.shape == (4,84,84)
+        self.state[:3] = np.full(self.state.shape[1:], 0.5)
         self.frames = [self.unwrapped.render()]
 
         self.timestep = -1
@@ -90,7 +93,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.consecutive_pauses = 0
 
         self.fov_loc = np.array(self.fov_init_loc, copy=True).astype(np.int32)
-        fov_obs, visual_info = self.fov.apply(self.state, [self.fov_loc])
+        fov_obs, visual_info = self.fov.apply(self.state.copy(), [self.fov_loc])
 
         # Time that has already passed since the last new frame
         # This is time that was still needed for the previous action
