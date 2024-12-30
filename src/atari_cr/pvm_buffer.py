@@ -38,7 +38,7 @@ class PVMBuffer:
         if self.mean_pvm:
             # Rescale the obs to be between -1 and 1
             # -1 for black, 1 for white, 0 for uncertain pixels
-            x = [2 * (t - 0.5) for t in x]
+            x = 2 * (x - 0.5)
 
         self.buffer.append(x)
         if fov_loc is not None:
