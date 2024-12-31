@@ -10,11 +10,10 @@ from gymnasium import spaces
 
 class QNetwork(nn.Module):
     def __init__(self, env, sensory_out_dim: int, pause_feat: bool,
-                 s_action_feat: bool, pause_action: int):
+                 s_action_feat: bool):
         super().__init__()
         self.pause_feat = pause_feat
         self.s_action_feat = s_action_feat
-        self.pause_action = pause_action
 
         # Get the size of the different network heads
         assert isinstance(env.single_action_space, spaces.Dict)
@@ -96,10 +95,6 @@ class QNetwork(nn.Module):
                 consecutive_pauses, prev_pause_actions)
 
             motor_actions = torch.argmax(motor_q_values, dim=1).cpu().numpy()
-
-            # # Mask out no action pauses where the fovea does not move
-            # pause_inds = np.where(motor_actions == self.pause_action)[0]
-            # sensory_q_values[pause_inds, sensory_noops] = torch.finfo(torch.float32).min
 
             sensory_actions = torch.argmax(sensory_q_values, dim=1).cpu().numpy()
 

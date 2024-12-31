@@ -13,9 +13,6 @@ def tuning(config: dict):
         config["sensory_action_x_size"] = quantization
         config["sensory_action_y_size"] = quantization
 
-    config["periph"] = config["fov"][1]
-    config["fov"] = config["fov"][0]
-
     # Run the experiment
     args = ArgParser().from_dict(config)
     eval_returns, out_paths = main(args)
@@ -42,7 +39,7 @@ if __name__ == "__main__":
             "total_timesteps": time_steps,
             "no_pvm_visualization": True,
             "use_pause_env": True,
-            "env": "ms_pacman", # Other: breakout ms_pacman seaquest road_runner
+            "env": "ms_pacman", # Other: breakout ms_pacman seaquest asterix hero
             "exp_name": "tuning",
             "learning_start": 5_000, # Instead of 80k to prevent masked actions faster
             "debug": DEBUG,
@@ -50,6 +47,7 @@ if __name__ == "__main__":
                 "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth",
             "pvm_stack": 3, # from sugarl code
             "fov": "window",
+            "periph": False,
             "timed_env": True,
             "gamma": 0.95,
             # Already searched
@@ -64,10 +62,15 @@ if __name__ == "__main__":
             # Fixed overrides
             "pause_cost": 0.,
             "saccade_cost_scale": 0.,
+            "clip_reward": True,
+            "use_pause_env": False,
+            "learning_start": 80_000,
+            "gamma": 0.99,
+            "td_steps": 1,
+            "timed_env": False,
+            "sensory_action_space_quantization": 4,
             # Searchable
-            "mean_pvm": tune.grid_search([False, True]),
-            "fov": tune.grid_search(
-                [("window", True), ("window", False), ("exponential", False)]),
+            "env": tune.grid_search(["asterix", "seaquest", "hero"]),
         },
         tune_config=tune.TuneConfig(
             # num_samples=num_samples,

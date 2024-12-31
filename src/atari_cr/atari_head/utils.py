@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import polars as pl
 import torch
+import json
 
 SCREEN_SIZE = (84, 84)
 # Screen Size in visual degrees: 44,6 x 28,5
@@ -32,27 +33,28 @@ def transform_to_proper_csv(game_dir: str):
             tupled_gaze_positions = []
             gaze_positions = line.split(",")[6:]
             for i in range(len(gaze_positions) // 2):
-                x_coord = gaze_positions[2 * i]
-                y_coord = gaze_positions[2 * i + 1]
+                x_coord = float(gaze_positions[2 * i])
+                y_coord = float(gaze_positions[2 * i + 1])
                 tupled_gaze_positions.append((x_coord, y_coord))
 
             # Append a new row to the data
             data.append([
-                *line.split(",")[:6],
-                tupled_gaze_positions
+                *[None if x == "null" else x for x in line.split(",")[:6]],
+                json.dumps(tupled_gaze_positions),
             ])
 
         # Export the data to csv and delete the original files
-        df = pl.DataFrame(data, columns=[
-            "frame_id",
-            "episode_id",
-            "score",
-            "duration",
-            "unclipped_reward",
-            "action",
-            "gaze_positions"
-        ])
-        df.write_csv(".".join(file_path.split(".")[:-1]) + ".csv", index=False)
+        # The last row only contains null values
+        df = pl.DataFrame(data[:-1], orient="row", schema={
+            "frame_id": pl.String,
+            "episode_id": pl.Int32,
+            "score": pl.Float32,
+            "duration(ms)": pl.Float32,
+            "unclipped_reward": pl.Float32,
+            "action": pl.Int32,
+            "gaze_positions": pl.String,
+        })
+        df.write_csv(".".join(file_path.split(".")[:-1]) + ".csv")
         os.remove(file_path)
 
 def open_mp4_as_frame_list(path: str):

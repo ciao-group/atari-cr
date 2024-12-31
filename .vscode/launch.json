@@ -57,11 +57,11 @@
             ],
             "args": [
                 "--capture_video",
-                "--env", "ms_pacman",
+                "--env", "asterix",
                 // Debug config
                 "--exp_name", "dqn_cr_debug",
-                "--total_timesteps", "10000",
-                "--learning_start", "50",
+                "--total_timesteps", "1000",
+                "--learning_start", "100",
                 // "--debug",
                 // Additional config
                 "--pause_cost", "0.0",
@@ -69,18 +69,15 @@
                 "--action_repeat", "5",
                 "--evaluator", 
                 "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth",
-                "--fov", "exponential",
+                "--fov", "window",
                 "--fov_size", "32",
                 "--timed_env",
-                "--periph",
-                // "--pause_feat",
-                "--s_action_feat",
+                // "--periph",
                 "--td_steps", "4",
-                "--gamma", "0.90",
-                "--checkpoint", "/tmp/ray/session_2024-12-21_11-21-15_517073_269583/artifacts/2024-12-21_11-21-16/lambda_2024-12-21_11-21-15/working_dirs/lambda_ms_pacman_50257_00001_1_pause_feat=False,s_action_feat=True_2024-12-21_11-21-16/output/runs/tuning/ms_pacman/trained_models/seed0_step5000012_eval00.pt",
+                "--gamma", "0.95",
                 "--sensory_action_x_size", "8",
                 "--sensory_action_y_size", "8",
-                "--mean_pvm"
+                // "--mean_pvm"
             ],
             "justMyCode": false
         },
@@ -96,7 +93,7 @@
             ],
             "args": [
                 "--capture_video",
-                "--env", "ms_pacman",
+                "--env", "asterix",
                 // Debug config
                 "--exp_name", "dqn_cr_og_debug",
                 "--total_timesteps", "100",

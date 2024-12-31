@@ -160,7 +160,7 @@ class Fovea():
                     visual_info = float(((w * h) + 15 * (self.size[0] * self.size[1]))
                         / (16 * w * h))
                 else: # Fill the area outside the crop with zeros
-                    masked_state = np.full_like(img_stack, 0.5)
+                    masked_state = np.full_like(img_stack, 0.5 if self.weighting else 0)
                     visual_info = float((self.size[0] * self.size[1]) / (w * h))
 
                 for fixation in fixations:
@@ -194,7 +194,6 @@ class Fovea():
             case "exponential":
                 visual_infos = np.empty(len(img_stack))
                 for i, img in enumerate(img_stack):
-                    # Scale images between -1 and 1
                     img = (img[...,None] * 255).astype(np.uint8)
                     img, resolutions = foveat_img(img.copy(), fixations)
                     visual_info = resolutions.mean().item()

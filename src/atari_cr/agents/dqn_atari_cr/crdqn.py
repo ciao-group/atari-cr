@@ -156,13 +156,11 @@ class CRDQN:
 
         # Q networks
         self.q_network = QNetwork(
-            self.env, len(self.sensory_action_set), pause_feat, s_action_feat,
-            self.env.envs[0].pause_action
+            self.env, len(self.sensory_action_set), pause_feat, s_action_feat
         ).to(self.device)
         self.optimizer = Adam(self.q_network.parameters(), lr=learning_rate)
         self.target_network = QNetwork(
-            self.env, len(self.sensory_action_set), pause_feat, s_action_feat,
-            self.env.envs[0].pause_action
+            self.env, len(self.sensory_action_set), pause_feat, s_action_feat
         ).to(self.device)
         self.target_network.load_state_dict(self.q_network.state_dict())
 
@@ -219,6 +217,7 @@ class CRDQN:
                 latest_model = seeded_models[np.argmax(timesteps)]
                 self.load_checkpoint(f"{self.model_dir}/{latest_model}")
                 n += self.timestep
+                self.learning_start += self.timestep
 
         # Start acting in the environment
         self.start_time = time.time()
