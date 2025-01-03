@@ -9,13 +9,19 @@ if __name__ == "__main__":
         ("output/good_ray_runs/reproduction_1M_2024-12-31_13-40-46/lambda_asterix_7613c_00000_0_env=asterix_2024-12-31_13-40-48/progress.csv"),
         ("output/good_ray_runs/reproduction_1M_2024-12-31_13-40-46/lambda_hero_7613c_00002_2_env=hero_2024-12-31_13-40-48/progress.csv"),
         ("output/good_ray_runs/reproduction_1M_2024-12-31_13-40-46/lambda_seaquest_7613c_00001_1_env=seaquest_2024-12-31_13-40-48/progress.csv"),
+        ("output/good_ray_runs/reproduction_4td_2025-01-01_21-38-11/lambda_asterix_522b6_00000_0_env=asterix,seed=0_2025-01-01_21-38-13/progress.csv"),
+        ("output/good_ray_runs/reproduction_4td_2025-01-01_21-38-11/lambda_hero_522b6_00002_2_env=hero,seed=0_2025-01-01_21-38-13/progress.csv"),
+        ("output/good_ray_runs/reproduction_4td_2025-01-01_21-38-11/lambda_seaquest_522b6_00001_1_env=seaquest,seed=0_2025-01-01_21-38-13/progress.csv"),
     ]
 
     out_dir = "output/graphs/rewards"
     os.makedirs(out_dir, exist_ok=True)
 
-    for ymax, label, file in zip([650, 6100, 210], ["asterix" , "hero", "seaquest"],
-                                 progress_files):
+    for ymax, label, file in zip(
+        [650, 6100, 210, 650, 6100, 210],
+        ["asterix" , "hero", "seaquest", "asterix_4td" , "hero_4td", "seaquest_4td"],
+        progress_files):
+
         rewards = (
             pl.scan_csv(file, ignore_errors=True, null_values=["null"],
                 schema_overrides={ "raw_reward": float })

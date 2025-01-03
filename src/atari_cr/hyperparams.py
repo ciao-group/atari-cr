@@ -21,7 +21,7 @@ if __name__ == "__main__":
     GAZE_TARGET = False
     DEBUG = False
     GRID_SEARCH = True
-    concurrent_runs = 3 if DEBUG else 1
+    concurrent_runs = 3
     num_samples = 2 * concurrent_runs if DEBUG else 20
     time_steps = 500_000 if DEBUG else 1_000_000
 
@@ -49,7 +49,7 @@ if __name__ == "__main__":
             "fov": "window",
             "periph": False,
             "timed_env": True,
-            "gamma": 0.95,
+            "gamma": 0.99,
             # Already searched
             "action_repeat": 5,
             "fov_size": 20,
@@ -62,16 +62,13 @@ if __name__ == "__main__":
             # Fixed overrides
             "pause_cost": 0.,
             "saccade_cost_scale": 0.,
-            "clip_reward": True,
+            "clip_reward": False,
             "use_pause_env": False,
             "learning_start": 80_000,
-            "gamma": 0.99,
-            "td_steps": 4,
             "timed_env": False,
             "sensory_action_space_quantization": 4,
             # Searchable
             "env": tune.grid_search(["asterix", "seaquest", "hero"]),
-            "seed": tune.grid_search([0,1,2]),
         },
         tune_config=tune.TuneConfig(
             # num_samples=num_samples,

@@ -57,7 +57,7 @@
             ],
             "args": [
                 "--capture_video",
-                "--env", "asterix",
+                "--env", "hero",
                 // Debug config
                 "--exp_name", "dqn_cr_debug",
                 "--total_timesteps", "1000",

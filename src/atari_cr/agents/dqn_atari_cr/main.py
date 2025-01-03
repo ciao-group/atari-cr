@@ -50,7 +50,7 @@ class ArgParser(Tap):
 
     # Eval args
     eval_frequency: int = -1 # How many steps to take in the env before a new evaluation
-    eval_num: int = 10 # How envs are created for evaluation
+    eval_num: int = 10 # How many envs are created for evaluation
     checkpoint: str = "" # Checkpoint to resume training
 
     # Pause args
