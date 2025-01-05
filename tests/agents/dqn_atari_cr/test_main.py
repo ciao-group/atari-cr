@@ -47,15 +47,15 @@ class TestMain(unittest.TestCase):
     def test_pauseable_wo_pauses(self):
         argv.extend([
             "--clip_reward",
-                "--capture_video",
-                "--env", "ms_pacman",
-                "--exp_name", "test_og",
-                "--total_timesteps", "100",
-                "--learning_start", "50",
-                "--debug",
-                "--pause_cost", "0.05",
-                "--action_repeat", "5",
-                "--evaluator",
+            "--capture_video",
+            "--env", "ms_pacman",
+            "--exp_name", "test_og",
+            "--total_timesteps", "100",
+            "--learning_start", "50",
+            "--debug",
+            "--pause_cost", "0.05",
+            "--action_repeat", "5",
+            "--evaluator",
                 "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth"
         ])
 

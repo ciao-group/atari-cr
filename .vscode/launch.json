@@ -60,11 +60,11 @@
                 "--env", "hero",
                 // Debug config
                 "--exp_name", "dqn_cr_debug",
-                "--total_timesteps", "1000",
+                "--total_timesteps", "10000",
                 "--learning_start", "100",
                 // "--debug",
                 // Additional config
-                "--pause_cost", "0.0",
+                "--pause_cost", "-0.1",
                 "--use_pause_env",
                 "--action_repeat", "5",
                 "--evaluator", 

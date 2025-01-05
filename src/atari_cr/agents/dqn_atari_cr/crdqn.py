@@ -235,10 +235,11 @@ class CRDQN:
             prev_sensory_actions, consecutive_pauses = self._preprocess_features()
 
             # Chose action from q network
+            sensory_noops = np.array(
+                [self._sensory_action_ids([e.fov_loc])[0] for e in self.envs])
             self.epsilon = self._epsilon_schedule(n)
             motor_actions, sensory_action_ids = self.q_network.chose_action(
-                pvm_obs, self.device,
-                self._sensory_action_ids(np.array([e.fov_loc for e in self.env.envs])),
+                pvm_obs, self.device, self.env, sensory_noops,
                 consecutive_pauses, prev_sensory_actions, self.epsilon)
 
             # Transform the action to an absolute fovea position
@@ -327,24 +328,22 @@ class CRDQN:
             while not (done or truncated):
                 prev_sensory_actions, consecutive_pauses = self._preprocess_features()
 
+                # Mask out pause actions without fovea movement
+                masked_action = [e.no_action_pause() for e in eval_env.envs]
+                masked_action = np.array(
+                    [(m, self._sensory_action_ids([s])[0]) for m,s in masked_action])
+
+                # Do some random actions in debug mode to get some pauses
+                epsilon = 0.1 if self.debug else 0.
+
                 # Chose an action from the Q network
+                sensory_noops = np.array(
+                    [self._sensory_action_ids([e.fov_loc])[0] for e in eval_env.envs])
                 motor_actions, sensory_action_ids \
                     = self.q_network.chose_action(
-                        pvm_obs, self.device,
-                        self._sensory_action_ids(
-                            np.array([e.fov_loc for e in eval_env.envs])),
-                        consecutive_pauses, prev_sensory_actions
+                        pvm_obs, self.device, eval_env, sensory_noops,
+                        consecutive_pauses, prev_sensory_actions, epsilon
                     )
-
-                # Forcefully do a pause some of the time in debug mode
-                if isinstance(single_eval_env, PauseableFixedFovealEnv) and self.debug \
-                    and np.random.choice([False, True], p=[0.5, 0.5]):
-                    motor_actions = np.full(
-                        motor_actions.shape, single_eval_env.pause_action)
-                    # Also change the sensory_action
-                    sensory_action_ids = np.full(
-                        sensory_action_ids.shape,
-                        np.random.randint(len(self.sensory_action_set)))
 
                 # Translate the action to an absolute fovea position
                 sensory_actions = self.sensory_action_set[sensory_action_ids]
@@ -675,11 +674,11 @@ class CRDQN:
 
         return prev_sensory_actions, consecutive_pauses
 
-    def _sensory_action_ids(self, coords: np.ndarray):
+    def _sensory_action_ids(self, coords: list[np.ndarray]):
         """
         Return the sensory action ids for a given batch of coordinates
 
-        :param Array[B,2] coords:
+        :param list[Array[2]] coords:
         :return Array[B]:
         """
         return np.array([np.where((self.sensory_action_set == c).all(axis=1))[0].item()

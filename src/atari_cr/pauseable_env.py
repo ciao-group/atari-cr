@@ -11,8 +11,6 @@ from atari_cr.models import EpisodeInfo, EpisodeRecord, StepInfo
 from atari_cr.utils import EMMA_fixation_time
 from atari_cr.atari_head.utils import VISUAL_DEGREES_PER_PIXEL
 
-MASKED_ACTION_PENALTY = -100 # Negative reward for masking out actions
-
 
 class PauseableFixedFovealEnv(gym.Wrapper):
     """
@@ -121,14 +119,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
             # Mask out unwanted pause behavior
             if self.consecutive_pauses > self.consecutive_pause_limit:
-                # Too many pauses in a row
-                reward += MASKED_ACTION_PENALTY
-                step_info["prevented_pauses"] = 1
-                truncated = True
+                raise NotImplementedError()
             elif np.all(self.fov_loc == action["sensory_action"]):
-                # No action pause
-                reward += MASKED_ACTION_PENALTY
-                step_info["no_action_pauses"] = 1
+                raise NotImplementedError()
             else:
                 # Normal pause
                 reward -= self.pause_cost
@@ -262,81 +255,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         return fov_state
 
-class SlowedFixedFovealEnv(PauseableFixedFovealEnv):
-    """ Pauseable like in Atari-HEAD with the option to make the game run at a constant
-    20Hz by pressing down a key """
-    def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
-            saccade_cost_scale = 0.001, fov: FovType = "window", no_pauses = False,
-            consecutive_pause_limit = 20):
-        super().__init__(env, args, pause_cost, saccade_cost_scale, fov, no_pauses,
-                         consecutive_pause_limit)
-
-        # Two additional actions: PlayKeyDown, PlayKeyUp for pressing down or lifting
-        # the key press again. The pressed key continues the env at a speed of 20Hz.
-        # With no key pressed, the game waits for an action by the agent before
-        # resuming
-        self.action_space = Dict({
-            "motor_action": Discrete(
-                env.action_space.n if no_pauses else env.action_space.n + 2),
-            "sensory_action": Box(low=self.sensory_action_space[0],
-                                 high=self.sensory_action_space[1], dtype=int),
-        })
-        self.key_down_action = self.action_space["motor_action"].n - 1
-        self.key_up_action = self.action_space["motor_action"].n - 2
-
-        # Key is initially not pressed
-        self.key_is_pressed = False
-
-    def reset(self):
-        self.timer = 0 # Time spent by the agent since last frame
-        return super().reset()
-
-    def step(self, action: dict):
-        # Move or pause in the env
-        if action["motor_action"] in [self.key_down_action, self.key_up_action]:
-            # Press or unpress key
-            self.key_is_pressed = (action["motor_action"] == self.key_down_action)
-            # Set default step returns for a pause action
-            reward, done, truncated = 0, False, False
-            info = { "raw_reward": 0, "pauses": 1 }
-            # Set the action to be repeated later to NOOP
-            action["motor_action"] = np.int64(0) # NOOP
-        else:
-            # Normal env step
-            self.state, reward, done, truncated, info = \
-                    self.env.step(action=action["motor_action"])
-            info["pauses"] = 0
-        assert list(info.keys()) == ["raw_reward", "pauses"]
-
-        # Add costs for the time it takes the agent to move its fovea
-        prev_fov_loc = self.fov_loc.copy()
-        eccentricity = np.sqrt(np.sum(np.square(
-            (self.fov_loc - prev_fov_loc) * VISUAL_DEGREES_PER_PIXEL )))
-        _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
-        total_emma_time = total_emma_time.item()
-        reward -= self.saccade_cost_scale * total_emma_time
-        # Increment the time by emma time in ms
-        self.timer += total_emma_time * 1000
-        info["duration"] = self.timer
-
-        if self.key_down_action:
-            # Repeat action as long as the saccade takes to complete
-            while self.timer >= 50:
-                # Only the last state is kept
-                # Rewards are summed up
-                # Raw rewards in info are summed up
-                # Break early if done or truncated
-                self.state, partial_reward, done, truncated, partial_info = \
-                    self.env.step(action=action["motor_action"])
-                reward += partial_reward
-                info["raw_reward"] += partial_info["raw_reward"]
-                self.timer -= 50
-                info["pauses"] = 0
-                if done or truncated: break
-
-        # Sensory action
-        fov_state = self._fov_step(
-            full_state=self.state, action=action["sensory_action"])
-
-        return fov_state, reward, done, truncated, info
-
+    def no_action_pause(self):
+        """ Returns the action that would not unnecessarily pause the game without
+        moving the fovea """
+        return self.pause_action, self.fov_loc

@@ -9,9 +9,9 @@ if __name__ == "__main__":
         ("output/good_ray_runs/reproduction_1M_2024-12-31_13-40-46/lambda_asterix_7613c_00000_0_env=asterix_2024-12-31_13-40-48/progress.csv"),
         ("output/good_ray_runs/reproduction_1M_2024-12-31_13-40-46/lambda_hero_7613c_00002_2_env=hero_2024-12-31_13-40-48/progress.csv"),
         ("output/good_ray_runs/reproduction_1M_2024-12-31_13-40-46/lambda_seaquest_7613c_00001_1_env=seaquest_2024-12-31_13-40-48/progress.csv"),
-        ("output/good_ray_runs/reproduction_4td_2025-01-01_21-38-11/lambda_asterix_522b6_00000_0_env=asterix,seed=0_2025-01-01_21-38-13/progress.csv"),
-        ("output/good_ray_runs/reproduction_4td_2025-01-01_21-38-11/lambda_hero_522b6_00002_2_env=hero,seed=0_2025-01-01_21-38-13/progress.csv"),
-        ("output/good_ray_runs/reproduction_4td_2025-01-01_21-38-11/lambda_seaquest_522b6_00001_1_env=seaquest,seed=0_2025-01-01_21-38-13/progress.csv"),
+        ("output/good_ray_runs/reproduction_4td_2025-01-03_18-20-47/lambda_asterix_12eff_00000_0_env=asterix_2025-01-03_18-20-48/progress.csv"),
+        ("output/good_ray_runs/reproduction_4td_2025-01-03_18-20-47/lambda_hero_12eff_00002_2_env=hero_2025-01-03_18-20-48/progress.csv"),
+        ("output/good_ray_runs/reproduction_4td_2025-01-03_18-20-47/lambda_seaquest_12eff_00001_1_env=seaquest_2025-01-03_18-20-48/progress.csv"),
     ]
 
     out_dir = "output/graphs/rewards"
