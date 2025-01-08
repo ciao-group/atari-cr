@@ -18,13 +18,13 @@ fixation = [32,32]
 marked_img = cv2.drawMarker((img * 255).astype(np.uint8), fixation, [255,0,0], 1, 5)
 Image.fromarray(marked_img, "L").save(f"{out_dir}/original.png")
 
-fovs = [("window", 37, False), ("window", 31, True), ("exponential", 0, True)]
+fovs = [("window", 37), ("window_periph", 31), ("exponential", 0)]
 infos = []
-for type, size, periph in fovs:
-    fov = Fovea(type, [size,size], periph)
+for type, size in fovs:
+    fov = Fovea(type, [size,size])
     fov_img, visual_info = fov.apply(img[np.newaxis,...], [fixation])
     infos.append(visual_info)
 
     Image.fromarray((fov_img[0] * 255).astype(np.uint8) , "L").save(
-        f"{out_dir}/{type}{'' if periph else '_no_periph'}.png")
+        f"{out_dir}/{type}.png")
 print(infos)

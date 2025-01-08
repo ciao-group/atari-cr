@@ -13,10 +13,6 @@ def tuning(config: dict):
         config["sensory_action_x_size"] = quantization
         config["sensory_action_y_size"] = quantization
 
-    # Unpack the fov config
-    config["periph"] = config["fov"][1]
-    config["fov"] = config["fov"][0]
-
     # Run the experiment
     args = ArgParser().from_dict(config)
     eval_returns, out_paths = main(args)
@@ -64,18 +60,17 @@ if __name__ == "__main__":
             "td_steps": 4, # from 12-26
             # Fixed overrides
             # Searchable
-            "pause_cost": tune.loguniform(1e-6, 1e-1),
-            "saccade_cost_scale": tune.loguniform(1e-6, 1e-1),
-            "fov": tune.choice(
-                [("window", True), ("window", False), ("exponential", True)]),
-            "env": tune.choice(["asterix", "seaquest", "hero"]),
+            "pause_cost": tune.grid_search([1e-5, 1e-3, 1e-1]),
+            "saccade_cost_scale": tune.grid_search([1e-5, 1e-3, 1e-1]),
+            "fov": tune.grid_search(["window_periph", "window", "exponential"]),
+            "env": tune.grid_search(["asterix", "seaquest", "hero"]),
         },
         tune_config=tune.TuneConfig(
-            num_samples=num_samples,
-            scheduler=ASHAScheduler(
-                stop_last_trials=False
-            ),
-            search_alg=OptunaSearch(),
+            # num_samples=num_samples,
+            # scheduler=ASHAScheduler(
+            #     stop_last_trials=False
+            # ),
+            # search_alg=OptunaSearch(),
             metric=metric,
             mode=mode,
         ),

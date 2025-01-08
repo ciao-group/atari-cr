@@ -70,7 +70,6 @@ class ArgParser(Tap):
     fov: FovType = "window" # Type of fovea
     og_env: bool = False # Whether to use normal sugarl env
     timed_env: bool = False # Whether to use a time sensitve env for pausing
-    periph: bool = False # Whether to enable periphery for the windowed fovea
     pause_feat: bool = False # Whether to tell the policy how many pauses have been made
     s_action_feat: bool = False # Whether to give the prev sensory action to the policy
     td_steps: int = 1 # Number of steps for n-step TD learning
@@ -107,7 +106,7 @@ def make_env(seed: int, args: ArgParser, training = False):
             env = PauseableFixedFovealEnv(
                 env, env_args, args.pause_cost, args.saccade_cost_scale,
                 args.fov, not args.use_pause_env, timer=args.timed_env,
-                periph=args.periph, fov_weighting=args.mean_pvm)
+                fov_weighting=args.mean_pvm)
 
         # Env configuration
         env.unwrapped.ale.setFloat(
@@ -185,5 +184,7 @@ def main(args: ArgParser):
 if __name__ == "__main__":
     args = ArgParser().parse_args()
     # Align windowed fov size with exponential fov size
-    args.fov_size = 31 if args.periph else 37
+    match args.fov:
+        case "window": args.fov_size = 37
+        case "window_periph": args.fov_size = 31
     main(args)

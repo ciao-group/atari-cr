@@ -31,10 +31,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     """
     def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
             saccade_cost_scale = 0.001, fov: FovType = "window", no_pauses = False,
-            consecutive_pause_limit = 50, timer = False, periph = False,
-            fov_weighting=False):
+            consecutive_pause_limit = 50, timer = False, fov_weighting=False):
         super().__init__(env)
-        self.fov = Fovea(fov, args.fov_size, periph, weighting=fov_weighting)
+        self.fov = Fovea(fov, args.fov_size, weighting=fov_weighting)
         self.fov_init_loc: Tuple[int, int] = args.fov_init_loc
         assert (np.array(self.fov.size) <
                 np.array(env.obs_size)).all()
@@ -47,7 +46,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             self.sensory_action_space = np.array(args.sensory_action_space)
         elif self.fov.type == "exponential":
             self.sensory_action_space = np.array(env.obs_size)
-        elif self.fov.type == "window":
+        elif self.fov.type in ["window", "window_periph"]:
             self.sensory_action_space = \
                 np.array(env.obs_size) - np.array(self.fov.size)
         else:

@@ -126,7 +126,7 @@ def foveat_img(im, fixs: list[tuple[int,int]]):
     im_fov = np.rint(im_fov).astype(np.uint8)
     return im_fov, resolutions
 
-FovType: TypeAlias = Literal["window", "gaussian", "exponential"]
+FovType: TypeAlias = Literal["window", "gaussian", "exponential", "window_periph"]
 
 class Fovea():
     """
@@ -134,11 +134,9 @@ class Fovea():
         as a weighting, putting more emphasis on high resolution pixels in neural
         networks
     """
-    def __init__(self, type: FovType, size: tuple[int, int], periph = False,
-                 weighting = False):
+    def __init__(self, type: FovType, size: tuple[int, int], weighting = False):
         self.type = type
         self.size = np.array(size, dtype=np.int32)
-        self.periph = periph
         self.weighting = weighting
 
     def apply(self, img_stack: np.ndarray, fixations: list[tuple[int, int]]):
@@ -147,9 +145,9 @@ class Fovea():
         :param Array[4,84,84;f64] img_stack: Stack of four greyscale images
         """
         match self.type:
-            case "window":
+            case "window" | "window_periph":
                 stack, w, h = img_stack.shape
-                if self.periph: # Fill the area with the blurred orignal
+                if self.type == "window_periph": # Fill area with the blurred orignal
                     assert w % 4 == 0 and h % 4 == 0, ("Only resolutions divisible by 4"
                         " are supported")
                     # Create periphery with 1/16 of the original information
