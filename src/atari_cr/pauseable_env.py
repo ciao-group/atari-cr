@@ -117,6 +117,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             # Durations for pause steps are instead counted for the next non-pause
             duration = 0
 
+            # TODO: Remove after some time
             # Mask out unwanted pause behavior
             if self.consecutive_pauses > self.consecutive_pause_limit:
                 raise NotImplementedError()

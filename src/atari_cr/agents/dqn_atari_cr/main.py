@@ -1,6 +1,6 @@
 import os
 
-import gymnasium as gym
+from gymnasium.vector import SyncVectorEnv
 import torch
 from tap import Tap
 
@@ -10,6 +10,7 @@ from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
 from atari_cr.foveation import FovType
+
 
 class ArgParser(Tap):
     exp_name: str = os.path.basename(__file__).rstrip(".py") # Name of this experiment
@@ -120,12 +121,12 @@ def make_env(seed: int, args: ArgParser, training = False):
 
 def make_train_env(args: ArgParser):
     envs = [make_env(args.seed + i, args) for i in range(args.env_num)]
-    return gym.vector.SyncVectorEnv(envs)
+    return SyncVectorEnv(envs)
 
 def make_eval_env(seed, args: ArgParser):
     """ Return VecEnv with a single environment """
     envs = [make_env(args.seed + seed, args, training=False)]
-    return gym.vector.SyncVectorEnv(envs)
+    return SyncVectorEnv(envs)
 
 def main(args: ArgParser):
     # Use bfloat16 to speed up matrix computation
