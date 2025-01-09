@@ -3,17 +3,24 @@ from ray import train, tune
 from ray.tune.search.optuna import OptunaSearch
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.stopper import TrialPlateauStopper
+from ray.tune.experiment.trial import Trial
 
 from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
 
-def tuning(config: dict):
+def trainable(config: dict):
     # Copy quantization value into the two corresponding values
     if "sensory_action_space_quantization" in config:
         quantization = config.pop("sensory_action_space_quantization")
         config["sensory_action_x_size"] = quantization
         config["sensory_action_y_size"] = quantization
 
-    # Run the experiment
+    # Log the trial name
+    searchable = config.pop("searchable")
+    print("Trial: " +
+          ",".join([f"{k}={v}" for k,v in searchable.items()]))
+    config.update(searchable)
+
+    # Start training
     args = ArgParser().from_dict(config)
     eval_returns, out_paths = main(args)
 
@@ -26,7 +33,7 @@ if __name__ == "__main__":
     time_steps = 500_000 if DEBUG else 1_000_000
 
     trainable = tune.with_resources(
-        lambda config: tuning(config),
+        trainable,
         {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
     metric, mode = ("duration_error", "min") if GAZE_TARGET else ("raw_reward", "max")
@@ -59,11 +66,12 @@ if __name__ == "__main__":
             "pause_feat": False,
             "td_steps": 4, # from 12-26
             # Fixed overrides
-            # Searchable
-            "pause_cost": tune.grid_search([1e-5, 1e-3, 1e-1]),
-            "saccade_cost_scale": tune.grid_search([1e-5, 1e-3, 1e-1]),
-            "fov": tune.grid_search(["window_periph", "window", "exponential"]),
-            "env": tune.grid_search(["asterix", "seaquest", "hero"]),
+            "searchable": {
+                "pause_cost": tune.grid_search([1e-5, 1e-3, 1e-1]),
+                "saccade_cost_scale": tune.grid_search([1e-5, 1e-3, 1e-1]),
+                "fov": tune.grid_search(["window_periph", "window", "exponential"]),
+                "env": tune.grid_search(["asterix", "seaquest", "hero"]),
+            }
         },
         tune_config=tune.TuneConfig(
             # num_samples=num_samples,
@@ -73,6 +81,7 @@ if __name__ == "__main__":
             # search_alg=OptunaSearch(),
             metric=metric,
             mode=mode,
+            trial_name_creator=lambda t: t.trial_id,
         ),
         run_config=train.RunConfig(
             storage_path="/home/niko/Repos/atari-cr/output/ray_results",
