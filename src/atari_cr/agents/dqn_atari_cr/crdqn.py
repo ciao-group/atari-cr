@@ -189,7 +189,7 @@ class CRDQN:
         self.pvm_buffer = PVMBuffer(
             pvm_stack, (self.n_envs, frame_stack, *self.obs_size), mean_pvm=mean_pvm)
 
-        self.auc = 0.7
+        self.auc = 0.6
         self.auc_window = deque(maxlen=5)
         self.windowed_auc = self.auc
 
@@ -229,6 +229,9 @@ class CRDQN:
         # Init return value
         eval_returns = []
         td_update = None
+
+        # Calculate the first auc
+        eval_returns, out_paths = self.evaluate(td_update, file_output=False)
 
         while self.timestep < n:
             # Cast sensory action ids to coordinates and remove the env axis
@@ -411,22 +414,23 @@ class CRDQN:
                     dataset = GazeDataset.from_game_data([episode_record])
                     loader = dataset.to_loader()
                     aucs.append(self.evaluator.eval(loader)["auc"])
+                    del dataset, loader
                 # Duration error calculation
                 duration_info = DurationInfo.from_episodes(
                     [episode_record], self.env_name)
 
             eval_env.close()
 
-        # Log mean result of eval episodes
-        mean_episode_info: EpisodeInfo = \
-            pl.DataFrame(episode_infos).mean().row(0, named=True)
-        self._log_episode(mean_episode_info, td_update, duration_info, eval_env=True)
-
         # AUC and windowed AUC
         if self.evaluator:
             if aucs: self.auc = sum(aucs) / len(aucs)
             self.auc_window.append(self.auc)
             self.windowed_auc = sum(self.auc_window) / len(self.auc_window)
+
+        # Log mean result of eval episodes
+        mean_episode_info: EpisodeInfo = \
+            pl.DataFrame(episode_infos).mean().row(0, named=True)
+        self._log_episode(mean_episode_info, td_update, duration_info, eval_env=True)
 
         # Set the networks back to training mode
         self.q_network.train()
@@ -550,7 +554,8 @@ class CRDQN:
             if duration_info:
                 ray_info.update({
                     "duration_error": duration_info.error,
-                    "human_error": (1 - self.auc) + 5 * duration_info.error,
+                    "human_likeness":
+                        self.auc - np.log10(1 + duration_info.error)/6,
                     "gaze_duration": duration_info.durations
                 })
         train.report(ray_info)

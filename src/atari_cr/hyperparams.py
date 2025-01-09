@@ -53,7 +53,7 @@ if __name__ == "__main__":
             "evaluator":
                 "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth",
             "pvm_stack": 3, # from sugarl code
-            "fov": "window",
+            "fov": "exponential",
             "periph": False,
             "timed_env": True,
             "gamma": 0.99,
@@ -69,7 +69,7 @@ if __name__ == "__main__":
             "searchable": {
                 "pause_cost": tune.grid_search([1e-5, 1e-3, 1e-1]),
                 "saccade_cost_scale": tune.grid_search([1e-5, 1e-3, 1e-1]),
-                "fov": tune.grid_search(["window_periph", "window", "exponential"]),
+                # "fov": tune.grid_search(["window_periph", "window", "exponential"]),
                 "env": tune.grid_search(["asterix", "seaquest", "hero"]),
             }
         },
