@@ -120,17 +120,7 @@ class GazeDataset(Dataset):
                 pl.scan_csv(csv_path, null_values=["null"])
                 .select([
                     pl.col("frame_id"),
-                    # Parse gaze positions string to a list of float arrays
-                    pl.when(pl.col("gaze_positions") == "[]")
-                        .then(None)
-                        .otherwise(pl.col("gaze_positions"))
-                        .alias("gazes")
-                        .str.strip_chars("[])")
-                        .str.replace_all(r"['\(,n\\]", "")
-                        .str.split(") ")
-                        .list.eval(
-                            pl.element().str.split(" ").cast(pl.List(pl.Float32))
-                        ),
+                    pl.col("gaze_positions").alias("gazes"),
                     pl.col("duration(ms)")
                 ])
                 .with_row_index("trial_frame_id")
@@ -145,9 +135,8 @@ class GazeDataset(Dataset):
             trial_data = trial_data.drop(pl.col("frame_id"))
 
             # Move the gazes out of the df
-            trial_gazes = [torch.from_numpy(np.array([[]]) if series is None else
-                np.stack(series.to_numpy())) for series in trial_data["gazes"]]
-            trial_data = trial_data.drop(pl.col("gazes"))
+            trial_gazes = [torch.Tensor(eval(x)) for x in trial_data["gazes"]]
+            trial_data = trial_data.drop("gazes")
 
             # Mark train and test data
             split_index = int(len(trial_data) * (1 - test_split))
@@ -184,7 +173,7 @@ class GazeDataset(Dataset):
             # Scale the coords from the original resolution down to the screen size
             scaling = ((torch.Tensor(SCREEN_SIZE) - torch.Tensor([1, 1])) \
                        / torch.Tensor(DATASET_SCREEN_SIZE))
-            trial_gazes = [gazes * scaling if gazes.size(1) == 2 else gazes
+            trial_gazes = [gazes * scaling if gazes.shape[0] == 2 else gazes
                            for gazes in trial_gazes]
 
             # Load or create saliency maps
@@ -195,7 +184,7 @@ class GazeDataset(Dataset):
             else:
                 print(f"Creating saliency maps for {filename}")
                 os.makedirs(saliency_path, exist_ok=True)
-                trial_saliency = [GazeDataset.create_saliency_map(gazes).cpu()
+                trial_saliency = [GazeDataset.create_saliency_map(gazes.cuda()).cpu()
                                   for gazes in trial_gazes]
                 torch.save(trial_saliency, save_path)
                 print(f"Saliency maps saved under {save_path}")
@@ -234,7 +223,7 @@ class GazeDataset(Dataset):
 
         # Cast durations to torch tensor
         durations = torch.Tensor([(duration if duration else 0.)
-                                  for duration in list(df["duration"])])
+                                  for duration in list(df["duration(ms)"])])
 
         return GazeDataset(frames, saliency, train_indices, val_indices,
                            durations, class_output=class_output)
@@ -245,7 +234,7 @@ class GazeDataset(Dataset):
         frames, saliency, train_indices, val_indices = [], [], [], []
         durations = [0.]
 
-        for record in records:
+        for i, record in enumerate(records):
             # Get the saliency maps and gaze durations
             gaze_lists, gazes = [], [] # List of gazes for all rows, list for one frame
             for x, y, pauses, duration in record.annotations[
@@ -263,12 +252,12 @@ class GazeDataset(Dataset):
                     durations.append(0.)
 
             # Merge saliency for all the records
-            saliency.extend([GazeDataset.create_saliency_map(torch.Tensor(gazes))
+            saliency.extend([GazeDataset.create_saliency_map(torch.Tensor(gazes).clone())
                  for gazes in gaze_lists])
 
             # Exclude the last episode frame and drop frames with a pause
-            mask = (record.annotations["pauses"] == 0).to_numpy()
-            record.frames = record.frames[:-1][mask]
+            mask = np.concat([(record.annotations["pauses"] == 0), [False]])
+            records[i].frames = records[i].frames[mask]
 
             # Get train and val indices
             episode_train_indices, episode_val_indices = \
@@ -301,19 +290,19 @@ class GazeDataset(Dataset):
             associated with one frame
         :return Tensor[W x H]: Greyscale saliency map
         """
-        DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+        device = gaze_positions.device
 
         # Double precision; helpful for AUC score calculation later
         dtype = torch.float64
-        gaze_positions = gaze_positions.to(DEVICE).to(dtype)
+        gaze_positions = gaze_positions.to(dtype)
 
         # Return zeros when there is no gaze
         if gaze_positions.shape[-1] == 0:
-            return torch.zeros(SCREEN_SIZE).to(DEVICE).to(dtype)
+            return torch.zeros(SCREEN_SIZE).to(device).to(dtype)
 
         # Generate x and y indices
-        x = torch.arange(0, SCREEN_SIZE[0], 1).to(DEVICE).to(dtype)
-        y = torch.arange(0, SCREEN_SIZE[1], 1).to(DEVICE).to(dtype)
+        x = torch.arange(0, SCREEN_SIZE[0], 1).to(device).to(dtype)
+        y = torch.arange(0, SCREEN_SIZE[1], 1).to(device).to(dtype)
         x, y = torch.meshgrid(x, y, indexing="xy")
 
         # Adjust sigma to correspond to one visual degree
@@ -322,7 +311,7 @@ class GazeDataset(Dataset):
         sigmas = (
             torch.Tensor(SCREEN_SIZE).to(dtype)
             / torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE).to(dtype)
-        ).to(DEVICE) # 1.883, 2.947
+        ).to(device) # 1.883, 2.947
         # Update the sigma to move percentiles for auc calculation
         # into the range of float64
         sigmas *= 4
@@ -340,26 +329,17 @@ class GazeDataset(Dataset):
         # x and y are now both Nx84x84 with N identical copies
         # mesh is Nx2x84x84 with N copies of every possible
         # combination of x and y coordinates
-        saliency_map, _ = torch.max(
+        saliency_map = torch.max(
             torch.exp(
                 -torch.sum(((mesh - gaze_positions) ** 2) / (2 * sigmas**2), dim=1)
             ),
             dim=0,
-        )
+        )[0]
 
-        # Make the tensor sum to 1 for KL Divergence
-        softmax = False
-        if softmax:
-            # Softmaxing instead of normalizing breaks model training
-            # Probably because of extremely high entropy after softmaxing
-            saliency_map = torch.sparse.softmax(saliency_map.view(-1), dim=0).view(
-                SCREEN_SIZE
-            )
-        else:
-            # Normalization
-            if saliency_map.sum() == 0:
-                saliency_map = torch.ones(saliency_map.shape)
-            saliency_map = saliency_map / saliency_map.sum()
+        # Normalization
+        if saliency_map.sum().item() == 0:
+            saliency_map = torch.ones(saliency_map.shape)
+        saliency_map = saliency_map / saliency_map.sum()
         return saliency_map
 
     @staticmethod

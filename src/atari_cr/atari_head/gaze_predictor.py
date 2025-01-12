@@ -32,12 +32,13 @@ class ArgParser(Tap):
     dropout: float = 0.3 # Dropout rate for unet training
     ray: bool = False # Whether to use ray for multiple training runs
 
+# @torch.compile()
 class GazePredictionNetwork(nn.Module):
     """
     Conv deconv network predicting a saliency map for a given stack of
     4 greyscale atari game images.
     """
-    def __init__(self, dropout = 0.5):
+    def __init__(self, dropout = 0.25):
         super(GazePredictionNetwork, self).__init__()
 
         # Convolutional layers
@@ -57,31 +58,32 @@ class GazePredictionNetwork(nn.Module):
 
         # Softmax layer; Uses log softmax to conform to the KLDiv expected input
         self.log_softmax = nn.LogSoftmax(dim=1)
+        self.act = nn.GELU()
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         # Convolutional layers
         x = self.conv2d_1(x)
-        x = F.relu(x)
         x = self.batch_normalization_1(x)
+        x = self.act(x)
         x = self.dropout(x)
         x = self.conv2d_2(x)
-        x = F.relu(x)
         x = self.batch_normalization_2(x)
+        x = self.act(x)
         x = self.dropout(x)
         x = self.conv2d_3(x)
-        x = F.relu(x)
         x = self.batch_normalization_3(x)
+        x = self.act(x)
         x = self.dropout(x)
 
         # Deconvolutional layers
         x = self.conv2d_transpose_1(x)
-        x = F.relu(x)
         x = self.batch_normalization_4(x)
+        x = self.act(x)
         x = self.dropout(x)
         x = self.conv2d_transpose_2(x)
-        x = F.relu(x)
         x = self.batch_normalization_5(x)
+        x = self.act(x)
         x = self.dropout(x)
         x = self.conv2d_transpose_3(x)
 
@@ -114,14 +116,11 @@ class GazePredictionNetwork(nn.Module):
                     .replace("variance", "var") \
                     .replace("kernel", "weight")
 
-                if not isinstance(value[:], np.ndarray): breakpoint()
                 value = torch.Tensor(value[:])
                 value = value.permute(list(reversed(range(len(value.shape)))))
                 key = key.replace("kernel", "weight")
 
                 state_dict[f"{layer}.{key}"] = torch.Tensor(value)
-
-        # OPTIONAL: Optimizer weights
 
         model.load_state_dict(state_dict)
 
@@ -213,7 +212,7 @@ class GazePredictor():
 
                 # Non log space metrics
                 aucs[i] = self.saliency_auc(
-                    saliency_batch, pred, self.device, True).mean()
+                    saliency_batch, pred, self.device, True).mean().item()
                 sums[i] = pred.sum() / pred.size(0)
                 entropies[i] = norm_entropy(pred.view(pred.size(0), -1), dim=1).mean()
                 min_val = min(min_val, pred.min().item())
@@ -226,16 +225,16 @@ class GazePredictor():
                 # KLDiv calculation in log space
                 pred = pred.log()
                 kl_divs[i] = nn.KLDivLoss(reduction="batchmean")(
-                    pred, saliency_batch).detach()
+                    pred, saliency_batch).item()
 
-            r: EvalResult = {
-                "min": min_val,
-                "max": max_val,
-                "sum": sums.mean().item(),
-                "kl_div": kl_divs.mean().item(),
-                "auc": aucs.mean().item(),
-                "entropy": entropies.mean().item()
-            }
+        r: EvalResult = {
+            "min": min_val,
+            "max": max_val,
+            "sum": sums.mean().item(),
+            "kl_div": kl_divs.mean().item(),
+            "auc": aucs.mean().item(),
+            "entropy": entropies.mean().item()
+        }
 
         return r
 
@@ -393,7 +392,6 @@ class GazePredictor():
         pred_percentiles = torch.arange(0.05, 1., 0.05).to(device)
         pred_percentile_saliency_maps = percentile_saliency(
             pred_saliency, pred_percentiles)
-        # debug_array(pred_percentile_saliency_maps.view(-1,16,84,84))
 
         if threshold_gt:
             gt_percentiles = pred_percentiles
@@ -404,7 +402,6 @@ class GazePredictor():
                 [0.98, 0.95, 0.90, 0.85, 0.80, 0.50]).to(device)
         gt_percentile_saliency_maps = percentile_saliency(gt_saliency, gt_percentiles)
             # -> [4,B,WxH]
-        # debug_array(gt_percentile_saliency_maps.view(-1,16,84,84))
 
         # Broadcast for comparison
         gt_percentile_saliency_maps = gt_percentile_saliency_maps.unsqueeze(0)
@@ -415,9 +412,8 @@ class GazePredictor():
                 -1, len(pred_percentiles), -1, -1)
             pred_percentile_saliency_maps = pred_percentile_saliency_maps.expand(len(
                 gt_percentiles), -1, -1, -1)
-
         return (gt_percentile_saliency_maps == pred_percentile_saliency_maps).type(
-            torch.float32).mean(dim=[1,3])
+            torch.float32).mean(dim=[1,3]).clone()
 
 def entropy(t: torch.Tensor, dim: Optional[int] = None):
     """ :param Tensor t: """

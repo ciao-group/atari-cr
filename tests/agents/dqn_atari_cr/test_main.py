@@ -48,15 +48,14 @@ class TestMain(unittest.TestCase):
         argv.extend([
             "--clip_reward",
             "--capture_video",
-            "--env", "ms_pacman",
+            "--env", "asterix",
             "--exp_name", "test_og",
             "--total_timesteps", "100",
             "--learning_start", "50",
             "--debug",
             "--pause_cost", "0.05",
             "--action_repeat", "5",
-            "--evaluator",
-                "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth"
+            "--evaluator"
         ])
 
         args = ArgParser().parse_args(known_only=True)

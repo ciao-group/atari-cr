@@ -5,7 +5,8 @@ import torch
 from tap import Tap
 
 from active_gym.atari_env import AtariEnv, AtariEnvArgs, RecordWrapper, FixedFovealEnv
-from atari_cr.atari_head.gaze_predictor import GazePredictor
+from atari_cr.atari_head.dataset import GazeDataset
+from atari_cr.atari_head.gaze_predictor import GazePredictionNetwork, GazePredictor
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
@@ -51,7 +52,7 @@ class ArgParser(Tap):
 
     # Eval args
     eval_frequency: int = -1 # How many steps to take in the env before a new evaluation
-    eval_num: int = 10 # How many envs are created for evaluation
+    eval_num: int = 4 # How many envs are created for evaluation
     checkpoint: str = "" # Checkpoint to resume training
 
     # Pause args
@@ -66,7 +67,7 @@ class ArgParser(Tap):
     no_model_output: bool = False # Whether to disable saving the finished model
     no_pvm_visualization: bool = False # Whether to disable output of PVM visualizations
     debug: bool = False # Debug mode for more output
-    evaluator: str = "" # Path to gaze predictor weights for evaluation
+    evaluator: bool = False # Whether to use a model to evaluate human-likeness
     fov: FovType = "window" # Type of fovea
     og_env: bool = False # Whether to use normal sugarl env
     timed_env: bool = False # Whether to use a time sensitve env for pausing
@@ -137,7 +138,20 @@ def main(args: ArgParser):
     env = make_train_env(args)
 
     # Gaze predictor for evaluation of the agent's human-plausibility
-    evaluator = GazePredictor.from_save_file(args.evaluator) if args.evaluator else None
+    if args.evaluator:
+        evaluator_dir = f"/home/niko/Repos/atari-cr/output/atari_head/{args.env}"
+        checkpoint_dir = os.path.join(evaluator_dir, "500")
+        if os.path.exists(checkpoint_dir):
+            evaluator = GazePredictor.from_save_file(
+                os.path.join(checkpoint_dir, "checkpoint.pth"))
+        else:
+            print("No existing gaze predictor found. Starting training...")
+            evaluator = GazePredictor(GazePredictionNetwork())
+            train_loader, val_loader = GazeDataset.from_atari_head_files(
+                root_dir=os.path.join("/home","niko","Repos","atari-cr","data","Atari-HEAD",args.env),
+                load_saliency=True).split()
+            evaluator.train(500, train_loader, val_loader, evaluator_dir)
+    else: evaluator = None
 
     agent = CRDQN(
         env=env,

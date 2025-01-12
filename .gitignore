@@ -25,3 +25,5 @@ runs
 logs
 recordings
 trained_models
+*.html
+*.bin

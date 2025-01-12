@@ -31,7 +31,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
     """
     def __init__(self, env: AtariEnv, args: AtariEnvArgs, pause_cost = 0.01,
             saccade_cost_scale = 0.001, fov: FovType = "window", no_pauses = False,
-            consecutive_pause_limit = 50, timer = False, fov_weighting=False):
+            consecutive_pause_limit = 20, timer = False, fov_weighting=False):
         super().__init__(env)
         self.fov = Fovea(fov, args.fov_size, weighting=fov_weighting)
         self.fov_init_loc: Tuple[int, int] = args.fov_init_loc

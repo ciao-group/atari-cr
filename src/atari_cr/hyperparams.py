@@ -36,7 +36,7 @@ if __name__ == "__main__":
         trainable,
         {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
 
-    metric, mode = ("duration_error", "min") if GAZE_TARGET else ("raw_reward", "max")
+    metric, mode = ("human_likeness", "max") if GAZE_TARGET else ("raw_reward", "max")
     tuner = tune.Tuner(
         trainable,
         param_space={

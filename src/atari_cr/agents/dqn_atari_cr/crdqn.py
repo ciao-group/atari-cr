@@ -51,7 +51,7 @@ class CRDQN:
             eval_frequency = -1,
             gamma = 0.99,
             cuda = True,
-            n_evals = 10,
+            n_evals = 4,
             ignore_sugarl = True,
             no_model_output = False,
             no_pvm_visualization = False,
@@ -414,7 +414,6 @@ class CRDQN:
                     dataset = GazeDataset.from_game_data([episode_record])
                     loader = dataset.to_loader()
                     aucs.append(self.evaluator.eval(loader)["auc"])
-                    del dataset, loader
                 # Duration error calculation
                 duration_info = DurationInfo.from_episodes(
                     [episode_record], self.env_name)
