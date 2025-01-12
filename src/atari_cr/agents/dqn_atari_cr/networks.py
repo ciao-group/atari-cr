@@ -14,6 +14,7 @@ class QNetwork(nn.Module):
         super().__init__()
         self.pause_feat = pause_feat
         self.s_action_feat = s_action_feat
+        act = nn.GELU
 
         # Get the size of the different network heads
         assert isinstance(env.single_action_space, spaces.Dict)
@@ -22,14 +23,14 @@ class QNetwork(nn.Module):
 
         self.conv_backbone = nn.Sequential( # -> [4,84,84]
             nn.Conv2d(4, 32, 8, stride=4), # -> [32,20,20]
-            # nn.BatchNorm2d(32),
-            nn.ReLU(),
+            nn.BatchNorm2d(32),
+            act(),
             nn.Conv2d(32, 64, 4, stride=2), # -> [64,9,9]
-            # nn.BatchNorm2d(64),
-            nn.ReLU(),
+            nn.BatchNorm2d(64),
+            act(),
             nn.Conv2d(64, 64, 3, stride=1), # -> [64,7,7]
-            # nn.BatchNorm2d(64),
-            nn.ReLU(),
+            nn.BatchNorm2d(64),
+            act(),
             nn.Flatten(), # -> [3136]
         )
 
@@ -40,7 +41,8 @@ class QNetwork(nn.Module):
 
         self.linear_backbone = nn.Sequential(
             nn.Linear(dim, 512),
-            nn.ReLU(),
+            nn.BatchNorm1d(512),
+            act(),
         )
 
         self.motor_action_head = nn.Linear(512, self.motor_out_dim)

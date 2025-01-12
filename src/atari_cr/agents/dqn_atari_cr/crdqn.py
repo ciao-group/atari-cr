@@ -164,6 +164,10 @@ class CRDQN:
         ).to(self.device)
         self.target_network.load_state_dict(self.q_network.state_dict())
 
+        # Eval mode except when training from replay buffer
+        self.q_network.eval()
+        self.target_network.eval()
+
         # Self Prediction Networks; used to judge the quality of sensory actions
         self.sfn = SelfPredictionNetwork(self.env).to(self.device)
         self.sfn_optimizer = Adam(self.sfn.parameters(), lr=learning_rate)
@@ -301,7 +305,6 @@ class CRDQN:
 
     def evaluate(self, td_update: TdUpdateInfo, file_output = True):
         # Set networks to eval mode
-        self.q_network.eval()
         self.sfn.eval()
 
         episode_infos, out_paths, aucs = [], [], []
@@ -432,7 +435,6 @@ class CRDQN:
         self._log_episode(mean_episode_info, td_update, duration_info, eval_env=True)
 
         # Set the networks back to training mode
-        self.q_network.train()
         self.sfn.train()
 
         eval_returns: List[float] = [
@@ -595,6 +597,8 @@ class CRDQN:
             self._preprocess_features(data)
 
         # Target network prediction
+        self.q_network.train()
+        self.target_network.train()
         with torch.no_grad():
             # Assign a value to every possible action in the next state for one batch
             motor_target, sensory_target = self.target_network(
@@ -645,6 +649,9 @@ class CRDQN:
                 data.rewards.flatten().mean().item(), sugarl_penalty.mean().item(),
                 next_state_value.mean().item(), loss.mean().item(),
                 motor_target_max.mean().item(), sensory_target_max.mean().item())
+
+        self.q_network.eval()
+        self.target_network.eval()
 
         return r
 
