@@ -94,7 +94,6 @@ def preprocess(frame: np.ndarray):
     """
     width = 84
     height = 84
-    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
     return torch.Tensor(frame / 255.0)

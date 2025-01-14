@@ -7,7 +7,7 @@ from atari_cr.atari_head.gaze_predictor import GazePredictor
 if __name__ == "__main__":
     for env in ["asterix", "seaquest", "hero"]:
         # Load Model
-        predictor = GazePredictor.load(f"output/atari_head/{env}/500/checkpoint.pth")
+        predictor = GazePredictor.load(f"output/atari_head/{env}/300/checkpoint.pth")
         predictor.model.eval()
 
         # Load Data
