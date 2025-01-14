@@ -332,7 +332,7 @@ class GazePredictor():
         print(f"Saved model checkpoint to {checkpoint_dir}")
 
     @staticmethod
-    def from_save_file(save_path: str, model_class=GazePredictionNetwork):
+    def load(save_path: str, model_class=GazePredictionNetwork):
         model = model_class()
         model.load_state_dict(torch.load(save_path, weights_only=False))
 
@@ -439,7 +439,7 @@ def train_predictor(args: ArgParser, dataset: Optional[GazeDataset] = None):
     single_run = "52_RZ_2394668_Aug-10-14-52-42" if args.debug else ""
     model_name = args.model_name or single_run or "all_trials"
     dataset = dataset or GazeDataset.from_atari_head_files(
-        root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=single_run,
+        game_dir=f'data/Atari-HEAD/{env_name}', single_trial=single_run,
         load_saliency=args.load_saliency)
     train_loader, val_loader = dataset.split()
 
@@ -456,7 +456,7 @@ def train_predictor(args: ArgParser, dataset: Optional[GazeDataset] = None):
         latest_epoch = sorted([int(file) for file in model_files])[-1]
         save_path = os.path.join(model_dir, str(latest_epoch), "checkpoint.pth")
         print(f"Loading existing gaze predictor from {save_path}")
-        gaze_predictor = GazePredictor.from_save_file(save_path, net)
+        gaze_predictor = GazePredictor.load(save_path, net)
     else:
         print("Creating new gaze model")
         model = net() if args.unet else GazePredictionNetwork.from_h5(
@@ -491,7 +491,7 @@ if __name__ == "__main__":
         env_name = "ms_pacman"
         single_run = "52_RZ_2394668_Aug-10-14-52-42" if True else ""
         dataset = GazeDataset.from_atari_head_files(
-            root_dir=f'data/Atari-HEAD/{env_name}', load_single_run=single_run,
+            game_dir=f'data/Atari-HEAD/{env_name}', single_trial=single_run,
             load_saliency=True)
 
         trainable = tune_predictor

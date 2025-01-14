@@ -72,6 +72,19 @@ def open_mp4_as_frame_list(path: str):
     video.release()
     return frames
 
+def save_video(frames: np.ndarray, video_path: str, greyscale = False):
+    """ Saves a numpy array as .mp4 """
+    size = frames[0].shape[:2][::-1]
+    fps = 12 # 60 / frame_skip
+    video_writer = cv2.VideoWriter(
+        video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, size,
+        isColor=not greyscale)
+    if frames.dtype == np.float32:
+        frames = (frames * 255).astype(np.uint8)
+    for frame in frames:
+        video_writer.write(frame)
+    video_writer.release()
+
 def preprocess(frame: np.ndarray):
     """
     Image preprocessing function from IL-CGL.

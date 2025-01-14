@@ -9,7 +9,7 @@ import yaml
 from scipy.stats import wasserstein_distance
 
 from atari_cr.atari_head.durations import BINS, get_durations
-from atari_cr.atari_head.utils import open_mp4_as_frame_list
+from atari_cr.atari_head.utils import open_mp4_as_frame_list, save_video
 from atari_cr.foveation import Fovea
 
 
@@ -117,20 +117,6 @@ class EpisodeRecord():
         return video_path, annotation_path, args_path, obs_path
 
     @staticmethod
-    def _save_video(frames: np.ndarray, video_path: str, greyscale = False):
-        """ Saves a numpy array as .mp4 """
-        size = frames[0].shape[:2][::-1]
-        fps = 12 # 60 / frame_skip
-        video_writer = cv2.VideoWriter(
-            video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, size,
-            isColor=not greyscale)
-        if greyscale and frames.dtype == np.float32:
-            frames = (frames * 255).astype(np.uint8)
-        for frame in frames:
-            video_writer.write(frame)
-        video_writer.release()
-
-    @staticmethod
     def _load_video(path: str):
         frames = []
         vid_capture = cv2.VideoCapture(path)
@@ -215,7 +201,7 @@ class EpisodeRecord():
 
             frames.append(frame)
         frames.append(self.frames[-1])
-        EpisodeRecord._save_video(np.stack(frames), video_path)
+        save_video(np.stack(frames), video_path)
 
         # Safe annotations and args
         self.annotations.write_csv(annotation_path)
@@ -230,7 +216,7 @@ class EpisodeRecord():
                 ) for obs in (self._obs * 255).astype(np.uint8)])
 
             Fovea(self.args["fov"], fov_size).draw(frames, fov_locs)
-            EpisodeRecord._save_video(np.concatenate([upscaled_obs, frames], axis=2),
+            save_video(np.concatenate([upscaled_obs, frames], axis=2),
                                       obs_path)
 
     @staticmethod

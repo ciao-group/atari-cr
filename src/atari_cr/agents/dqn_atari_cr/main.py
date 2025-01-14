@@ -142,13 +142,13 @@ def main(args: ArgParser):
         evaluator_dir = f"/home/niko/Repos/atari-cr/output/atari_head/{args.env}"
         checkpoint_dir = os.path.join(evaluator_dir, "500")
         if os.path.exists(checkpoint_dir):
-            evaluator = GazePredictor.from_save_file(
+            evaluator = GazePredictor.load(
                 os.path.join(checkpoint_dir, "checkpoint.pth"))
         else:
             print("No existing gaze predictor found. Starting training...")
             evaluator = GazePredictor(GazePredictionNetwork())
             train_loader, val_loader = GazeDataset.from_atari_head_files(
-                root_dir=os.path.join("/home","niko","Repos","atari-cr","data","Atari-HEAD",args.env),
+                game_dir=os.path.join("/home","niko","Repos","atari-cr","data","Atari-HEAD",args.env),
                 load_saliency=True).split()
             evaluator.train(500, train_loader, val_loader, evaluator_dir)
     else: evaluator = None

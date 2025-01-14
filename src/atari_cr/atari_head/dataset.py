@@ -1,14 +1,17 @@
 import os
+import random
 from typing import List
 import cv2
 import numpy as np
 import torch
+from torch import Tensor
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 import polars as pl
 
 from atari_cr.models import EpisodeRecord
 from atari_cr.module_overrides import tqdm
-from atari_cr.atari_head.utils import SCREEN_SIZE, VISUAL_DEGREE_SCREEN_SIZE, preprocess
+from atari_cr.atari_head.utils import (
+    SCREEN_SIZE, VISUAL_DEGREE_SCREEN_SIZE, preprocess, save_video)
 
 # Screen size from https://github.com/corgiTrax/Gaze-Data-Processor/blob/master/data_visualizer.py
 DATASET_SCREEN_SIZE = [160, 210]
@@ -23,21 +26,18 @@ class GazeDataset(Dataset):
     :param Tensor[N] train_indcies: Indices of frame stacks used for training
     :param Tensor[N] val_indcies: Inidcies of frame stacks used for validation
     :param Tensor[N] durations: How long each frame was looked at
-    :param bool class_output: Whether to output the gaze positions as 1D
-        discrete class labels
     """
 
     def __init__(
-        self, frames: torch.Tensor, saliency: torch.Tensor,
-        train_indices: torch.Tensor, val_indices: torch.Tensor, durations: torch.Tensor,
-        class_output=False,
+        self, frames: Tensor, saliency: Tensor, train_indices: Tensor,
+        val_indices: Tensor, durations: Tensor, gazes: list[Tensor]
     ):
         self.frames = frames
         self.saliency = saliency
         self.train_indices = train_indices
         self.val_indices = val_indices
         self.durations = durations
-        self.class_output = class_output
+        self.gazes = gazes
 
     def split(self, batch_size=512):
         """
@@ -65,7 +65,7 @@ class GazeDataset(Dataset):
     def __len__(self):
         return len(self.train_indices) + len(self.val_indices)
 
-    def __getitem__(self, idx: torch.Tensor):
+    def __getitem__(self, idx: Tensor):
         """
         Loads the images from paths specified in self.data and creates a
         saliency map from the gaze_positions.
@@ -76,43 +76,41 @@ class GazeDataset(Dataset):
         item = (self.frames[idx - 3:idx + 1], )
 
         # Output
-        if self.class_output:
-            raise NotImplementedError
-        else:
-            item = (*item,
-                self.saliency[idx])
+        item = (*item,
+            self.saliency[idx])
 
         return item
 
     @staticmethod
     def from_atari_head_files(
-        root_dir: str,
-        load_single_run="",
+        game_dir: str,
+        single_trial=False,
         test_split=0.2,
         load_saliency=False,
-        class_output=False,
+        # remove_blinks=False, TODO
     ):
         """
         Loads the data in the Atari-HEAD format into a dataframe with metadata
         and image paths.
 
-        :param str load_single_run: Name of a single trial to be used. If
-            empty, all trials are loaded
+        :param bool load_single_run: Whether to load only a single game trial for
+            cases where the entire dataset is not needed
         """
-        dfs, frames, saliency = [], [], []
+        dfs, frames, saliency, gazes = [], [], [], []
 
         # Count the files that still need to be loaded
         csv_files = list(
             filter(
-                lambda filename: filename.endswith(".csv")
-                and load_single_run in filename,
-                os.listdir(root_dir),
+                lambda filename: filename.endswith(".csv"),
+                os.listdir(game_dir),
             )
         )
+        if single_trial:
+            csv_files = [random.choice(csv_files)]
 
         print("Loading images and saliency maps into memory")
         for filename in tqdm(csv_files, total=len(csv_files)):
-            csv_path = os.path.join(root_dir, filename)
+            csv_path = os.path.join(game_dir, filename)
             subdir_name = os.path.splitext(filename)[0]
 
             # Load images and gaze positions
@@ -129,13 +127,13 @@ class GazeDataset(Dataset):
 
             # Move the frames out of the df
             trial_frames = torch.from_numpy(np.array([
-                preprocess(cv2.imread(os.path.join(root_dir, subdir_name, id + ".png")))
+                preprocess(cv2.imread(os.path.join(game_dir, subdir_name, id + ".png")))
                  for id in trial_data["frame_id"]]))
             assert len(trial_frames) == len(trial_data)
             trial_data = trial_data.drop(pl.col("frame_id"))
 
             # Move the gazes out of the df
-            trial_gazes = [torch.Tensor(eval(x)) for x in trial_data["gazes"]]
+            trial_gazes = [Tensor(eval(x)) for x in trial_data["gazes"]]
             trial_data = trial_data.drop("gazes")
 
             # Mark train and test data
@@ -148,36 +146,14 @@ class GazeDataset(Dataset):
                 )
             )
 
-            if class_output:
-                # A small fraction of frames has up to 16.000 gaze positions
-                # The number of gazes for these is trimmed
-                # to the 0.999 percentile to facilitate learning
-                gaze_counts = [len(a) for a in trial_gazes]
-                # Number of gazes at 0.999 quantile
-                max_gazes = int(np.quantile(gaze_counts, 0.999))
-                trial_gazes = [gazes[:max_gazes] for gazes in trial_gazes]
-                # Trim the gaze positions to be within the screen
-                min_coords = torch.Tensor([0, 0])
-                max_coords = torch.Tensor(DATASET_SCREEN_SIZE)
-
-                def trim_coords(t: torch.Tensor):
-                    if t.shape == torch.Size([0]):
-                        return t
-                    n = t.size(0)
-                    t = torch.max(t, min_coords.view([1, 2]).expand([n, 2]))
-                    t = torch.min(t, max_coords.view([1, 2]).expand([n, 2]))
-                    return t
-
-                trial_gazes = [trim_coords(gazes) for gazes in trial_gazes]
-
             # Scale the coords from the original resolution down to the screen size
-            scaling = ((torch.Tensor(SCREEN_SIZE) - torch.Tensor([1, 1])) \
-                       / torch.Tensor(DATASET_SCREEN_SIZE))
-            trial_gazes = [gazes * scaling if gazes.shape[0] == 2 else gazes
+            scaling = ((Tensor(SCREEN_SIZE) - Tensor([1, 1])) \
+                       / Tensor(DATASET_SCREEN_SIZE))
+            trial_gazes = [gazes * scaling if gazes.numel() > 0 else gazes
                            for gazes in trial_gazes]
 
             # Load or create saliency maps
-            saliency_path = os.path.join(root_dir, "saliency")
+            saliency_path = os.path.join(game_dir, "saliency")
             save_path = os.path.join(saliency_path, filename)[:-4] + ".pt"
             if os.path.exists(save_path) and load_saliency:
                 trial_saliency = torch.load(save_path, weights_only=False)
@@ -191,6 +167,7 @@ class GazeDataset(Dataset):
 
             dfs.append(trial_data)
             frames.extend(trial_frames)
+            gazes.extend(trial_gazes)
             saliency.extend(trial_saliency)
 
         # Combine the trial data
@@ -202,31 +179,20 @@ class GazeDataset(Dataset):
         # Create a global id column
         df = df.with_columns(pl.arange(len(df)).alias("id"))
 
-        if class_output:
-            # Turn the coordinates from a (x,y) pair to a 1D vector of size 7056 for
-            # transformer usage
-            def to_gaze_class(t: torch.Tensor):
-                """:param Tensor[N,2] t:"""
-                return (t.to(torch.int16) * torch.Tensor([1, 84])).sum(axis=1) + 2
-
-            df = df.with_columns(
-                pl.col("gazes").map_elements(to_gaze_class).alias("gaze_classes")
-            )
-
         # Train and val indices
-        train_indices = torch.Tensor(list(df.lazy().filter(
+        train_indices = Tensor(list(df.lazy().filter(
             (pl.col("trial_frame_id") >= 3) & pl.col("train")).select(
             pl.col("id")).collect().to_series())).to(torch.int32)
-        val_indices = torch.Tensor(list(df.lazy().filter(
+        val_indices = Tensor(list(df.lazy().filter(
             (pl.col("trial_frame_id") >= 3) & ~pl.col("train")).select(
             pl.col("id")).collect().to_series())).to(torch.int32)
 
         # Cast durations to torch tensor
-        durations = torch.Tensor([(duration if duration else 0.)
+        durations = Tensor([(duration if duration else 0.)
                                   for duration in list(df["duration(ms)"])])
 
         return GazeDataset(frames, saliency, train_indices, val_indices,
-                           durations, class_output=class_output)
+                           durations, gazes)
 
     @staticmethod
     def from_game_data(records: List[EpisodeRecord], test_split = 0.2):
@@ -252,7 +218,7 @@ class GazeDataset(Dataset):
                     durations.append(0.)
 
             # Merge saliency for all the records
-            saliency.extend([GazeDataset.create_saliency_map(torch.Tensor(gazes).clone())
+            saliency.extend([GazeDataset.create_saliency_map(Tensor(gazes).clone())
                  for gazes in gaze_lists])
 
             # Exclude the last episode frame and drop frames with a pause
@@ -269,19 +235,20 @@ class GazeDataset(Dataset):
             # Append preprocessed frames to the list of frames
             frames.extend([preprocess(frame) for frame in record.frames])
 
-        train_indices = torch.Tensor(train_indices).to(torch.int32)
-        val_indices = torch.Tensor(val_indices).to(torch.int32)
-        frames = torch.Tensor(np.stack(frames))
+        train_indices = Tensor(train_indices).to(torch.int32)
+        val_indices = Tensor(val_indices).to(torch.int32)
+        frames = Tensor(np.stack(frames))
         saliency = torch.stack(saliency)
         # Remove the trailing empty duration and cast to milliseconds
-        durations = torch.Tensor(durations[:-1]) * 1000
+        durations = Tensor(durations[:-1]) * 1000
         assert len(train_indices) + len(val_indices) + 3 * len(records) \
             == len(frames) == len(durations)
 
-        return GazeDataset(frames, saliency, train_indices, val_indices, durations)
+        return GazeDataset(frames, saliency, train_indices, val_indices, durations,
+                           gaze_lists)
 
     @staticmethod
-    def create_saliency_map(gaze_positions: torch.Tensor):
+    def create_saliency_map(gaze_positions: Tensor):
         """
         Takes gaze positions on a 84 by 84 pixels screen to turn them into a saliency
         map
@@ -309,8 +276,7 @@ class GazeDataset(Dataset):
         # Screen Size: 44,6 x 28,5 visual degrees
         # Visual Degrees per Pixel: 0,5310 x 0,3393
         sigmas = (
-            torch.Tensor(SCREEN_SIZE).to(dtype)
-            / torch.Tensor(VISUAL_DEGREE_SCREEN_SIZE).to(dtype)
+            Tensor(SCREEN_SIZE).to(dtype) / Tensor(VISUAL_DEGREE_SCREEN_SIZE).to(dtype)
         ).to(device) # 1.883, 2.947
         # Update the sigma to move percentiles for auc calculation
         # into the range of float64
@@ -355,10 +321,23 @@ class GazeDataset(Dataset):
         split_idx = int(len(indices) * (1 - test_split))
         return indices[:split_idx].tolist(), indices[split_idx:].tolist()
 
+    def to_video(self, out_path: str):
+        """ Saves a short video of the first frames in the dataset """
+        # Get the first 1000 frames as a numpy array
+        frames = self.frames[:1000].numpy()
+        gazes = [x.numpy().astype(int) for x in self.gazes[:1000]]
+        # gazes = [x[:,[1,0]] if x.size > 0 else x for x in gazes]
+        # Broadcast to RGB
+        frames = np.tile(frames[...,None], (1,1,1,3))
+        frames = (frames * 255).astype(np.uint8)
+
+        # Draw gazes onto the video
+        for i in range(len(frames)):
+            for j in range(len(gazes[i])):
+                cv2.drawMarker(frames[i], gazes[i][j], (0,255,0), 1, 5)
+
+        save_video(frames, out_path)
+
 if __name__ == "__main__":
-    episode_dirs = [
-        "tests/assets/ray-10-16/" + dir for dir in os.listdir("tests/assets/ray-10-16")]
-    dataset = GazeDataset.from_game_data(
-            [EpisodeRecord.load(dir) for dir in episode_dirs])
-    loader = dataset.to_loader()
-    print(dataset)
+    dataset = GazeDataset.from_atari_head_files("data/Atari-HEAD/asterix", True)
+    dataset.to_video("debug.mp4")

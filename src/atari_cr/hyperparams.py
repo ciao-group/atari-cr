@@ -50,8 +50,7 @@ if __name__ == "__main__":
             "exp_name": "tuning",
             "learning_start": 80_000,
             "debug": DEBUG,
-            "evaluator":
-                "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth",
+            "evaluator": True,
             "pvm_stack": 3, # from sugarl code
             "fov": "exponential",
             "periph": False,
