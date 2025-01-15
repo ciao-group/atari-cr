@@ -307,7 +307,7 @@ class CRDQN:
         # Set networks to eval mode
         self.sfn.eval()
 
-        episode_infos, out_paths, aucs = [], [], []
+        episode_infos, out_paths, aucs, emma_times = [], [], [], []
         for eval_ep in range(self.n_evals):
             # Create env
             eval_env = self.eval_env_generator(eval_ep) # VecEnv with a single env in it
@@ -341,7 +341,6 @@ class CRDQN:
 
                 # Do some random actions in debug mode to get some pauses
                 epsilon = 0.1 if self.debug else 0.
-
                 # Chose an action from the Q network
                 sensory_noops = np.array(
                     [self._sensory_action_ids([e.fov_loc])[0] for e in eval_env.envs])
@@ -418,8 +417,12 @@ class CRDQN:
                     loader = dataset.to_loader()
                     aucs.append(self.evaluator.eval(loader)["auc"])
                 # Duration error calculation
+                # TODO: duration_info is only logged for the last eval env, this should
+                # be aggregated
                 duration_info = DurationInfo.from_episodes(
                     [episode_record], self.env_name)
+
+            emma_times.extend(episode_record.annotations["emma_time"].drop_nulls().to_list())
 
             eval_env.close()
 
@@ -432,7 +435,8 @@ class CRDQN:
         # Log mean result of eval episodes
         mean_episode_info: EpisodeInfo = \
             pl.DataFrame(episode_infos).mean().row(0, named=True)
-        self._log_episode(mean_episode_info, td_update, duration_info, eval_env=True)
+        self._log_episode(mean_episode_info, td_update, duration_info, eval_env=True,
+                          emma_times=emma_times)
 
         # Set the networks back to training mode
         self.sfn.train()
@@ -505,7 +509,11 @@ class CRDQN:
                     self.env_name
                 )
 
-            self._log_episode(episode_info, td_update, duration_info, eval_env=False)
+            emma_times = (env.envs[0].prev_episode.annotations["emma_time"]
+                .drop_nulls().to_list())
+
+            self._log_episode(episode_info, td_update, duration_info, eval_env=False,
+                              emma_times=emma_times)
 
         # Update the latest observation in the pvm buffer
         assert len(env.envs) == 1, \
@@ -525,7 +533,7 @@ class CRDQN:
 
     def _log_episode(self, episode_info: EpisodeInfo,
             td_update: Optional[TdUpdateInfo], duration_info: Optional[DurationInfo],
-            eval_env: bool):
+            eval_env: bool, emma_times: list[float]):
         # Prepare the episode infos for the different supported envs
         if isinstance(self.envs[0], FixedFovealEnv):
             new_info = episode_info
@@ -541,6 +549,7 @@ class CRDQN:
             "windowed_auc": self.windowed_auc,
             "truncated": episode_info["truncated"],
             "eval_env": eval_env,
+            "emma_times": emma_times
         }
         if td_update:
             ray_info.update({f"td/{k}": v for k,v in td_update._asdict().items()})

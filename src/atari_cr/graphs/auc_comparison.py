@@ -12,7 +12,7 @@ if __name__ == "__main__":
 
         # Load Data
         dataset = GazeDataset.from_atari_head_files(
-            "data/Atari-HEAD/" + env, single_trial=False)
+            "data/Atari-HEAD/" + env, single_trial=True)
         _, val_loader = dataset.split(3)
         frame_stacks, saliency_maps = next(iter(val_loader))
         with torch.no_grad():

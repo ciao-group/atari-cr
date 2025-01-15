@@ -115,19 +115,11 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             info = {"raw_reward": 0}
             # Durations for pause steps are instead counted for the next non-pause
             duration = 0
+            reward -= self.pause_cost
 
-            # TODO: Remove after some time
-            # Mask out unwanted pause behavior
-            if self.consecutive_pauses > self.consecutive_pause_limit:
-                raise NotImplementedError()
-            elif np.all(self.fov_loc == action["sensory_action"]):
-                raise NotImplementedError()
-            else:
-                # Normal pause
-                reward -= self.pause_cost
-
-            step_info = self._post_step_logging(step_info, info["raw_reward"], reward,
-                                                done, truncated, duration, saccade_cost)
+            step_info = self._post_step_logging(
+                step_info, info["raw_reward"], reward, done, truncated, duration,
+                saccade_cost, step_time)
             step_infos = [step_info]
 
         else: # Normal step
@@ -144,7 +136,6 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 duration = int((self.time_passed % 50 + 1) * 50)
             else:
                 # Round the time up to 50ms steps and repeat the action for every 50ms
-                # step
                 action_repetitions = int(self.time_passed // 50 + 1)
                 duration = 50
             self.time_passed = self.time_passed % 50
@@ -162,7 +153,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
                 # Log the step
                 step_info = self._post_step_logging(step_info, info["raw_reward"],
-                    partial_reward, done, truncated, duration, saccade_cost)
+                    partial_reward, done, truncated, duration, saccade_cost, step_time)
+                step_time = None # Log step_time only once
                 step_infos.append(step_info)
 
                 # Break early if done or truncated
@@ -207,13 +199,15 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         return step_info
 
     def _post_step_logging(self, step_info: StepInfo, raw_reward: float, reward: float,
-            done: bool, truncated: bool, duration: float, saccade_cost: float):
+            done: bool, truncated: bool, duration: float, saccade_cost: float,
+            emma_time: Optional[float]):
         step_info["raw_reward"] = raw_reward
         step_info["reward"] = reward
         step_info["done"] = done
         step_info["truncated"] = int(truncated)
         step_info["duration"] = duration
         step_info["saccade_cost"] = saccade_cost
+        step_info["emma_time"] = emma_time
         # Episode info stores cumulative sums of the step info keys
         self.episode_info: EpisodeInfo
         for key in self.episode_info.keys():

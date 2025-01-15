@@ -184,7 +184,6 @@ class GazePredictor():
                 print(eval_df)
 
         self.model.eval()
-        print('Training finished')
 
     def eval(self, loader: DataLoader,
              external_model: Callable[[torch.Tensor], torch.Tensor] = None, gt=False):

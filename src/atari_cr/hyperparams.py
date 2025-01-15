@@ -53,7 +53,6 @@ if __name__ == "__main__":
             "evaluator": True,
             "pvm_stack": 3, # from sugarl code
             "fov": "exponential",
-            "periph": False,
             "timed_env": True,
             "gamma": 0.99,
             "learning_rate": 0.0001,
@@ -66,12 +65,9 @@ if __name__ == "__main__":
             "pause_feat": False,
             "td_steps": 4, # from 12-26
             # Fixed overrides
-            "use_pause_env": False,
-            "sensory_action_space_quantization": 4,
-            "learning_rate": 0.001,
             "searchable": {
-                # "pause_cost": tune.grid_search([1e-5, 1e-3, 1e-1]),
-                # "saccade_cost_scale": tune.grid_search([1e-5, 1e-3, 1e-1]),
+                "pause_cost": tune.grid_search([1e-5, 1e-3, 1e-1]),
+                "saccade_cost_scale": tune.grid_search([1e-5, 1e-3, 1e-1]),
                 # "fov": tune.grid_search(["window_periph", "window", "exponential"]),
                 "env": tune.grid_search(["asterix", "seaquest", "hero"]),
             }
