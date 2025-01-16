@@ -67,7 +67,7 @@ if __name__ == "__main__":
             # Fixed overrides
             "searchable": {
                 "pause_cost": tune.grid_search([1e-5, 1e-3, 1e-1]),
-                "saccade_cost_scale": tune.grid_search([1e-5, 1e-3, 1e-1]),
+                "saccade_cost_scale": 0.1,
                 # "fov": tune.grid_search(["window_periph", "window", "exponential"]),
                 "env": tune.grid_search(["asterix", "seaquest", "hero"]),
             }

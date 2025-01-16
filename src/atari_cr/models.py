@@ -280,20 +280,39 @@ class TdUpdateInfo(NamedTuple):
     sensory_target_max: float
 
 class DurationInfo:
-    """ Durations in ms """
-    error: float
-    mean: float
-    median: float
-    hist: list[float]
-    durations: list[float]
+    """
+    Info about the gaze durations
 
-    def __init__(self, error: float, mean: float, median: float, hist: list[float],
-                 durations: list[float]):
-        self.error = error
-        self.mean = mean
-        self.median = median
-        self.hist = hist
-        self.durations = durations
+    Attributes:
+        error (float): Wasserstein distance between the distribution of durations in the
+            episode vs. the distribution observed in human data.
+        durations (Array[N;f32]): List of all gaze durations in one episode in ms.
+    """
+    error: float
+    durations: np.ndarray
+
+    def __init__(self, durations: list[float], env_name: str):
+        self._durations = np.array(durations)
+        self._env_name = env_name
+        self._error = None # Lazily calculated
+
+    @property
+    def durations(self):
+        return self._durations
+    @durations.setter
+    def durations(self, value):
+        self._error = None # Invalidate the error calculation
+        self._durations = value
+
+    @property
+    def env_name(self):
+        return self._env_name
+
+    @property
+    def error(self):
+        if len(self.durations) == 0: return None
+        return self._error or \
+            wasserstein_distance(self.durations, get_durations(self.env_name))
 
     @staticmethod
     def from_episodes(records: list[EpisodeRecord], env_name: str):
@@ -309,18 +328,7 @@ class DurationInfo:
         # Drop the last empty duration
         durations = torch.Tensor(durations[:-1])
 
-        # Return None if there are no durations
-        if len(durations) == 0: return None
+        return DurationInfo(durations.numpy(), env_name)
 
-        # Calculate histogram and distance to the expected histogram for the given game
-        histogram = torch.histogram(durations, BINS).hist
-        histogram = histogram / histogram.sum()
-        error = wasserstein_distance(durations, get_durations(env_name))
-
-        return DurationInfo(
-            error,
-            durations.mean().item(),
-            durations.median().item(),
-            histogram.numpy().tolist(),
-            durations.numpy(),
-        )
+    def __array__(self):
+        return self._durations

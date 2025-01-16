@@ -194,8 +194,6 @@ class CRDQN:
             pvm_stack, (self.n_envs, frame_stack, *self.obs_size), mean_pvm=mean_pvm)
 
         self.auc = 0.6
-        self.auc_window = deque(maxlen=5)
-        self.windowed_auc = self.auc
 
     def learn(self, n: int, experiment_name: str):
         """
@@ -307,7 +305,7 @@ class CRDQN:
         # Set networks to eval mode
         self.sfn.eval()
 
-        episode_infos, out_paths, aucs, emma_times = [], [], [], []
+        episode_infos, out_paths, aucs, emma_times, duration_infos = [], [], [], [], []
         for eval_ep in range(self.n_evals):
             # Create env
             eval_env = self.eval_env_generator(eval_ep) # VecEnv with a single env in it
@@ -404,7 +402,6 @@ class CRDQN:
                         self.model_dir, "pt", self.save_checkpoint, eval_ep)
 
             # AUC calculation
-            duration_info = None
             episode_record = single_eval_env.prev_episode \
                 if isinstance(single_eval_env, PauseableFixedFovealEnv) \
                 else EpisodeRecord.from_record_buffer(
@@ -417,20 +414,17 @@ class CRDQN:
                     loader = dataset.to_loader()
                     aucs.append(self.evaluator.eval(loader)["auc"])
                 # Duration error calculation
-                # TODO: duration_info is only logged for the last eval env, this should
-                # be aggregated
-                duration_info = DurationInfo.from_episodes(
-                    [episode_record], self.env_name)
+                duration_infos.append(
+                    DurationInfo.from_episodes([episode_record], self.env_name))
 
             emma_times.extend(episode_record.annotations["emma_time"].drop_nulls().to_list())
 
             eval_env.close()
 
-        # AUC and windowed AUC
+        # AUC duration info
         if self.evaluator:
             if aucs: self.auc = sum(aucs) / len(aucs)
-            self.auc_window.append(self.auc)
-            self.windowed_auc = sum(self.auc_window) / len(self.auc_window)
+        duration_info = DurationInfo(np.concatenate(duration_infos), self.env_name)
 
         # Log mean result of eval episodes
         mean_episode_info: EpisodeInfo = \
@@ -546,7 +540,6 @@ class CRDQN:
             "sfn_loss": self.sfn_loss.item() if hasattr(self, "sfn_loss") else None,
             "timestep": self.timestep,
             "auc": self.auc,
-            "windowed_auc": self.windowed_auc,
             "truncated": episode_info["truncated"],
             "eval_env": eval_env,
             "emma_times": emma_times
