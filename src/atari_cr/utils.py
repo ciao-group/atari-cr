@@ -102,32 +102,6 @@ def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
 
-def grid_image2(images: np.ndarray, out_file: str = "debug.png"):
-    """
-    Save a grid of rgb images seperated by colored lines under 'debug.png'
-
-    :param Array[n_rows, n_cols, width, height, 3] array: Structured array of images
-    """
-    assert len(images.shape) in [4, 5], ("Only works for images of shape [n_rows,"
-        "n_cols, x, y, n_channels] or [n_rows, n_cols, x, y]")
-
-    # Convert to float32
-    if isinstance(images, np.uint8): images = images.astype(np.float32) / 256
-
-    # Set grid size (e.g., 3x3 grid)
-    grid_size = images.shape[:2]
-
-    fig, axes = plt.subplots(*grid_size, figsize=(16, 16))
-    axes = axes.flatten()
-    images = images.reshape([-1, *images.shape[2:]])
-
-    for img, ax in zip(images, axes):
-        ax.imshow(img, cmap='gray')
-        ax.axis('off')
-
-    plt.tight_layout()
-    plt.savefig(out_file)
-
 def to_uint8(array: np.ndarray):
     """ Scales and converts a float32 array image to uint8 """
     if not array.flags["WRITEABLE"]: array = array.copy()

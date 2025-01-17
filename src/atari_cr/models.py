@@ -178,7 +178,7 @@ class EpisodeRecord():
         COORD_SCALING = 255 / 83
         fov_locs = np.concat([
                 self.annotations["fov_x", "fov_y"].to_numpy(),
-                self.annotations["sensory_action_x", "sensory_action_y"].to_numpy()[-1:],
+                self.annotations["sensory_action_x","sensory_action_y"].to_numpy()[-1:],
             ], axis=0
         )
         fov_locs = np.rint(fov_locs.astype(np.float32) * COORD_SCALING)
