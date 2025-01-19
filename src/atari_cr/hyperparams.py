@@ -59,16 +59,15 @@ if __name__ == "__main__":
             # Already searched
             "action_repeat": 5,
             "sensory_action_space_quantization": 8, # from 12-03
-            "saccade_cost_scale": 0.0002, # lowered from 0.0015 (9-16) for more pauses
-            "pause_cost": 0.2, # from 9-16
+            "saccade_cost_scale": 0.1,
+            "pause_cost": 1e-5,
             "s_action_feat": False,
             "pause_feat": False,
             "td_steps": 4, # from 12-26
             # Fixed overrides
             "searchable": {
-                "pause_cost": 0.1,
-                "saccade_cost_scale": 0.1,
-                # "fov": tune.grid_search(["window_periph", "window", "exponential"]),
+                "fov": tune.grid_search(["window_periph", "window", "exponential"]),
+                "pvm": tune.grid_search([2,4,8,16]),
                 "env": tune.grid_search(["asterix", "seaquest", "hero"]),
             }
         },
