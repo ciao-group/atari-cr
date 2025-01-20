@@ -42,15 +42,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
         # Get sensory action space for the sensory action mode
         self.relative_sensory_actions = args.sensory_action_mode == "relative"
-        if self.relative_sensory_actions:
-            self.sensory_action_space = np.array(args.sensory_action_space)
-        elif self.fov.type == "exponential":
-            self.sensory_action_space = np.array(env.obs_size)
-        elif self.fov.type in ["window", "window_periph"]:
-            self.sensory_action_space = \
-                np.array(env.obs_size) - np.array(self.fov.size)
-        else:
-            raise ValueError("Invalid fov type")
+        self.sensory_action_space = np.array(args.sensory_action_space) \
+            if self.relative_sensory_actions else np.array(env.obs_size)
 
         self.resize: Resize = Resize(env.obs_size) \
             if args.resize_to_full else None

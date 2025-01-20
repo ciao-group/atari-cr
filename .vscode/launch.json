@@ -61,7 +61,7 @@
                 "--env", "seaquest",
                 // Debug config
                 "--exp_name", "dqn_cr_debug",
-                "--total_timesteps", "100_000",
+                "--total_timesteps", "1_000",
                 "--learning_start", "100",
                 // "--debug",
                 // Additional config
@@ -69,7 +69,7 @@
                 "--use_pause_env",
                 "--action_repeat", "5",
                 "--evaluator", 
-                "--fov", "exponential",
+                "--fov", "window",
                 "--timed_env",
                 "--td_steps", "4",
                 "--gamma", "0.99",

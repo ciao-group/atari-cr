@@ -215,7 +215,7 @@ class EpisodeRecord():
                     (256, 256)
                 ) for obs in (self._obs * 255).astype(np.uint8)])
 
-            Fovea(self.args["fov"], fov_size).draw(frames, fov_locs)
+            Fovea(self.args["fov"], fov_size).draw(frames, fov_locs, scaling=3.)
             save_video(np.concatenate([upscaled_obs, frames], axis=2),
                                       obs_path)
 

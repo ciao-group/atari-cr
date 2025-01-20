@@ -17,7 +17,7 @@ fixation = [32*3,32*3]
 marked_img = cv2.drawMarker((img*255).astype(np.uint8), fixation, [0,255,0], 1, 15, 2)
 Image.fromarray(marked_img, "RGB").save(f"{out_dir}/original.png")
 
-fovs = [("window", 37*3), ("window_periph", 31*3), ("exponential", 0)]
+fovs = [("window", 36*3), ("window_periph", 30*3), ("exponential", 0)]
 infos = []
 for type, size in fovs:
     fov = Fovea(type, [size,size])

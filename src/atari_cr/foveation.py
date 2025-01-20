@@ -167,17 +167,12 @@ class Fovea():
                     masked_state = np.full_like(img_stack, 0.5 if self.weighting else 0)
                     visual_info = float((self.size[0] * self.size[1]) / (w * h))
 
+                assert self.size[0] % 2 == 0 and self.size[1] % 2 == 0, \
+                    "Fov size has to be dividable by 2"
                 for fixation in fixations:
-                    crop = img_stack[
-                        ...,
-                        fixation[1]:fixation[1] + self.size[1],
-                        fixation[0]:fixation[0] + self.size[0],
-                    ]
-                    masked_state[
-                        ...,
-                        fixation[1]:fixation[1] + self.size[1],
-                        fixation[0]:fixation[0] + self.size[0],
-                    ] = crop
+                    (left, top), (right, bottom) = self.window(fixation, w, h)
+                    crop = img_stack[..., top:bottom, left:right]
+                    masked_state[..., top:bottom, left:right] = crop
                 return masked_state, visual_info
 
             case "gaussian":
@@ -198,19 +193,20 @@ class Fovea():
                 visual_info = visual_infos.mean().item()
                 return img_stack, visual_info
 
-    def draw(self, frames: ndarray, fov_locs: ndarray):
+    def draw(self, frames: ndarray, fov_locs: ndarray, scaling = 1.):
         """ Draws the fovea onto a stack of frames
 
-        :param Array[N,256,256,3] frames:
+        :param list[Array[256,256,3]] frames:
         :param Array[N,2] fov_locs:
+        :param float scaling: Scaling for the size of the fovea.
         """
         color = [0,255,0] # Green
+        w, h, _ = frames[0].shape
         match(self.type):
             # Draw the window for a windowed fovea
             case "window" | "window_periph":
                 for i in range(len(frames)):
-                    top_left = fov_locs[i].astype(np.int32)
-                    bottom_right = (top_left + self.size).astype(np.int32)
+                    top_left, bottom_right = self.window(fov_locs[i], w, h, scaling)
                     frames[i] = cv2.rectangle(frames[i], top_left, bottom_right,
                                               color, 1)
             # Just mark the fov location for other foveae
@@ -239,3 +235,13 @@ class Fovea():
         fixations = np.broadcast_to(np.array(fixations)[
             ..., np.newaxis, np.newaxis], [N,2,*screen_size]) # -> [N,2,84,84]
         return mesh - fixations # -> [N,2,84,84]
+
+    def window(self, fixation: tuple[int, int], width: int, height: int, scaling = 1.):
+        """ Returns coords of the top left and bottom right window corners for the
+        windowed fovea. """
+        if self.type not in ["window", "window_periph"]:
+            raise ValueError
+        top_left = np.maximum(0, fixation - (self.size * scaling / 2)).astype(int)
+        bottom_right = np.minimum(
+            [width, height], fixation + (self.size * scaling / 2)).astype(int)
+        return top_left, bottom_right
