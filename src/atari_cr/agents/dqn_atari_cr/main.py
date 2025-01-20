@@ -139,21 +139,10 @@ def main(args: ArgParser):
     env = make_train_env(args)
 
     # Gaze predictor for evaluation of the agent's human-plausibility
-    if args.evaluator:
-        evaluator_dir = f"/home/niko/Repos/atari-cr/output/atari_head/{args.env}"
-        checkpoint_dir = os.path.join(evaluator_dir, "300")
-        if os.path.exists(checkpoint_dir):
-            evaluator = GazePredictor.load(
-                os.path.join(checkpoint_dir, "checkpoint.pth"))
-        else:
-            print(f"No existing gaze predictor found under {checkpoint_dir}. "
-                  "Starting training...")
-            evaluator = GazePredictor(GazePredictionNetwork())
-            train_loader, val_loader = GazeDataset.from_atari_head_files(
-                game_dir=os.path.join("/home","niko","Repos","atari-cr","data","Atari-HEAD",args.env),
-                load_saliency=True).split()
-            evaluator.train(300, train_loader, val_loader, evaluator_dir)
-    else: evaluator = None
+    evaluator = GazePredictor.init(
+        f"/home/niko/Repos/atari-cr/output/atari_head/{args.env}",
+        f"/home/niko/Repos/atari-cr/data/Atari-HEAD/{args.env}"
+    ) if args.evaluator else None
 
     agent = CRDQN(
         env=env,

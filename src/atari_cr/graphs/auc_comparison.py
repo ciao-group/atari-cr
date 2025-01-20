@@ -1,13 +1,31 @@
 import os
 from matplotlib import pyplot as plt
 import torch
+import polars as pl
 from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 
 if __name__ == "__main__":
-    for env in ["asterix", "seaquest", "hero"]:
+    # Reproducibility
+    torch.manual_seed(42)
+
+    envs = ["asterix", "seaquest", "hero"]
+    for env in envs:
+        # Plot the eval performance
+        checkpoint_dir = f"output/atari_head/{env}/300"
+        out_dir = "output/graphs/gaze_pred_showcase/eval"
+        os.makedirs(out_dir, exist_ok=True)
+        eval = (pl.read_csv(f"{checkpoint_dir}/eval.csv")
+            .filter(~(pl.col("model") == "Gaze Predictor (Train)")))
+        plt.clf()
+        plt.tight_layout()
+        plt.scatter(eval["model"], eval["auc"])
+        plt.savefig(f"{out_dir}/{env}.png")
+
+    for env in envs:
         # Load Model
-        predictor = GazePredictor.load(f"output/atari_head/{env}/300/checkpoint.pth")
+        checkpoint_dir = f"output/atari_head/{env}/300"
+        predictor = GazePredictor.load(f"{checkpoint_dir}/checkpoint.pth")
         predictor.model.eval()
 
         # Load Data

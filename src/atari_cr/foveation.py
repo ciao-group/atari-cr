@@ -207,7 +207,7 @@ class Fovea():
         color = [0,255,0] # Green
         match(self.type):
             # Draw the window for a windowed fovea
-            case "window":
+            case "window" | "window_periph":
                 for i in range(len(frames)):
                     top_left = fov_locs[i].astype(np.int32)
                     bottom_right = (top_left + self.size).astype(np.int32)

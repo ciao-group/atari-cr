@@ -11,26 +11,15 @@ import torch.optim as optim
 import numpy as np
 import h5py
 from tap import Tap
-from ray import tune, train
-from ray.tune.search.optuna import OptunaSearch
-from ray.tune.schedulers import ASHAScheduler
+from ray import train
 
-from atari_cr.atari_head.unet import UNet
 from atari_cr.module_overrides import tqdm
 from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.models import EvalResult
 
 class ArgParser(Tap):
     debug: bool = False # Debug mode for less data loading
-    load_model: bool = False # Whether to try and load an existing model
-    n: int = 100 # Number of training iterations
-    eval_train_data: bool = False # Whether to make an evaluation on the train data too
-    load_saliency: bool = False # Whether to load existing saliency maps.
-    unet: bool = False # Whether to use a unet instead of the conv deconv net
-    unet_scale: int = 8 # Scaling factor for the size of the unet layers
-    model_name: Optional[str] = None # Name of the model for saving
-    dropout: float = 0.3 # Dropout rate for unet training
-    ray: bool = False # Whether to use ray for multiple training runs
+    env: str = "asterix" # Atari environment
 
 # @torch.compile()
 class GazePredictionNetwork(nn.Module):
@@ -414,6 +403,28 @@ class GazePredictor():
         return (gt_percentile_saliency_maps == pred_percentile_saliency_maps).type(
             torch.float32).mean(dim=[1,3]).clone()
 
+    def init(save_dir: str, data_dir: str):
+        """
+        Loads a gaze predictor from file if it exists or trains a new one.
+
+        Args:
+            save_dir (str): Directory under which the different checkpoints are
+                saved.
+            data_dir (str): Directory of the Atari-HEAD files for the specific game.
+        """
+        checkpoint_dir = os.path.join(save_dir, "300")
+        if os.path.exists(checkpoint_dir):
+            evaluator = GazePredictor.load(
+                os.path.join(checkpoint_dir, "checkpoint.pth"))
+        else:
+            print(f"No existing gaze predictor found under {checkpoint_dir}. "
+                  "Starting training...")
+            evaluator = GazePredictor(GazePredictionNetwork())
+            train_loader, val_loader = GazeDataset.from_atari_head_files(
+                game_dir=data_dir, load_saliency=True).split()
+            evaluator.train(300, train_loader, val_loader, save_dir)
+        return evaluator
+
 def entropy(t: torch.Tensor, dim: Optional[int] = None):
     """ :param Tensor t: """
     t = (t + 1e-9) / (1 + t.numel() * 1e-9) # Avoid zeros
@@ -426,7 +437,9 @@ def norm_entropy(t: torch.Tensor, dim: Optional[int] = None):
     return entropy(t, dim) / \
         entropy(torch.full(t.shape, new_numel/t.numel()).to(t.device), dim)
 
-def train_predictor(args: ArgParser, dataset: Optional[GazeDataset] = None):
+if __name__ == "__main__":
+    args = ArgParser().parse_args()
+
     # Use bfloat16 to speed up matrix computation
     torch.set_float32_matmul_precision("medium")
     torch.manual_seed(42)
@@ -434,93 +447,12 @@ def train_predictor(args: ArgParser, dataset: Optional[GazeDataset] = None):
     if args.debug: torch.cuda.memory._record_memory_history(True)
 
     # Create dataset and data loader
-    env_name = "ms_pacman"
-    single_run = "52_RZ_2394668_Aug-10-14-52-42" if args.debug else ""
-    model_name = args.model_name or single_run or "all_trials"
-    dataset = dataset or GazeDataset.from_atari_head_files(
-        game_dir=f'data/Atari-HEAD/{env_name}', single_trial=single_run,
-        load_saliency=args.load_saliency)
-    train_loader, val_loader = dataset.split()
+    save_dir = f"/home/niko/Repos/atari-cr/output/atari_head/{args.env}"
+    data_dir = f"/home/niko/Repos/atari-cr/data/Atari-HEAD/{args.env}"
+    gaze_predictor: GazePredictor = GazePredictor.init(save_dir, data_dir)
 
-    # Create the dir for saving the trained model and its evaluations
-    output_dir = f"output/atari_head/{env_name}"
-    model_dir = os.path.join(output_dir, model_name)
-    os.makedirs(model_dir, exist_ok=True)
-
-    # Load an existing Atari HEAD model
-    model_files = os.listdir(model_dir)
-    net = (lambda: UNet(4,1, args.unet_scale, args.dropout)) \
-        if args.unet else (lambda: GazePredictionNetwork(args.dropout))
-    if (args.load_model) and len(model_files) > 0:
-        latest_epoch = sorted([int(file) for file in model_files])[-1]
-        save_path = os.path.join(model_dir, str(latest_epoch), "checkpoint.pth")
-        print(f"Loading existing gaze predictor from {save_path}")
-        gaze_predictor = GazePredictor.load(save_path, net)
-    else:
-        print("Creating new gaze model")
-        model = net() if args.unet else GazePredictionNetwork.from_h5(
-            f"data/h5_gaze_predictors/{env_name}.hdf5")
-        gaze_predictor = GazePredictor(model)
-
-    # Train the model
-    gaze_predictor.train(args.n, train_loader, val_loader, model_dir)
-
-def tune_predictor(config, dataset: GazeDataset):
-    args = ArgParser().from_dict({
-        "debug": False,
-        "load_model": False,
-        "n": 1000,
-        "eval_train_data": True,
-        "load_saliency": True,
-        "unet": True,
-        "unet_scale": config["unet_scale"],
-        "model_name": f"unet_{config['unet_scale']}",
-        "dropout": config["dropout"],
-    })
-    print(dataset)
-    train_predictor(args, dataset)
-
-if __name__ == "__main__":
-    args = ArgParser().parse_args()
-    if args.ray:
-        concurrent_runs = 2
-        num_samples = 1 * concurrent_runs if args.debug else 50
-
-        # Load the same dataset for all runs
-        env_name = "ms_pacman"
-        single_run = "52_RZ_2394668_Aug-10-14-52-42" if True else ""
-        dataset = GazeDataset.from_atari_head_files(
-            game_dir=f'data/Atari-HEAD/{env_name}', single_trial=single_run,
-            load_saliency=True)
-
-        trainable = tune_predictor
-        trainable = tune.with_parameters(trainable, dataset=dataset)
-        trainable = tune.with_resources( trainable,
-                {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
-
-        param_space = {
-            "unet_scale": tune.grid_search([2]),
-            "dropout": tune.grid_search([0.2])
-        }
-
-        metric, mode = ("Eval AUC", "max")
-        tuner = tune.Tuner(
-            trainable,
-            param_space=param_space,
-            tune_config=tune.TuneConfig(
-                num_samples=num_samples,
-                scheduler=None if args.debug else ASHAScheduler(
-                    stop_last_trials=True
-                ),
-                search_alg=OptunaSearch(),
-                metric=metric,
-                mode=mode
-            ),
-            run_config=train.RunConfig(
-                storage_path="/home/niko/Repos/atari-cr/output/ray_results",
-            )
-        )
-        results = tuner.fit()
-        print("Best result:\n", results.get_best_result().config)
-    else:
-        train_predictor(args)
+    # Eval it
+    train_loader, val_loader = GazeDataset.from_atari_head_files(
+        game_dir=data_dir, load_saliency=True).split()
+    eval_df = gaze_predictor.baseline_eval(val_loader, train_loader)
+    gaze_predictor.save(save_dir, eval_df)

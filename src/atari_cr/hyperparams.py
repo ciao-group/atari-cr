@@ -8,6 +8,9 @@ from ray.tune.experiment.trial import Trial
 from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
 
 def trainable(config: dict):
+    if config["fov"] == "window" and config["pvm"] == 2:
+        return
+
     # Copy quantization value into the two corresponding values
     if "sensory_action_space_quantization" in config:
         quantization = config.pop("sensory_action_space_quantization")
