@@ -1,6 +1,7 @@
 from typing import Optional, Union, Callable, Tuple, List
 import os
 import time
+import cv2
 import polars as pl
 
 import numpy as np
@@ -8,6 +9,7 @@ import torch
 from torch.optim import Adam
 import torch.nn.functional as F
 from torchvision.transforms import Resize
+from PIL import Image
 
 from ray import train
 from gymnasium.vector import VectorEnv
@@ -139,14 +141,25 @@ class CRDQN:
 
         # Get the sensory action set as a list of discrete actions
         # How far can the fovea move from left to right and from top to bottom
-        max_sensory_action_step = np.array(self.obs_size) - np.array(
-            [self.fov_size, self.fov_size])
-        discrete_coords = [np.linspace(0, max_sensory_action_step[i],
-            sensory_action_space_quantization[i], endpoint=False).astype(int)
+        max_sensory_action_step = np.array(self.obs_size)
+        discrete_coords = [
+            np.linspace(
+                0,
+                max_sensory_action_step[i],
+                sensory_action_space_quantization[i],
+                endpoint=False
+            ).astype(int)
             for i in [0,1]]
+        # Shift the coords to the middle
+        discrete_coords = [coords + int(coords[1] / 2) for coords in discrete_coords]
         # Discrete action set as cross product of possible x and y steps
         self.sensory_action_set = np.stack(
             np.meshgrid(*discrete_coords)).T.reshape((-1,2))
+
+        # Initialize the fovea location randomly
+        for i in range(len(self.env.envs)):
+            self.env.envs[0].fov_init_loc = self._random_sensory_action()
+        self._visualize_sensory_actions()
 
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() and cuda else "cpu")
@@ -311,6 +324,7 @@ class CRDQN:
             single_eval_env: Union[FixedFovealEnv, PauseableFixedFovealEnv] = \
                 eval_env.envs[0] if isinstance(eval_env, VectorEnv) else eval_env
             n_eval_envs = eval_env.num_envs if isinstance(eval_env, VectorEnv) else 1
+            eval_env.envs[0].fov_init_loc = self._random_sensory_action()
 
             # Init env
             obs, _ = eval_env.reset()
@@ -695,3 +709,15 @@ class CRDQN:
         """
         return np.array([np.where((self.sensory_action_set == c).all(axis=1))[0].item()
                          for c in coords])
+
+    def _visualize_sensory_actions(self):
+        background = self.env.envs[0].render()
+        for x,y in self.sensory_action_set:
+            cv2.drawMarker(background, (x*3,y*3), (255,0,0), 1, 5)
+        init_loc = [coord * 3 for coord in self.env.envs[0].fov_init_loc]
+        cv2.drawMarker(background, init_loc, (0,255,0), 1, 5)
+        os.makedirs("output/graphs", exist_ok=True)
+        Image.fromarray(background, "RGB").save("output/graphs/sensory_actions.png")
+
+    def _random_sensory_action(self):
+        return self.sensory_action_set[np.random.choice(len(self.sensory_action_set))]
