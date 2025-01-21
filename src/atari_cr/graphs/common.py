@@ -5,7 +5,15 @@ from matplotlib import colormaps
 
 
 CMAP = colormaps["viridis"]
-HEATMAP_COLOR = colormaps["jet"]
+
+best_auc_run = ("output/good_ray_runs/human_2025-01-15_14-07-46/"
+    "b7cec_00002_2_env=hero,pause_cost=0.0000,saccade_cost_scale=0.0000_2025-01-15_14-07-48")
+best_auc = {
+    "run": best_auc_run,
+    "eval": f"{best_auc_run}/seed0_step3000005_eval00",
+    "env": "hero",
+}
+
 
 def results_df(run_dir: str):
     """ Get a DataFrame containing the results of a run. """

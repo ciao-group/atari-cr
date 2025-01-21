@@ -68,7 +68,7 @@ def foveat_img(im, fixs: list[tuple[int,int]]):
     alpha = 2.5
 
     # Visual degrees per pixel
-    d = np.array(VISUAL_DEGREE_SCREEN_SIZE) / np.array([height, width])
+    d = np.array(VISUAL_DEGREE_SCREEN_SIZE) / np.array([width, height])
 
     # Calculate the desired resolution R of each pixel
     x = np.arange(0, width, 1, dtype=np.float32)
@@ -79,8 +79,8 @@ def foveat_img(im, fixs: list[tuple[int,int]]):
     for fix in fixs:
         theta = np.minimum(
             theta, np.sqrt(
-                ((x2d - fix[0]) * d[1]) ** 2
-                + ((y2d - fix[1]) * d[0]) ** 2) )
+                ((x2d - fix[0]) * d[0]) ** 2
+                + ((y2d - fix[1]) * d[1]) ** 2) )
     R = alpha / (theta + alpha)
 
     # Transfer function, maps R to the relative amplitude in the pyramids
@@ -207,8 +207,8 @@ class Fovea():
             case "window" | "window_periph":
                 for i in range(len(frames)):
                     top_left, bottom_right = self.window(fov_locs[i], w, h, scaling)
-                    frames[i] = cv2.rectangle(frames[i], top_left, bottom_right,
-                                              color, 1)
+                    frames[i] = cv2.rectangle(
+                        frames[i], top_left, bottom_right, color, 1)
             # Just mark the fov location for other foveae
             case "exponential":
                 for i in range(len(frames)):
