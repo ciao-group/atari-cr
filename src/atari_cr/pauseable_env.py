@@ -95,7 +95,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # Calculate the time this step takes and the number of time to repeat the motor
         # action because of it
         prev_pause = self.time_passed > 50 # Whether the previous action was a pause
-        step_time = self._step_time(action["sensory_action"])
+        step_time, remaining_enc_time = self._step_time(action["sensory_action"])
         self.time_passed += step_time
         saccade_cost = self.saccade_cost_scale * step_time
         reward = -saccade_cost
@@ -110,6 +110,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             duration = 0
             reward -= self.pause_cost
 
+            step_info["remaining_enc_time"] = remaining_enc_time
             step_info = self._post_step_logging(
                 step_info, info["raw_reward"], reward, done, truncated, duration,
                 saccade_cost, step_time)
@@ -176,8 +177,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             else sensory_action - self.fov_loc
         eccentricity = np.sqrt(np.sum(np.square(
             pixel_distance * VISUAL_DEGREES_PER_PIXEL )))
-        _, total_emma_time, fov_moved = EMMA_fixation_time(eccentricity)
-        return int(total_emma_time * 1000)
+        (_, _, remaining_enc_time), total_emma_time, fov_moved = \
+            EMMA_fixation_time(eccentricity)
+        return int(total_emma_time * 1000), int(remaining_enc_time * 1000)
 
     def _pre_step_logging(self, action: dict):
         """ Logs the state before the action is taken. """

@@ -295,12 +295,12 @@ class GazeDataset(Dataset):
         # x and y are now both Nx84x84 with N identical copies
         # mesh is Nx2x84x84 with N copies of every possible
         # combination of x and y coordinates
-        saliency_map = torch.max(
+        saliency_map = torch.mean(
             torch.exp(
                 -torch.sum(((mesh - gaze_positions) ** 2) / (2 * sigmas**2), dim=1)
             ),
             dim=0,
-        )[0]
+        )
 
         # Normalization
         if saliency_map.sum().item() == 0:

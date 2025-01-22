@@ -203,7 +203,7 @@ def get_env_attributes(env) -> List[Tuple[str, Any]]:
 def EMMA_fixation_time(
         dist: float,
         freq = 0.1,
-        execution_time = 0.07,
+        execution_time = 0.070,
         K = 0.006,
         k = 0.4,
         saccade_scaling = 0.002,
@@ -217,14 +217,15 @@ def EMMA_fixation_time(
     :param float freq: Frequency of object being encoded. How often does the object
         appear. Value in (0,1).
     :param float execution_time: The base time it takes to execute an eye movement,
-        independent of distance.
+        independent of distance. 50ms for non-labile programming plus 20ms for saccade
+        execution.
     :param float K: Scaling parameter for the encoding time.
     :param float k: Scaling parameter for the influence of the saccade distance on the
         encoding time.
     :param float saccade_scaling: Scaling parameter for the influence of the saccade
-        distance on the execution time.
+        distance on the execution time. 2ms per visual degree.
     :param float t_prep: Movement preparation time. If this is greater than the encoding
-        time, no movement occurs.
+        time, no movement occurs. Was originally intended to be gamma distributed.
 
     :return EMMA_breakdown: tuple containing (preparation_time, execution_time,
         remaining_encoding_time).
@@ -238,7 +239,7 @@ def EMMA_fixation_time(
     if t_enc < t_prep:
         return (t_enc, 0, 0), t_enc, False
 
-    # movement execution time
+    # movement execution time, originally intended to be gamma distributed
     t_exec = execution_time + saccade_scaling * dist
     # eye movement time (preparation time + execition time)
     t_sacc = t_prep + t_exec

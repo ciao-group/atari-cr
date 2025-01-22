@@ -27,7 +27,7 @@ if __name__ == "__main__":
     best_episode = EpisodeRecord.load(best_auc["eval"])
     background = best_episode.frames[0]
     heatmap = GazeDataset.create_saliency_map(
-        best_episode.annotations["fov_x", "fov_y"].to_torch())
+        best_episode.annotations["sensory_action_x", "sensory_action_y"].to_torch())
     save_heatmap(heatmap, background, "agent")
 
     # Atari HEAD heatmap
