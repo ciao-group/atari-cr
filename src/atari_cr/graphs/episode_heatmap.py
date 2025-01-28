@@ -16,7 +16,6 @@ def save_heatmap(heatmap: Tensor, background: np.ndarray, label: str):
     plt.imshow(heatmap, cmap="jet", alpha=0.75)
     plt.savefig(f"{output_dir}/{label}.png")
 
-
 if __name__ == "__main__":
     np.random.seed(42)
     torch.manual_seed(42)

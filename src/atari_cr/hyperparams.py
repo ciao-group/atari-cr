@@ -22,11 +22,11 @@ def trainable(config: dict):
 
     # Skip already searched params
     if (config["fov"] in ["window", "window_periph"]) and (config["pvm"] == 2):
-        return {"human_likeness": 0.}
-
-    # Start training
-    args = ArgParser().from_dict(config)
-    eval_returns, out_paths = main(args)
+        train.report({"human_likeness": 0.})
+    else:
+        # Start training
+        args = ArgParser().from_dict(config)
+        eval_returns, out_paths = main(args)
 
 if __name__ == "__main__":
     GAZE_TARGET = True
@@ -56,7 +56,6 @@ if __name__ == "__main__":
             "debug": DEBUG,
             "evaluator": True,
             "pvm_stack": 3, # from sugarl code
-            "fov": "exponential",
             "timed_env": True,
             "gamma": 0.99,
             "learning_rate": 0.0001,
@@ -68,11 +67,13 @@ if __name__ == "__main__":
             "s_action_feat": False,
             "pause_feat": False,
             "td_steps": 4, # from 12-26
+            "fov": "exponential",
+            "pvm": 2,
             # Fixed overrides
             "searchable": {
-                "fov": tune.grid_search(["window_periph", "window", "exponential"]),
-                "pvm": tune.grid_search([2,4,8,16]),
+                "total_timesteps": tune.grid_search([1_000_000, 5_000_000]),
                 "env": tune.grid_search(["asterix", "seaquest", "hero"]),
+                "seed": tune.grid_search([0,1])
             }
         },
         tune_config=tune.TuneConfig(

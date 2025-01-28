@@ -6,9 +6,8 @@ from typing import Optional, Tuple
 from torchvision.transforms import Resize
 from active_gym import AtariEnvArgs
 
-from atari_cr.foveation import Fovea, FovType
+from atari_cr.foveation import Fovea, FovType, EMMA_fixation_time
 from atari_cr.models import EpisodeInfo, EpisodeRecord, StepInfo
-from atari_cr.utils import EMMA_fixation_time
 from atari_cr.atari_head.utils import VISUAL_DEGREES_PER_PIXEL
 
 
@@ -96,6 +95,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # action because of it
         prev_pause = self.time_passed > 50 # Whether the previous action was a pause
         step_time, remaining_enc_time = self._step_time(action["sensory_action"])
+        step_time -= remaining_enc_time # Remove encoding time
         self.time_passed += step_time
         saccade_cost = self.saccade_cost_scale * step_time
         reward = -saccade_cost
