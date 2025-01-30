@@ -1,0 +1,40 @@
+import os
+import polars as pl
+from itertools import product
+from matplotlib import pyplot as plt
+
+from atari_cr.graphs.common import progress_df, results_df
+
+if __name__ == "__main__":
+    run_dir = "output/good_ray_runs/rewards_5M_2025-01-28_15-02-17"
+    results = results_df(run_dir)
+    # Average over both seeds
+    results = (results
+        .group_by("env", "total_timesteps").mean()
+        .sort("env", "total_timesteps")
+        .select("env", "total_timesteps", "raw_reward")
+    )
+    print(results)
+
+    progress = progress_df(run_dir)
+    progress = (progress
+        .group_by("env", "total_timesteps", "timestep").mean()
+        .sort("env", "total_timesteps", "timestep")
+        .select("env", "total_timesteps", "timestep", "raw_reward")
+    )
+
+    out_dir = "output/graphs/rewards_5m"
+    os.makedirs(out_dir, exist_ok=True)
+    for env, total_timesteps in product(
+        ["asterix", "seaquest", "hero"],
+        [1_000_000, 5_000_000]
+    ):
+        trial = (progress
+            .filter(
+                (pl.col("env") == env) &
+                (pl.col("total_timesteps") == total_timesteps)
+            ).with_columns(pl.col("raw_reward").rolling_mean(100).alias("windowed_reward"))
+        )
+        plt.clf()
+        plt.scatter(*trial["timestep", "windowed_reward"], marker=".")
+        plt.savefig(f"{out_dir}/{env}_{int(total_timesteps / 1000000)}m.png")

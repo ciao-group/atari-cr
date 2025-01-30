@@ -58,7 +58,7 @@
             ],
             "args": [
                 "--capture_video",
-                "--env", "seaquest",
+                "--env", "asterix",
                 // Debug config
                 "--exp_name", "dqn_cr_debug",
                 "--total_timesteps", "1_000",

@@ -34,7 +34,6 @@ if __name__ == "__main__":
     GRID_SEARCH = True
     concurrent_runs = 3
     num_samples = 2 * concurrent_runs if DEBUG else 90
-    time_steps = 500_000 if DEBUG else 3_000_000
 
     trainable = tune.with_resources(
         trainable,
@@ -47,7 +46,7 @@ if __name__ == "__main__":
             # Fixed
             "clip_reward": False,
             "capture_video": True,
-            "total_timesteps": time_steps,
+            "total_timesteps": 3_000_000,
             "no_pvm_visualization": True,
             "use_pause_env": True,
             "env": "seaquest", # Other: breakout ms_pacman seaquest asterix hero
@@ -71,7 +70,6 @@ if __name__ == "__main__":
             "pvm": 2,
             # Fixed overrides
             "searchable": {
-                "total_timesteps": tune.grid_search([1_000_000, 5_000_000]),
                 "env": tune.grid_search(["asterix", "seaquest", "hero"]),
                 "seed": tune.grid_search([0,1])
             }

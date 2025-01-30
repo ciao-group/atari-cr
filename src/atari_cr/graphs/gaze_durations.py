@@ -5,7 +5,7 @@ import numpy as np
 import polars as pl
 from atari_cr.graphs.colors import COLORBLIND
 
-from atari_cr.graphs import styling
+from atari_cr.graphs.common import progress_df, results_df
 
 def plot(hist, agent = False, label = "", log=False):
     plt.clf()
@@ -48,26 +48,16 @@ if __name__ == "__main__":
     output_dir = "output/graphs/histograms"
     os.makedirs(output_dir, exist_ok=True)
     WITH_AGENT = False
+    run_dir = "output/good_ray_runs/fov_pvm_2025-01-19_20-33-29"
+    # run_dir = "output/good_ray_runs/rewards_5M_2025-01-28_15-02-17"
 
-    if WITH_AGENT:
-        agent_trials = {
-            "pause": "output/good_ray_runs/timed_env_2024-12-12_22-20-31/"
-                "lambda_ms_pacman_ebebf_00002_2_seed=0,timed_env=False_2024-12-12_22-20-33",
-            "timed": "output/good_ray_runs/timed_env_2024-12-12_22-20-31/"
-                "lambda_ms_pacman_ebebf_00001_1_seed=1,timed_env=True_2024-12-12_22-20-33"
-        }
-        for label, trial_path in agent_trials.items():
-            agent_durations = eval(
-                pl.scan_csv(os.path.join(trial_path, "progress.csv"))
-                .tail(1)
-                .select(pl.col("gaze_duration"))
-                .collect()
-                .item()
-                .replace(".", ",")
-            )
-            hist = np.histogram(agent_durations, BINS)[0]
-            plot(hist, agent=True, label=label)
-
-    for game_name in ["asterix", "seaquest", "hero"]:
-        hist = get_histogram(game_name).numpy()
-        plot(hist, log=True)
+    # results = (results_df(run_dir)
+    #     # .sort("fov", "pvm")
+    #     .select("fov", "pvm", "duration_error", "gaze_duration")
+    # )
+    progress = (progress_df(run_dir)
+        .select("fov", "pvm", "timestep", "duration_error")
+        .group_by("fov", "pvm", "timestep").mean()
+        .sort("fov", "pvm")
+    )
+    pass

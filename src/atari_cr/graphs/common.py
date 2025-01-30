@@ -4,6 +4,9 @@ import polars as pl
 from matplotlib import colormaps, pyplot as plt
 from matplotlib.category import UnitData
 
+# Styling
+plt.style.use("tableau-colorblind10")
+plt.rcParams.update({'font.size': 14})
 
 CMAP = colormaps["viridis"]
 
@@ -22,6 +25,7 @@ def results_df(run_dir: str):
         with open(f"{dir.path}/params.json", "r") as f:
             params = json.load(f)
         params.update(params.pop("searchable"))
+        # Take only the last row from the progress
         result = pl.read_csv(f"{dir.path}/progress.csv").row(-1, named=True)
         result.update(params)
         results.append(result)
@@ -54,3 +58,21 @@ def scatter_with_mean(results_df: pl.DataFrame, metrics: list[str], out_dir: str
         plt.xticks(median[metric].to_list())
         plt.legend([*envs, "median"])
         plt.savefig(f"{out_dir}/{metric}.png")
+
+def progress_df(run_dir: str) -> pl.DataFrame:
+    """ Get a DataFrame containing every timestep of the trials of a run. """
+    results = []
+    for dir in [e for e in os.scandir(run_dir) if e.is_dir()]:
+        with open(f"{dir.path}/params.json", "r") as f:
+            params = json.load(f)
+        params.update(params.pop("searchable"))
+        result = (pl.read_csv(f"{dir.path}/progress.csv")
+            # Add the params as columns
+            .with_columns([pl.lit(v).alias(k) for k,v in params.items()])
+            # Cast string columns to enum type
+            .with_columns([
+                pl.col("env").cast(pl.Enum(["asterix", "seaquest", "hero"])),
+                pl.col("fov").cast(pl.Enum(["window", "window_periph", "exponential"]))
+            ]))
+        results.append(result)
+    return pl.concat(results, how="vertical")

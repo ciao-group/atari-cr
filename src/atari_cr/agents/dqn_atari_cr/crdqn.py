@@ -572,7 +572,7 @@ class CRDQN:
                     "duration_error": duration_info.error,
                     "human_likeness":
                         self.auc - np.log10(1 + duration_info.error)/6,
-                    "gaze_duration": duration_info.durations
+                    "gaze_duration": duration_info.durations.astype(int).tolist()
                 })
         train.report(ray_info)
 
