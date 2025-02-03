@@ -1,20 +1,10 @@
 """ Comparison of gaze timings within the episode between an agent and Atari-HEAD """
 import os
 import matplotlib.pyplot as plt
-import subprocess
 import numpy as np
 import polars as pl
 
-from atari_cr.models import EpisodeRecord
-
-def records_path(run_name: str, env_name: str = "ms_pacman"):
-    """ Get the path of the records for a ray run given by its name """
-    run_path = subprocess.run(["find", "/tmp/ray", "-name", run_name],
-                          capture_output=True, text=True).stdout[:-1] \
-        + "/working_dirs"
-    trial_records = [f"{e.path}/output/runs/tuning/{env_name}/recordings"
-                     for e in os.scandir(run_path)]
-    return trial_records
+from atari_cr.graphs.common import CMAP, Run
 
 def time_bins(pauses: list[float], n_bins = 20):
     if np.sum(pauses) == 0:
@@ -30,36 +20,41 @@ def time_bins(pauses: list[float], n_bins = 20):
         bin_start = bin_end
     return bins / np.sum(bins)
 
-env_name = "ms_pacman"
+def plot(hist: np.ndarray, out_path: str, color: str):
+    width = 1
+    plt.clf()
+    plt.bar(np.arange(20) + 0.5 * width, hist, width, label='Human', color=color)
+    plt.savefig(out_path)
 
 # Get agent histogram
-quant_search_records = records_path("lambda_2024-12-03_13-00-04")
-q8_record0 = [r for r in quant_search_records if "quantization=8" in r][0]
-q8_record0 = next(os.scandir(q8_record0)).path # First eval round
-q8_record0 = EpisodeRecord.load(q8_record0)
-agent_hist = time_bins(q8_record0.annotations["pauses"].to_numpy())
+run = Run("output/good_ray_runs/exp_2_3m_2025-01-30_15-24-36")
+output_dir = "output/graphs/gaze_timings"
+os.makedirs(output_dir, exist_ok=True)
 
-# Get Atari HEAD histogram
-csv_files = [e.path for e in os.scandir(f"data/Atari-HEAD/{env_name}")
-             if e.path.endswith(".csv")]
-pause_times = np.concat([pl.read_csv(f, null_values="null")
-                         .select(pl.col("duration(ms)"))
-                         .to_numpy()[:-1] for f in csv_files])
-# Only count additional times per frame, 50ms is what every frame takes at least
-pause_times = np.maximum(0, pause_times - 50)
+env_labels = [t.args["env"] for t in run.trials]
+histograms = [time_bins(t.record().annotations["pauses"].to_numpy())
+    for t in run.trials]
 
-# Get 20 bins of roughly equal size
-human_hist = time_bins(pause_times)
+env_histograms = []
+for i, env in enumerate(["asterix", "seaquest", "hero"]):
+    # Agent plots
+    indices = np.where(np.array(env_labels) == env)[0]
+    env_histogram = histograms[indices[0]]
+    for j in indices[1:]:
+        env_histogram += histograms[j]
+    env_histograms.append(env_histogram)
+    plot(env_histogram, f"{output_dir}/{env}.png", CMAP[i])
 
-# Plot
-x = np.arange(20)
-width = 0.4
-plt.bar(x + 0.5 * width, human_hist, width, label='Human', color='blue')
-plt.bar(x + 1.5 * width, agent_hist, width, label='Agent', color='orange')
-plt.xticks([])
-plt.yticks([])
-plt.xlabel("Time since episode start")
-plt.ylabel("Pause time")
-plt.title("Pause timings within one episode")
-plt.legend()
-plt.savefig("debug.png")
+    # Human plots
+    csv_files = [e.path for e in os.scandir(f"data/Atari-HEAD/{env}")
+        if e.path.endswith(".csv")]
+    pause_times = np.concat([
+        pl.read_csv(f, null_values="null")
+            .select(pl.col("duration(ms)"))
+            .to_numpy()[:-1]
+        for f in csv_files
+    ])
+    pause_times = np.maximum(0, pause_times - 50)
+    # Get 20 bins of roughly equal size
+    human_hist = time_bins(pause_times)
+    plot(human_hist, f"{output_dir}/human_{env}.png", CMAP[i])

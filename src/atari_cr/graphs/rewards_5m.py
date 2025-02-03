@@ -3,11 +3,11 @@ import polars as pl
 from itertools import product
 from matplotlib import pyplot as plt
 
-from atari_cr.graphs.common import progress_df, results_df
+from atari_cr.graphs.common import Run
 
 if __name__ == "__main__":
-    run_dir = "output/good_ray_runs/rewards_5M_2025-01-28_15-02-17"
-    results = results_df(run_dir)
+    run = Run("output/good_ray_runs/rewards_5M_2025-01-28_15-02-17")
+    results = run.results_df()
     # Average over both seeds
     results = (results
         .group_by("env", "total_timesteps").mean()
@@ -16,7 +16,7 @@ if __name__ == "__main__":
     )
     print(results)
 
-    progress = progress_df(run_dir)
+    progress = run.progress_df()
     progress = (progress
         .group_by("env", "total_timesteps", "timestep").mean()
         .sort("env", "total_timesteps", "timestep")
