@@ -3,7 +3,7 @@ import polars as pl
 from itertools import product
 from matplotlib import pyplot as plt
 
-from atari_cr.graphs.common import Run
+from atari_cr.graphs.common import CMAP, Run
 
 if __name__ == "__main__":
     run = Run("output/good_ray_runs/rewards_5M_2025-01-28_15-02-17")
@@ -36,5 +36,6 @@ if __name__ == "__main__":
             ).with_columns(pl.col("raw_reward").rolling_mean(100).alias("windowed_reward"))
         )
         plt.clf()
-        plt.scatter(*trial["timestep", "windowed_reward"], marker=".")
+        plt.scatter(*trial["timestep", "raw_reward"], marker=".", alpha=0.25)
+        plt.plot(*trial["timestep", "windowed_reward"], color=CMAP[1])
         plt.savefig(f"{out_dir}/{env}_{int(total_timesteps / 1000000)}m.png")

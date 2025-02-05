@@ -36,9 +36,10 @@ class Run:
     :attr str path: Path to the dir containing the run.
         Example: `output/good_ray_runs/exp_2_3m_2025-01-30_15-24-36`
     """
-    def __init__(self, path: str):
+    def __init__(self, path: str, with_trials=True):
         self.path = path
-        self.trials = self._trials()
+        if with_trials:
+            self.trials = self._trials()
 
     def results_df(self):
         """ Get a DataFrame containing the results of a run. """
@@ -92,7 +93,7 @@ class Run:
             ))
         return trials
 
-def scatter_with_mean(results_df: pl.DataFrame, metrics: list[str], out_dir: str,
+def scatter_with_median(results_df: pl.DataFrame, metrics: list[str], out_dir: str,
                       target_metric = "human_likeness", log_x=False):
     """ Create and save a scatter plot with a mean drawn into it """
     results_df = results_df.select(["env", *metrics, target_metric])
