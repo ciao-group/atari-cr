@@ -105,14 +105,14 @@ def scatter_with_median(results_df: pl.DataFrame, metrics: list[str], out_dir: s
             env_result = results_df.filter(pl.col("env") == env)
             plt.scatter(
                 env_result[metric], env_result[target_metric],
-                color=CMAP[i]
+                color=CMAP[i], alpha=0.5
             )
         median = results_df.group_by(metric).median().sort(metric)
         plt.plot(metric, target_metric, data=median, color=CMAP[i+1],
-            xunits=UnitData(median[metric].to_list())
-            if median[metric].dtype == pl.Enum else None)
+            xunits=UnitData(median[metric].to_list()) if median[metric].dtype == pl.Enum
+                else None, alpha=0.5)
         plt.ylim(results_df[target_metric].min() * 0.95,
                  results_df[target_metric].max() * 1.05)
         plt.xticks(median[metric].to_list())
-        plt.legend([*envs, "median"])
+        plt.legend([*envs, "median"], bbox_to_anchor=(0.95,0.375))
         plt.savefig(f"{out_dir}/{metric}.png")

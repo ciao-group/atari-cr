@@ -46,7 +46,7 @@ if __name__ == "__main__":
             # Fixed
             "clip_reward": False,
             "capture_video": True,
-            "total_timesteps": 3_000_000,
+            "total_timesteps": 1_000_000,
             "no_pvm_visualization": True,
             "use_pause_env": True,
             "env": "seaquest", # Other: breakout ms_pacman seaquest asterix hero
@@ -71,7 +71,8 @@ if __name__ == "__main__":
             # Fixed overrides
             "searchable": {
                 "env": tune.grid_search(["asterix", "seaquest", "hero"]),
-                "seed": tune.grid_search([0,1])
+                "seed": tune.grid_search([0,1,2]),
+                "ignore_sugarl": tune.grid_search([False, True]),
             }
         },
         tune_config=tune.TuneConfig(

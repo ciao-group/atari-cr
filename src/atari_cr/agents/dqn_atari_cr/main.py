@@ -1,13 +1,11 @@
 import os
-import sys
 
 from gymnasium.vector import SyncVectorEnv
 import torch
 from tap import Tap
 
 from active_gym.atari_env import AtariEnv, AtariEnvArgs, RecordWrapper, FixedFovealEnv
-from atari_cr.atari_head.dataset import GazeDataset
-from atari_cr.atari_head.gaze_predictor import GazePredictionNetwork, GazePredictor
+from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
@@ -43,7 +41,7 @@ class ArgParser(Tap):
     learning_rate: float = 1e-4 # The learning rate
     buffer_size: int = 100000 # The size of the replay buffer
     gamma: float = 0.99 # The discount factor gamma
-    target_network_frequency: int = 1000 # Timesteps between Q network updates
+    target_network_frequency: int = 10000 # Timesteps between Q network updates
     batch_size: int = 32 # The batch size during training
     start_e: float = 1.0 # The starting value for the exploration probability epsilon
     end_e: float = 0.01 # The final value for the exploration probability epsilon
