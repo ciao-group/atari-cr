@@ -148,7 +148,7 @@ class Fovea():
     def apply(self, img_stack: ndarray, fixations: list[tuple[int, int]]):
         """ Applies the fovea to a stack of images in place
 
-        :param Array[4,84,84;f64] img_stack: Stack of four greyscale images
+        :param Array[N,84,84;f64] img_stack: Stack of greyscale images
         """
         match self.type:
             case "window" | "window_periph":
@@ -158,14 +158,9 @@ class Fovea():
                         " are supported")
                     # Create periphery with 1/16 of the original information
                     masked_state = np.stack(
-                        [pyramids((img * 255).astype(np.uint8)[...,None])[2]
-                         for img in img_stack], dtype=np.float64)[...,0] / 255
-                    # Visual info calculation
-                    visual_info = float(((w * h) + 15 * (self.size[0] * self.size[1]))
-                        / (16 * w * h))
+                        [Fovea.apply_periph(img) for img in img_stack])
                 else: # Fill the area outside the crop with zeros
                     masked_state = np.full_like(img_stack, 0.5 if self.weighting else 0)
-                    visual_info = float((self.size[0] * self.size[1]) / (w * h))
 
                 assert self.size[0] % 2 == 0 and self.size[1] % 2 == 0, \
                     "Fov size has to be dividable by 2"
@@ -173,25 +168,21 @@ class Fovea():
                     (left, top), (right, bottom) = self.window(fixation, w, h)
                     crop = img_stack[..., top:bottom, left:right]
                     masked_state[..., top:bottom, left:right] = crop
-                return masked_state, visual_info
+                return masked_state
 
             case "gaussian":
                 raise NotImplementedError()
 
             case "exponential":
-                visual_infos = np.empty(len(img_stack))
                 for i, img in enumerate(img_stack):
                     img = (img[...,None] * 255).astype(np.uint8)
                     img, resolutions = foveat_img(img.copy(), fixations)
-                    visual_info = resolutions.mean().item()
                     img = (img[...,0]).astype(np.float64) / 255
                     if self.weighting:
                         # 0 weighted values are pushed towards 0.5
                         img = (img - 0.5) * resolutions + 0.5
                     img_stack[i] = img
-                    visual_infos[i] = visual_info
-                visual_info = visual_infos.mean().item()
-                return img_stack, visual_info
+                return img_stack
 
     def draw(self, frames: ndarray, fov_locs: ndarray, scaling = 1.):
         """ Draws the fovea onto a stack of frames
@@ -245,6 +236,36 @@ class Fovea():
         bottom_right = np.minimum(
             [width, height], fixation + (self.size * scaling / 2)).astype(int)
         return top_left, bottom_right
+
+    @staticmethod
+    def apply_periph(img):
+        """
+        Blurs an image by returning the thids Gaussian pyramid.
+
+        :param Array[W,H;f32] img:
+        :returns Array[W,H;f32]:
+        """
+        return pyramids(
+            (img * 255).astype(np.uint8)[...,None]
+        )[2,...,0].astype(float) / 255
+
+    def get_visual_info(self, w: int, h: int, fixations: list[tuple[int,int]]) -> float:
+        """ Returns a float between 0 and 1 for how much information from an image is
+        retained on average, when the fovea is applied to different locations."""
+        visual_infos = np.empty(len(fixations))
+        for i,fix in enumerate(fixations):
+            mask = Fovea("window", self.size).apply(np.ones((1,w,h)), fix)
+            if self.type == "window":
+                # Full information for the pixels inside the fovea
+                visual_infos[i] = mask.mean()
+            elif self.type == "window_periph":
+                # Periphery with third pyramid level counts as 1/16 the information
+                visual_infos[i] = mask.mean() + (1 - mask.mean()) / 16
+            elif self.type == "exponential":
+                _, resolutions = foveat_img(
+                    mask.astype(np.uint8).transpose((1,2,0)), [fix])
+                visual_infos[i] = resolutions.mean()
+        return visual_infos.mean()
 
 def EMMA_fixation_time(
         dist: float,

@@ -82,7 +82,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.consecutive_pauses = 0
 
         self.fov_loc = np.array(self.fov_init_loc, copy=True).astype(np.int32)
-        fov_obs, visual_info = self.fov.apply(self.state.copy(), [self.fov_loc])
+        fov_obs = self.fov.apply(self.state.copy(), [self.fov_loc])
 
         # Time that has already passed since the last new frame
         # This is time that was still needed for the previous action
@@ -240,7 +240,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             action = self.fov_loc + action
         self.fov_loc = self._clip_to_valid_fov(action)
 
-        fov_state, visual_info = self.fov.apply(full_state, [self.fov_loc])
+        fov_state = self.fov.apply(full_state, [self.fov_loc])
 
         return fov_state
 
