@@ -14,7 +14,7 @@ class QNetwork(nn.Module):
         super().__init__()
         self.pause_feat = pause_feat
         self.s_action_feat = s_action_feat
-        act = nn.GELU
+        act = nn.ReLU
 
         # Get the size of the different network heads
         assert isinstance(env.single_action_space, spaces.Dict)
