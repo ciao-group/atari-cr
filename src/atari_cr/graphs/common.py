@@ -36,7 +36,7 @@ class Run:
     :attr str path: Path to the dir containing the run.
         Example: `output/good_ray_runs/exp_2_3m_2025-01-30_15-24-36`
     """
-    def __init__(self, path: str, with_trials=True):
+    def __init__(self, path: str, with_trials=False):
         self.path = path
         if with_trials:
             self.trials = self._trials()

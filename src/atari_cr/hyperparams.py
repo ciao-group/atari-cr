@@ -21,7 +21,7 @@ def trainable(config: dict):
     config.update(searchable)
 
     # Skip already searched params
-    if (config["fov"] in ["window", "window_periph"]) and (config["pvm"] == 2):
+    if (config["seed"] == 0) or ((not config["ignore_sugarl"]) and (config["seed"] == 1)):
         train.report({"human_likeness": 0.})
     else:
         # Start training

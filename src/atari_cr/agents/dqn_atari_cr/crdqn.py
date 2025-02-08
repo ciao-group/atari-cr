@@ -141,20 +141,8 @@ class CRDQN:
 
         # Get the sensory action set as a list of discrete actions
         # How far can the fovea move from left to right and from top to bottom
-        max_sensory_action_step = np.array(self.obs_size)
-        discrete_coords = [
-            np.linspace(
-                0,
-                max_sensory_action_step[i],
-                sensory_action_space_quantization[i],
-                endpoint=False
-            ).astype(int)
-            for i in [0,1]]
-        # Shift the coords to the middle
-        discrete_coords = [coords + int(coords[1] / 2) for coords in discrete_coords]
-        # Discrete action set as cross product of possible x and y steps
-        self.sensory_action_set = np.stack(
-            np.meshgrid(*discrete_coords)).T.reshape((-1,2))
+        self.sensory_action_set = self.create_sensory_action_set(
+            self.obs_size, *sensory_action_space_quantization)
 
         # Initialize the fovea location randomly
         for i in range(len(self.env.envs)):
@@ -721,3 +709,20 @@ class CRDQN:
 
     def _random_sensory_action(self):
         return self.sensory_action_set[np.random.choice(len(self.sensory_action_set))]
+
+    @staticmethod
+    def create_sensory_action_set(obs_size: tuple[int,int], x_quantization: int,
+                                  y_quantization: int):
+        max_sensory_action_step = np.array(obs_size)
+        discrete_coords = [
+            np.linspace(
+                0,
+                max_sensory_action_step[i],
+                [x_quantization, y_quantization][i],
+                endpoint=False
+            ).astype(int)
+            for i in [0,1]]
+        # Shift the coords to the middle
+        discrete_coords = [coords + int(coords[1] / 2) for coords in discrete_coords]
+        # Discrete action set as cross product of possible x and y steps
+        return np.stack(np.meshgrid(*discrete_coords)).T.reshape((-1,2))
