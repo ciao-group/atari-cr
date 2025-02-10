@@ -7,6 +7,7 @@ import numpy as np
 import polars as pl
 from matplotlib import pyplot as plt
 
+from atari_cr.graphs.common import CMAP
 from atari_cr.utils import debug_array
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
 
@@ -24,8 +25,6 @@ fovs = ["window", "window_periph", "exponential"]
 sizes = np.arange(0, 102, 2)
 visual_infos = np.zeros((len(fovs),len(sizes)))
 sensory_action_space = CRDQN.create_sensory_action_set((84,84), 8, 8)
-# get_visual_info(Fovea("window", (100,100)),84,84,sensory_action_space)
-# get_visual_info(Fovea("window_periph", (100,100)),84,84,sensory_action_space)
 for i, fov in enumerate(fovs):
     for j, size in enumerate(sizes):
         visual_infos[i,j] = \
@@ -34,10 +33,13 @@ exp_info = visual_infos[2,0] # 0.1566
 window_size = sizes[np.argmin(np.abs(visual_infos[0] - exp_info))] # 26
 periph_size = sizes[np.argmin(np.abs(visual_infos[1] - exp_info))] # 20
 visual_infos = pl.DataFrame({fovs[i]: visual_infos[i] for i in range(len(fovs))})
-for fov in fovs:
+for fov, size in zip(["window", "window_periph"], [window_size, periph_size]):
     plt.clf()
     plt.ylim(0.,1.)
     plt.plot(sizes, visual_infos[fov], alpha=0.5)
+    plt.plot(sizes, visual_infos["exponential"], alpha=0.5, color=CMAP[1])
+    # Vertical line for matching x value
+    plt.axvline(x=size, color=CMAP[1], linestyle='--', label=f'x = {size}', alpha=0.25)
     plt.savefig(f"{info_dir}/{fov}.png")
 print(visual_infos)
 

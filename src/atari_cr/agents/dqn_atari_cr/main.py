@@ -188,6 +188,6 @@ if __name__ == "__main__":
     args = ArgParser().parse_args()
     # Align windowed fov size with exponential fov size
     match args.fov:
-        case "window": args.fov_size = 36 # 37
-        case "window_periph": args.fov_size = 30 # 31
+        case "window": args.fov_size = 26
+        case "window_periph": args.fov_size = 20
     main(args)

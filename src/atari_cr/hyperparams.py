@@ -20,13 +20,14 @@ def trainable(config: dict):
           ",".join([f"{k}={v}" for k,v in searchable.items()]))
     config.update(searchable)
 
-    # Skip already searched params
-    if (config["seed"] == 0) or ((not config["ignore_sugarl"]) and (config["seed"] == 1)):
-        train.report({"human_likeness": 0.})
-    else:
-        # Start training
-        args = ArgParser().from_dict(config)
-        eval_returns, out_paths = main(args)
+    # # Skip already searched params
+    # if (config["seed"] == 0) or ((not config["ignore_sugarl"]) and (config["seed"] == 1)):
+    #     train.report({"human_likeness": 0.})
+    #     return
+
+    # Start training
+    args = ArgParser().from_dict(config)
+    eval_returns, out_paths = main(args)
 
 if __name__ == "__main__":
     GAZE_TARGET = True
@@ -71,8 +72,8 @@ if __name__ == "__main__":
             # Fixed overrides
             "searchable": {
                 "env": tune.grid_search(["asterix", "seaquest", "hero"]),
-                "seed": tune.grid_search([0,1,2]),
-                "ignore_sugarl": tune.grid_search([False, True]),
+                "pvm": tune.grid_search([2,4,8,16]),
+                "fov": tune.grid_search(["window", "window_periph", "exponential"])
             }
         },
         tune_config=tune.TuneConfig(
