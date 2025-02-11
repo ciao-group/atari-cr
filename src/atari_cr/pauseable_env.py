@@ -64,6 +64,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # Count and log the number of pauses made and their cost
         self.pause_cost = pause_cost
         self.consecutive_pause_limit = consecutive_pause_limit
+        self.prev_gazes = [] # Keep track of gazes when pausing
 
         # Attributes for recording episodes
         self.record = args.record
@@ -109,6 +110,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             # Durations for pause steps are instead counted for the next non-pause
             duration = 0
             reward -= self.pause_cost
+            self.prev_gazes.append(self.fov_loc)
 
             step_info["remaining_enc_time"] = remaining_enc_time
             step_info = self._post_step_logging(
@@ -124,7 +126,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 action_repetitions = 1
                 duration = step_time
             elif prev_pause:
-                # Make one action that had as duration the time of the previous pauses
+                # Make one action that has as duration the time of the previous pauses
                 # plus the time of the current action, rounded up to 50ms steps
                 action_repetitions = 1
                 duration = int((self.time_passed % 50 + 1) * 50)
@@ -132,7 +134,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
                 # Round the time up to 50ms steps and repeat the action for every 50ms
                 action_repetitions = int(self.time_passed // 50 + 1)
                 duration = 50
-            self.time_passed = self.time_passed % 50
+            # The next time step gets some left over time to use
+            self.time_passed = self.time_passed % 50 - 50
 
             # Repeat action as long as the saccade takes to complete
             step_infos = []
@@ -163,6 +166,8 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # Sensory step
         fov_state = self._fov_step(
             full_state=self.state, action=action["sensory_action"])
+        if action["motor_action"] != self.pause_action:
+            self.prev_gazes = []
 
         return fov_state, reward, done, truncated, info
 
@@ -240,7 +245,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             action = self.fov_loc + action
         self.fov_loc = self._clip_to_valid_fov(action)
 
-        fov_state = self.fov.apply(full_state, [self.fov_loc])
+        fov_state = self.fov.apply(full_state, [*self.prev_gazes, self.fov_loc])
 
         return fov_state
 

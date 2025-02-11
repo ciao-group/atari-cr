@@ -33,13 +33,19 @@ exp_info = visual_infos[2,0] # 0.1566
 window_size = sizes[np.argmin(np.abs(visual_infos[0] - exp_info))] # 26
 periph_size = sizes[np.argmin(np.abs(visual_infos[1] - exp_info))] # 20
 visual_infos = pl.DataFrame({fovs[i]: visual_infos[i] for i in range(len(fovs))})
+
+# Exponential fov
+plt.ylim(0,1)
+plt.plot(sizes, visual_infos["exponential"], alpha=0.75)
+plt.savefig(f"{info_dir}/exponential.png")
+# Windowed fovs
 for fov, size in zip(["window", "window_periph"], [window_size, periph_size]):
     plt.clf()
     plt.ylim(0.,1.)
-    plt.plot(sizes, visual_infos[fov], alpha=0.5)
-    plt.plot(sizes, visual_infos["exponential"], alpha=0.5, color=CMAP[1])
+    plt.plot(sizes, visual_infos[fov], alpha=0.75)
+    plt.plot(sizes, visual_infos["exponential"], alpha=0.75, color=CMAP[1])
     # Vertical line for matching x value
-    plt.axvline(x=size, color=CMAP[1], linestyle='--', label=f'x = {size}', alpha=0.25)
+    plt.axvline(x=size, color=CMAP[1], linestyle='--', label=f'x = {size}', alpha=0.5)
     plt.savefig(f"{info_dir}/{fov}.png")
 print(visual_infos)
 

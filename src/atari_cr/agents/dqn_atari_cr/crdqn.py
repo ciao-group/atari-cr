@@ -510,16 +510,6 @@ class CRDQN:
             self._log_episode(episode_info, td_update, duration_info, eval_env=False,
                               emma_times=emma_times)
 
-        # Update the latest observation in the pvm buffer
-        assert len(env.envs) == 1, \
-            "Vector env with more than one env not supported for the following code"
-        if isinstance(env.envs[0], PauseableFixedFovealEnv) \
-            and motor_actions[0] == env.envs[0].pause_action:
-            pvm_buffer.buffer[-1] = np.expand_dims(np.max(np.vstack(
-                [pvm_buffer.buffer[-1], next_obs]), axis=0), axis=0)
-        else:
-            pvm_buffer.append(next_obs)
-
         # Get the next pvm observation
         next_pvm_obs = pvm_buffer.get_obs(mode="stack_mean" if self.mean_pvm
                                           else "stack_max")

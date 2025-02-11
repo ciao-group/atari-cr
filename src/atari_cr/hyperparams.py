@@ -72,7 +72,7 @@ if __name__ == "__main__":
             # Fixed overrides
             "searchable": {
                 "env": tune.grid_search(["asterix", "seaquest", "hero"]),
-                "pvm": tune.grid_search([2,4,8,16]),
+                "pvm": tune.grid_search([4,8,16]),
                 "fov": tune.grid_search(["window", "window_periph", "exponential"])
             }
         },
