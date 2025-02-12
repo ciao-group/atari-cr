@@ -100,6 +100,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.time_passed += step_time
         saccade_cost = self.saccade_cost_scale * step_time
         reward = -saccade_cost
+        # If there is still time left until the next action: wait the time out
+        if self.time_passed < 0:
+            self.time_passed = 0
 
         if action["motor_action"] == self.pause_action: # Pause step
             step_info = self._pre_step_logging(action)

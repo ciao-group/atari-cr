@@ -71,9 +71,8 @@ if __name__ == "__main__":
             "pvm": 2,
             # Fixed overrides
             "searchable": {
-                "env": tune.grid_search(["asterix", "seaquest", "hero"]),
-                "pvm": tune.grid_search([4,8,16]),
-                "fov": tune.grid_search(["window", "window_periph", "exponential"])
+                "buffer_size": tune.grid_search([100_000, 1_000_000]),
+                "train_frequency": tune.grid_search([4,40,60]),
             }
         },
         tune_config=tune.TuneConfig(
