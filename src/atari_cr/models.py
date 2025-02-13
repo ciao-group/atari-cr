@@ -159,40 +159,25 @@ class EpisodeRecord():
         args = { "fov_size": buffer["fov_size"][0] }
         return EpisodeRecord(frames, annotations, args)
 
-    def save(self, save_dir: str, draw_focus = False, with_obs = False):
+    def save(self, save_dir: str, with_obs = False):
         """
         Saves the record_buffer to an mp4 file and a metadata file.
-
-        :param bool draw_focus: Whether to draw the fovea onto the frames in the video
         """
         # Output paths
         video_path, annotation_path, args_path, obs_path = \
             EpisodeRecord._file_paths(save_dir)
 
-        # Style settings
-        color = (255, 0, 0)
-        thickness = 1
-
-        # The fov_loc is set in a 84x84 grid; the video output is 256x256
-        # This scales it down
-        COORD_SCALING = 255 / 83
         fov_locs = np.concat([
                 self.annotations["fov_x", "fov_y"].to_numpy(),
                 self.annotations["sensory_action_x","sensory_action_y"].to_numpy()[-1:],
             ], axis=0
         )
-        fov_locs = np.rint(fov_locs.astype(np.float32) * COORD_SCALING)
-        fov_size = np.rint(np.array(self.args["fov_size"]) * COORD_SCALING)
+        fov_locs = np.rint(fov_locs.astype(np.float32))
+        fov_size = np.rint(np.array(self.args["fov_size"]))
 
         # Draw onto the frames and save them as mp4
         frames = []
         for i, frame in enumerate(self.frames[:-1]):
-
-            if draw_focus:
-                top_left = fov_locs[i]
-                bottom_right = top_left + fov_size
-                frame = cv2.rectangle(
-                    frame, top_left, bottom_right, color, thickness)
 
             # Draw a red dot on the image if the agent paused
             if self.annotations[i, 'pauses']:
@@ -210,12 +195,14 @@ class EpisodeRecord():
 
         # Safe observations together with original frames
         if with_obs and self._obs is not None:
-            upscaled_obs = np.stack([cv2.resize(
-                    np.broadcast_to(obs[...,np.newaxis], (*obs.shape, 3)),
+            upscaled_obs = np.stack([
+                cv2.resize(
+                    np.broadcast_to(obs[...,np.newaxis],(*obs.shape, 3)),
                     (256, 256)
                 ) for obs in (self._obs * 255).astype(np.uint8)])
 
-            Fovea(self.args["fov"], fov_size).draw(frames, fov_locs, scaling=3.)
+            Fovea(self.args["fov"], fov_size).draw(
+                frames, fov_locs * 256/84, scaling=256/84)
             save_video(np.concatenate([upscaled_obs, frames], axis=2),
                                       obs_path)
 

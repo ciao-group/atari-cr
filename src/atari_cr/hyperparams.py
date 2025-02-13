@@ -45,7 +45,7 @@ if __name__ == "__main__":
         trainable,
         param_space={
             # Fixed
-            "clip_reward": False,
+            "clip_reward": True,
             "capture_video": True,
             "total_timesteps": 1_000_000,
             "no_pvm_visualization": True,
@@ -71,8 +71,8 @@ if __name__ == "__main__":
             "pvm": 2,
             # Fixed overrides
             "searchable": {
-                "env": tune.grid_search(["asterix", "seaquest", "hero"]),
                 "train_frequency": tune.grid_search([4,6,8]),
+                "env": tune.grid_search(["asterix", "seaquest", "hero"]),
             }
         },
         tune_config=tune.TuneConfig(

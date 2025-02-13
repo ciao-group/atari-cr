@@ -325,7 +325,7 @@ class CRDQN:
             pvm_obs = eval_pvm_buffer.get_obs(mode="stack_mean" if self.mean_pvm
                                           else "stack_max") # -> [1,4,84,84]
 
-            # Save the pvm obs for logging
+            # Save the last frame in the pvm obs for logging
             if self.capture_video:
                 pvm_observations = [pvm_obs[0,-1,...]] # -> [1,84,84]
 
@@ -511,6 +511,7 @@ class CRDQN:
                               emma_times=emma_times)
 
         # Get the next pvm observation
+        pvm_buffer.append(next_obs)
         next_pvm_obs = pvm_buffer.get_obs(mode="stack_mean" if self.mean_pvm
                                           else "stack_max")
 

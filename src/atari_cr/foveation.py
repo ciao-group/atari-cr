@@ -184,7 +184,7 @@ class Fovea():
                     img_stack[i] = img
                 return img_stack
 
-    def draw(self, frames: ndarray, fov_locs: ndarray, scaling = 1.):
+    def draw(self, frames: list[ndarray], fov_locs: ndarray, scaling = 1.):
         """ Draws the fovea onto a stack of frames
 
         :param list[Array[256,256,3]] frames:
