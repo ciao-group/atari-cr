@@ -53,6 +53,7 @@ class DictReplayBufferSamples(NamedTuple):
     rewards: th.Tensor
 
 class DoubleActionReplayBufferSamples(NamedTuple):
+    """ Everything is size [B,*], where B is the batch size for training. """
     observations: th.Tensor
     motor_actions: th.Tensor
     sensory_actions: th.Tensor
@@ -230,7 +231,7 @@ class DoubleActionReplayBuffer(BaseBuffer):
         if not self.optimize_memory_usage:
             return super().sample(batch_size=batch_size, env=env)
         if self.full:
-            possible_indices = np.arange(self.buffer_size + 1 - self.td_steps)
+            possible_indices = np.arange(self.buffer_size - self.td_steps)
             # Do not sample the element with index `self.pos` as the transitions is
             # invalid (we use only one array to store `obs` and `next_obs`)
             current_inds = np.arange(
@@ -243,7 +244,7 @@ class DoubleActionReplayBuffer(BaseBuffer):
         else:
             assert self.pos - self.td_steps >= 0, ("Not enough entries in the replay"
                 "buffer. Increase learning_start or decrease td_steps")
-            batch_inds = np.random.randint(0, self.pos - (self.td_steps - 1), size=batch_size)
+            batch_inds = np.random.randint(0, self.pos - self.td_steps, size=batch_size)
         return self._get_samples(batch_inds, env=env)
 
     def _get_samples(self, batch_inds: np.ndarray, env: Optional[VectorEnv] = None
@@ -255,29 +256,39 @@ class DoubleActionReplayBuffer(BaseBuffer):
         # Sample random env indices, indicating from which env to sample in the vec env
         env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
 
-        if self.optimize_memory_usage:
-            next_obs = self._normalize_obs(
-                self.observations[(batch_inds + self.td_steps) %
-                                  self.buffer_size, env_indices, :],
-                env)
-        else:
-            next_obs = self._normalize_obs(
-                self.next_observations[batch_inds - 1 + self.td_steps, env_indices, :],
-                env)
-
         # Insert the init_sensory_action for the first time step
         init_inds = np.where(batch_inds == 0)
         prev_sensory_actions = self.sensory_actions[batch_inds-1, env_indices, :]
         prev_sensory_actions[init_inds] = self.init_sensory_action
 
         data = (
-            self._normalize_obs(self.observations[batch_inds, env_indices, :], env),
-            self.motor_actions[batch_inds, env_indices, :],
+            self._normalize_obs(
+                self.observations[
+                    batch_inds[:, None] + np.arange(self.td_steps),
+                    env_indices[:, None],
+                    :
+                ], env
+            ),
+            self.motor_actions[
+                batch_inds[:, None] + np.arange(self.td_steps),
+                env_indices[:, None],
+                :
+            ],
             self.sensory_actions[batch_inds, env_indices, :],
-            next_obs,
+            self._normalize_obs(
+                self.observations[
+                    batch_inds[:, None] + np.arange(self.td_steps) + 1,
+                    env_indices[:, None],
+                    :
+                ], env
+            ),
             self.dones[batch_inds[:, None] + np.arange(self.td_steps)],
             self._normalize_reward(
-                self.rewards[batch_inds[:, None] + np.arange(self.td_steps)], env),
+                self.rewards[
+                    batch_inds[:, None] + np.arange(self.td_steps),
+                    env_indices[:, None],
+                ], env
+            ),
             self.consecutive_pauses[batch_inds, env_indices],
             prev_sensory_actions
         )

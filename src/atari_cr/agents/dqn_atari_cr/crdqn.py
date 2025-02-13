@@ -285,8 +285,8 @@ class CRDQN:
                 # Counter-balance the true global transitions used for training
                 data = self.rb.sample(self.batch_size // self.n_envs)
                 # SFN and DQN training
-                observation_quality = self._train_sfn(data)
-                td_update = self._train_dqn(data, observation_quality)
+                obs_qualities = self._train_sfn(data)
+                td_update = self._train_dqn(data, obs_qualities)
 
             # Evaluation
             if (self.timestep % self.eval_frequency == 0 and
@@ -555,34 +555,36 @@ class CRDQN:
         train.report(ray_info)
 
     def _train_sfn(self, data: DoubleActionReplayBufferSamples):
-        # Prediction
-        concat_observation = torch.concat(
-            [data.next_observations, data.observations], dim=1)
-        pred_motor_actions = self.sfn(Resize(self.obs_size)(concat_observation))
-        self.sfn_loss = self.sfn.get_loss(
-            pred_motor_actions, data.motor_actions.flatten())
+        obs_qualities = torch.empty(data.observations.shape[:2]).to(self.device)
+        for i in range(data.observations.shape[1]): # For every td step
+            # Prediction
+            concat_observation = torch.concat(
+                [data.next_observations[:,i], data.observations[:,i]], dim=1)
+            pred_motor_actions = self.sfn(Resize(self.obs_size)(concat_observation))
+            self.sfn_loss = self.sfn.get_loss(
+                pred_motor_actions, data.motor_actions[:,i].flatten())
 
-        # Back propagation
-        self.sfn_optimizer.zero_grad()
-        self.sfn_loss.backward()
-        self.sfn_optimizer.step()
+            # Back propagation
+            self.sfn_optimizer.zero_grad()
+            self.sfn_loss.backward()
+            self.sfn_optimizer.step()
 
-        # Return the probabilites the sfn would have also selected the actually selected
-        # action, given the limited observation. Higher probabilities suggest
-        # better information was provided from the visual input
-        observation_quality = F.softmax(pred_motor_actions, dim=0).gather(
-            1, data.motor_actions).squeeze().detach()
+            # Return the probabilites the sfn would have also selected the actually selected
+            # action, given the limited observation. Higher probabilities suggest
+            # better information was provided from the visual input
+            obs_qualities[:,i] = F.softmax(pred_motor_actions, dim=0).gather(
+                1, data.motor_actions[:,i]).squeeze().detach()
 
-        return observation_quality
+        return obs_qualities
 
     def _train_dqn(self, data: DoubleActionReplayBufferSamples,
-                   observation_quality: torch.Tensor):
+                   obs_qualities: torch.Tensor):
         """
         Trains the behavior q network and copies it to the target q network with
         self.target_network_frequency.
 
         :param NDArray data: A sample from the replay buffer
-        :param NDArray[Shape[self.batch_size], Float] observation_quality: A batch of
+        :param NDArray[Shape[B,TD], Float] obs_qualities: A batch of
             probabilities of the SFN predicting the action that the agent selected
         """
         # Cast sensory action ids to coordinates and remove the env axis
@@ -595,7 +597,7 @@ class CRDQN:
         with torch.no_grad():
             # Assign a value to every possible action in the next state for one batch
             motor_target, sensory_target = self.target_network(
-                Resize(self.obs_size)(data.next_observations),
+                Resize(self.obs_size)(data.next_observations[:,-1]),
                 consecutive_pauses, prev_sensory_actions)
                 # -> [32, 19], [32, 19]
             # Get the next state value as the sum of max motor and sensory q values
@@ -616,15 +618,16 @@ class CRDQN:
 
             # Reward function
             sugarl_penalty = torch.zeros([32]).to(self.device) if self.ignore_sugarl \
-                else (1 - observation_quality) * self.sugarl_r_scale # -> [32]
-            td_target = (data.rewards[...,0] * gamma[:,:-1]).sum(dim=1) \
-                 + next_state_value * gamma[:,-1] - sugarl_penalty # -> [32]
+                else (1 - obs_qualities) * self.sugarl_r_scale # -> [32,4]
+            td_target = (
+                (data.rewards - sugarl_penalty) * gamma[:,:-1]
+            ).sum(dim=1) + next_state_value * gamma[:,-1] # -> [32]
 
         # Q network prediction
         old_motor_q_val, old_sensory_q_val = self.q_network(
-            Resize(self.obs_size)(data.observations), data.consecutive_pauses,
+            Resize(self.obs_size)(data.observations[:,0]), data.consecutive_pauses,
             prev_sensory_actions) # -> [32], [32]
-        old_motor_val = old_motor_q_val.gather(1, data.motor_actions).squeeze()
+        old_motor_val = old_motor_q_val.gather(1, data.motor_actions[:,0]).squeeze()
         old_sensory_val = old_sensory_q_val.gather(1, data.sensory_actions).squeeze()
         old_val = old_motor_val + old_sensory_val # -> [32]
 
