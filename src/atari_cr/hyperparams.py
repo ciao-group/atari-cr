@@ -21,7 +21,8 @@ def trainable(config: dict):
     config.update(searchable)
 
     # # Skip already searched params
-    # if (config["seed"] == 0) or ((not config["ignore_sugarl"]) and (config["seed"] == 1)):
+    # if (config["train_frequency"] == 4) or (
+    #     (config["train_frequency"] == 6) and (config["env"] == "asterix")):
     #     train.report({"human_likeness": 0.})
     #     return
 
@@ -45,7 +46,7 @@ if __name__ == "__main__":
         trainable,
         param_space={
             # Fixed
-            "clip_reward": True,
+            "clip_reward": False,
             "capture_video": True,
             "total_timesteps": 1_000_000,
             "no_pvm_visualization": True,

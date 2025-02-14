@@ -302,6 +302,7 @@ class CRDQN:
         return eval_returns, out_paths
 
     def evaluate(self, td_update: TdUpdateInfo, file_output = True):
+        """ Evaluate the agent by playing n_evals episodes. """
         # Set networks to eval mode
         self.sfn.eval()
 

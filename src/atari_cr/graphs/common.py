@@ -48,8 +48,12 @@ class Run:
             with open(f"{dir.path}/params.json", "r") as f:
                 params = json.load(f)
             params.update(params.pop("searchable"))
-            # Take only the last row from the progress
-            result = pl.read_csv(f"{dir.path}/progress.csv").row(-1, named=True)
+            # Average over the eval rows at the end
+            result = (
+                pl.read_csv(f"{dir.path}/progress.csv")[-100:]
+                    .filter("eval_env")
+                    .median()
+            )
             result.update(params)
             results.append(result)
         return pl.DataFrame(results).with_columns([
