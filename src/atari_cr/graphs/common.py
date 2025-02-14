@@ -53,6 +53,7 @@ class Run:
                 pl.read_csv(f"{dir.path}/progress.csv")[-100:]
                     .filter("eval_env")
                     .median()
+                    .row(0, named=True)
             )
             result.update(params)
             results.append(result)
