@@ -8,7 +8,6 @@ from atari_cr.graphs.common import CMAP, Run
 out_dir = "output/graphs/sugarl_ablation"
 os.makedirs(out_dir, exist_ok=True)
 run = Run("output/good_ray_runs/sugarl_2025-02-07_15-58-26")
-# results = run.results_df()
 progress = run.progress_df()
 # Average over both seeds
 progress = (progress

@@ -51,7 +51,7 @@ class ArgParser(Tap):
 
     # Eval args
     eval_frequency: int = -1 # How many steps to take in the env before a new evaluation
-    eval_num: int = 10 # How many envs are created for evaluation
+    n_evals: int = 5 # How many envs are created for evaluation
     checkpoint: str = "" # Checkpoint to resume training
 
     # Pause args
@@ -160,7 +160,7 @@ def main(args: ArgParser):
         gamma=args.gamma,
         target_network_frequency=args.target_network_frequency,
         eval_frequency=args.eval_frequency,
-        n_evals=args.eval_num,
+        n_evals=args.n_evals,
         sensory_action_space_quantization=(
             args.sensory_action_x_size, args.sensory_action_y_size),
         epsilon_interval=(args.start_e, args.end_e),

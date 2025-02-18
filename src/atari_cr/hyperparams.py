@@ -48,7 +48,7 @@ if __name__ == "__main__":
             # Fixed
             "clip_reward": False,
             "capture_video": True,
-            "total_timesteps": 1_000_000,
+            "total_timesteps": 3_000_000,
             "no_pvm_visualization": True,
             "use_pause_env": True,
             "env": "seaquest", # Other: breakout ms_pacman seaquest asterix hero
@@ -72,7 +72,6 @@ if __name__ == "__main__":
             "pvm": 2,
             # Fixed overrides
             "searchable": {
-                "train_frequency": tune.grid_search([4,6,8]),
                 "env": tune.grid_search(["asterix", "seaquest", "hero"]),
             }
         },
