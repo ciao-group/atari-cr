@@ -419,7 +419,7 @@ class CRDQN:
                 duration_infos.append(
                     DurationInfo.from_episodes([episode_record], self.env_name))
 
-            emma_times.extend(episode_record.annotations["emma_time"].drop_nulls().to_list())
+            emma_times.extend(episode_record.annotations["step_time"].drop_nulls().to_list())
 
             eval_env.close()
 
@@ -505,7 +505,7 @@ class CRDQN:
                     self.env_name
                 )
 
-            emma_times = (env.envs[0].prev_episode.annotations["emma_time"]
+            emma_times = (env.envs[0].prev_episode.annotations["step_time"]
                 .drop_nulls().to_list())
 
             self._log_episode(episode_info, td_update, duration_info, eval_env=False,
@@ -535,7 +535,7 @@ class CRDQN:
             "auc": self.auc,
             "truncated": episode_info["truncated"],
             "eval_env": eval_env,
-            "emma_times": emma_times
+            "step_times": emma_times
         }
         if td_update:
             ray_info.update({f"td/{k}": v for k,v in td_update._asdict().items()})
