@@ -75,7 +75,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.state, info = self.env.reset() # -> [4,84,84;f64]
         assert self.state.shape == (4,84,84)
         self.state[:3] = np.full(self.state.shape[1:], 0.5)
-        self.frames = [self.unwrapped.render()]
+        self.frames = []
 
         self.timestep = -1
         self.step_infos = []
@@ -232,6 +232,9 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # Log the infos of all steps in one record for the
         # entire episode
         if done or truncated:
+            # Append the last frame to the record
+            self.frames.append(self.unwrapped.render())
+            # Save the trajectory in an episode record
             self.prev_episode = EpisodeRecord(
                 np.stack(self.frames),
                 EpisodeRecord.annotations_from_step_infos(self.step_infos),
