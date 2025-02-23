@@ -83,7 +83,7 @@ def save_video(frames: np.ndarray, video_path: str, greyscale = False):
     if frames.dtype == np.float32:
         frames = (frames * 255).astype(np.uint8)
     for frame in frames:
-        video_writer.write(frame)
+        video_writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
     video_writer.release()
 
 def preprocess(frame: np.ndarray):

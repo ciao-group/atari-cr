@@ -182,7 +182,7 @@ class EpisodeRecord():
             # Draw a red dot on the image if the agent paused
             if self.annotations[i, 'pauses']:
                 frame[247:251, 4:8, :] = np.broadcast_to(
-                    np.array([0, 0, 255]), [4, 4, 3])
+                    np.array([255, 0, 0]), [4, 4, 3])
 
             frames.append(frame)
         frames.append(self.frames[-1])

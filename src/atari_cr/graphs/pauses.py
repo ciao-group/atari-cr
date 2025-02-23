@@ -1,13 +1,15 @@
 import os
+import shutil
 import numpy as np
 from PIL import Image
 
 from atari_cr.graphs.common import Run
 from atari_cr.models import EpisodeRecord
 
-run = Run("output/good_ray_runs/exp_2_3m_video_2025-02-18_19-39-37")
+run = Run("output/good_ray_runs/exp_2_3m_video_2025-02-20_11-29-23")
 out_dir = "output/graphs/pauses"
-os.makedirs(out_dir, exist_ok=True)
+shutil.rmtree(out_dir)
+os.makedirs(out_dir)
 
 # Get the first trial matching a given env
 envs = ["asterix", "seaquest", "hero"]
@@ -20,8 +22,14 @@ for env in envs:
 
     # Create output dir for every env
     env_dir = f"{out_dir}/{env}"
-    os.makedirs(env_dir)
+    os.makedirs(env_dir, exist_ok=True)
 
-    paused_frames = record.frames[np.where(record.annotations["pauses"])[0]]
-    for i, frame in enumerate(paused_frames):
-        Image.fromarray(frame, mode="RGB").save(f"{env_dir}/{i}.png")
+    pause_inds = np.where(record.annotations["pauses"])[0]
+    # Filter for pauses of length two
+    pause_inds = [i for i in pause_inds if (i + 1) in pause_inds]
+    for i in pause_inds:
+        # Save the six previous images
+        frame_dir = f"{env_dir}/{i}"
+        os.makedirs(frame_dir, exist_ok=True)
+        for j in range(i-6, i+7, 3):
+            Image.fromarray(record.frames[j], mode="RGB").save(f"{frame_dir}/{j}.png")

@@ -7,12 +7,12 @@ from atari_cr.graphs.common import CMAP, Run
 
 if __name__ == "__main__":
     run = Run("output/good_ray_runs/rewards_5M_2025-01-28_15-02-17")
-    results = run.results_df()
+    results = run.results_df(ignore_durations=True)
     # Average over both seeds
     results = (results
-        .group_by("env", "total_timesteps").mean()
-        .sort("env", "total_timesteps")
-        .select("env", "total_timesteps", "raw_reward")
+        .group_by("env", "total_timesteps", "use_pause_env").mean()
+        .sort("use_pause_env", "env", "total_timesteps")
+        .select("use_pause_env", "env", "total_timesteps", "raw_reward")
     )
     print(results)
 

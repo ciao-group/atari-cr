@@ -41,7 +41,7 @@ class Run:
         if with_trials:
             self.trials = self._trials()
 
-    def results_df(self):
+    def results_df(self, ignore_durations = False):
         """ Get a DataFrame containing the results of a run. """
         results = []
         for dir in [e for e in os.scandir(self.path) if e.is_dir()]:
@@ -49,13 +49,17 @@ class Run:
                 params = json.load(f)
             params.update(params.pop("searchable"))
             # Average over the eval rows at the end
-            result = (
+            result_df = (
                 pl.read_csv(f"{dir.path}/progress.csv")[-100:]
                     .filter("eval_env")
-                    .median()
-                    .row(0, named=True)
             )
+            result = result_df.median().row(0, named=True)
             result.update(params)
+            if not ignore_durations:
+                durations = []
+                for d in result_df["gaze_duration"].to_list():
+                    durations.extend(eval(d))
+                result.update({"gaze_duration": durations})
             results.append(result)
         return pl.DataFrame(results).with_columns([
             pl.col("env").cast(pl.Enum(["asterix", "seaquest", "hero"])),

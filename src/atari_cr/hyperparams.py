@@ -72,6 +72,9 @@ if __name__ == "__main__":
             "pvm": 2,
             # Fixed overrides
             "searchable": {
+                "use_pause_env": tune.grid_search([False]),
+                "total_timesteps": tune.grid_search([1_000_000]),
+                "seed": tune.grid_search([0,1]),
                 "env": tune.grid_search(["asterix", "seaquest", "hero"]),
             }
         },

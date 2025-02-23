@@ -23,13 +23,22 @@ if __name__ == "__main__":
         .select("env", "seed", "duration_error", "gaze_duration")
         .sort("env", "seed")
     )
-    for i, env in enumerate(["asterix", "seaquest", "hero"]):
+    envs = ["asterix", "seaquest", "hero"]
+    pause_probs = pl.DataFrame({
+        "Player": ["Agent", "Human"],
+        **{ e: [-1.,-1.] for e in envs}
+    })
+    for i, env in enumerate(envs):
         # Agent data
-        durations = np.concat(
-            [eval(s) for s in results.filter(pl.col("env") == env)["gaze_duration"]])
+        durations = np.concat(results.filter(pl.col("env") == env)["gaze_duration"])
         hist, _ = np.histogram(durations, BINS)
+        pause_probs[0, env] = (1 - (hist / hist.sum())[1].round(3)) * 100
         plot(hist, f"{output_dir}/{env}.png", color=CMAP[i])
 
         # Human data
         hist = get_histogram(env)
+        pause_probs[1, env] = (1 - hist[1].numpy().round(3)) * 100
         plot(hist.numpy(), f"{output_dir}/human_{env}.png", color=CMAP[i])
+
+# How often do people and humans pause
+print(pause_probs)
