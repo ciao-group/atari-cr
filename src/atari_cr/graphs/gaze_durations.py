@@ -10,8 +10,10 @@ def plot(hist: np.ndarray, out_path: str, color: str):
     plt.clf()
     plt.yscale("log")
     plt.ylim(1e-6, 2.)
-    plt.bar(np.arange(0, 1025, 50), hist / hist.sum(), width=50, color=color)
-    plt.savefig(out_path)
+    plt.bar(np.arange(0, 1025, 50), hist / hist.sum(), width=50, color=color, alpha=0.75)
+    plt.xlabel("Gaze Durations [ms]")
+    plt.ylabel("Relative Frequency")
+    plt.savefig(out_path, bbox_inches="tight", pad_inches=0.1)
 
 if __name__ == "__main__":
     game_name = "ms_pacman"
@@ -35,7 +37,7 @@ if __name__ == "__main__":
         pause_probs[0, env] = (1 - (hist / hist.sum())[1].round(3)) * 100
         plot(hist, f"{output_dir}/{env}.png", color=CMAP[i])
 
-        # Human data
+        # Human data, 99.9% duration quantile over three games: 602
         hist = get_histogram(env)
         pause_probs[1, env] = (1 - hist[1].numpy().round(3)) * 100
         plot(hist.numpy(), f"{output_dir}/human_{env}.png", color=CMAP[i])

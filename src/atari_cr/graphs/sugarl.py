@@ -27,12 +27,34 @@ for metric in ["raw_reward", "human_likeness"]:
             x = np.arange(len(score)) * 1e6 / len(score)
             plt.plot(x, mean, color=CMAP[1])
             plt.scatter(x, score, marker=".", alpha=0.25)
-            plt.savefig(f"{out_dir}/{metric}_{env}_{'' if sugarl else 'no_'}sugarl.png")
+            plt.xlabel("Timesteps")
+            plt.ylabel("Episodic Reward")
+            plt.savefig(f"{out_dir}/{metric}_{env}_{'' if sugarl else 'no_'}sugarl.png",
+                        bbox_inches='tight', pad_inches=0.1)
 
-results = run.results_df()
-print(
-    results
-        .select("ignore_sugarl","env","raw_reward")
-        .group_by("env","ignore_sugarl").median()
-        .sort("env","ignore_sugarl","raw_reward")
+results = (
+    run.results_df()
+        .select(
+            "env",
+            "ignore_sugarl",
+            pl.col("raw_reward").round(1),
+            pl.col("human_likeness").round(4))
+        .group_by("env","ignore_sugarl").mean()
+        .sort("ignore_sugarl", descending=True)
+        .sort("env")
 )
+print(results)
+reward_gain = (
+    results.pivot(index="env", on="ignore_sugarl", values="raw_reward")
+        .select(((pl.col("false") - pl.col("true")) / pl.col("true")).alias("Reward Gain").round(3) * 100)
+        .to_series()
+)
+gains = (
+    results.pivot(index="env", on="ignore_sugarl", values="human_likeness")
+        .select([
+            "env",
+            reward_gain,
+            ((pl.col("false") - pl.col("true")) / pl.col("true")).alias("Likeness Gain").round(3) * 100,
+        ])
+)
+print(gains)

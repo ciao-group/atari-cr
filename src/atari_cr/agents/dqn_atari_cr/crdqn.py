@@ -548,11 +548,14 @@ class CRDQN:
                 "reward": episode_info["reward"],
             })
             if duration_info:
+                # duration error as a score from 0 to 1, where 1 is better
+                duration_score = 1 - np.log10(1 + duration_info.error) / 3
                 ray_info.update({
                     "duration_error": duration_info.error,
                     "human_likeness":
-                        self.auc - np.log10(1 + duration_info.error)/6,
-                    "gaze_duration": duration_info.durations.astype(int).tolist()
+                        (self.auc - 0.5) + duration_score / 2,
+                    "gaze_duration": duration_info.durations.astype(int).tolist(),
+                    "duration_score": duration_score
                 })
         train.report(ray_info)
 

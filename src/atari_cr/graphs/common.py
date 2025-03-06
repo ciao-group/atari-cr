@@ -8,8 +8,8 @@ from matplotlib.category import UnitData
 from atari_cr.models import EpisodeRecord
 
 # Styling
-# plt.style.use("tableau-colorblind10")
-plt.rcParams.update({'font.size': 14})
+plt.rcParams.update({'font.size': 14}) # For two subfigure
+plt.rcParams.update({'font.size': 21}) # For three subfigures
 
 CMAP = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
@@ -48,18 +48,18 @@ class Run:
             with open(f"{dir.path}/params.json", "r") as f:
                 params = json.load(f)
             params.update(params.pop("searchable"))
-            # Average over the eval rows at the end
-            result_df = (
-                pl.read_csv(f"{dir.path}/progress.csv")[-100:]
-                    .filter("eval_env")
-            )
-            result = result_df.median().row(0, named=True)
+            # Average over the last 30 episodes (like mnih2015), including eval episodes
+            result_df = pl.read_csv(f"{dir.path}/progress.csv").tail(30)
+            result = result_df.mean().row(0, named=True)
             result.update(params)
             if not ignore_durations:
-                durations = []
+                durations, emma_times = [], []
                 for d in result_df["gaze_duration"].to_list():
                     durations.extend(eval(d))
                 result.update({"gaze_duration": durations})
+                for t in result_df["emma_times"].to_list():
+                    emma_times.extend(eval(t))
+                result.update({"emma_times": emma_times})
             results.append(result)
         return pl.DataFrame(results).with_columns([
             pl.col("env").cast(pl.Enum(["asterix", "seaquest", "hero"])),
@@ -103,10 +103,10 @@ class Run:
         return trials
 
 def scatter_with_median(results_df: pl.DataFrame, metrics: list[str], out_dir: str,
-                      target_metric = "human_likeness", log_x=False):
+                      target_metric = "human_likeness", log_x=False, xlabels=None):
     """ Create and save a scatter plot with a mean drawn into it """
     results_df = results_df.select(["env", *metrics, target_metric])
-    for metric in metrics:
+    for j, metric in enumerate(metrics):
         plt.clf()
         plt.xscale("log" if log_x else "linear")
         envs = ["asterix", "seaquest", "hero"]
@@ -123,5 +123,10 @@ def scatter_with_median(results_df: pl.DataFrame, metrics: list[str], out_dir: s
         plt.ylim(results_df[target_metric].min() * 0.95,
                  results_df[target_metric].max() * 1.05)
         plt.xticks(median[metric].to_list())
-        plt.legend([*envs, "median"], bbox_to_anchor=(0.95,0.375))
-        plt.savefig(f"{out_dir}/{metric}.png")
+        plt.legend([*envs, "median"], loc='best', bbox_to_anchor=(0.55, 0.5, 0.45, 0.5))
+        plt.xlabel(xlabels[j] if xlabels
+            else " ".join([w.capitalize() for w in metric.split("_")]))
+        plt.ylabel(" ".join([w.capitalize() for w in target_metric.split("_")]))
+        plt.savefig(f"{out_dir}/{metric}.png", bbox_inches='tight', pad_inches=0.1)
+        print(f"Medians for {metric}:")
+        print(median.select([metric, target_metric]))

@@ -91,7 +91,8 @@ def preprocess(frame: np.ndarray):
     Image preprocessing function from IL-CGL.
     Warp frames to 84x84 as done in the Nature paper and later work.
 
-    :param np.ndarray frame: uint8 greyscale frame loaded using `cv2.imread`
+    :param Array[W,H,3; u8] frame: uint8 greyscale frame loaded using `cv2.imread`
+    :returns Array[84,84; f32]:
     """
     width = 84
     height = 84

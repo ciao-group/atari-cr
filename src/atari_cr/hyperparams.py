@@ -21,8 +21,7 @@ def trainable(config: dict):
     config.update(searchable)
 
     # # Skip already searched params
-    # if (config["train_frequency"] == 4) or (
-    #     (config["train_frequency"] == 6) and (config["env"] == "asterix")):
+    # if (config["seed"] == 0) and (config["env"] in ["asterix", "hero"]):
     #     train.report({"human_likeness": 0.})
     #     return
 
@@ -73,7 +72,7 @@ if __name__ == "__main__":
             # Fixed overrides
             "searchable": {
                 "use_pause_env": tune.grid_search([False]),
-                "total_timesteps": tune.grid_search([1_000_000]),
+                "total_timesteps": tune.grid_search([5_000_000]),
                 "seed": tune.grid_search([0,1]),
                 "env": tune.grid_search(["asterix", "seaquest", "hero"]),
             }

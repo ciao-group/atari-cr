@@ -14,7 +14,9 @@ def save_heatmap(heatmap: Tensor, background: np.ndarray, label: str):
     plt.clf()
     plt.imshow(background)
     plt.imshow(heatmap, cmap="jet", alpha=0.75)
-    plt.savefig(f"{output_dir}/{label}.png")
+    plt.xticks([])
+    plt.yticks([])
+    plt.savefig(f"{output_dir}/{label}.png", bbox_inches='tight', pad_inches=0.1)
 
 if __name__ == "__main__":
     np.random.seed(42)
@@ -24,14 +26,21 @@ if __name__ == "__main__":
 
     # Best Agent heatmap
     best_episode = EpisodeRecord.load(best_auc["eval"])
+    # Episode is 491 frames long, achieves a score of 2820
     background = best_episode.frames[0]
     heatmap = GazeDataset.create_saliency_map(
         best_episode.annotations["sensory_action_x", "sensory_action_y"].to_torch())
     save_heatmap(heatmap, background, "agent")
 
     # Atari HEAD heatmap
-    heatmap = GazeDataset.from_atari_head_files(
+    dataset = GazeDataset.from_atari_head_files(
         f"data/Atari-HEAD/{best_auc['env']}", single_trial=True, load_saliency=True
-    ).saliency.mean(dim=0)
+    )
+    # First frame with a score >= 2820: 526
+    heatmap = dataset.saliency.mean(dim=0)
     save_heatmap(heatmap, background, "human")
+
+    # Heatmap up to the same point of gameplay as the agent
+    heatmap = dataset.saliency[:527].mean(dim=0)
+    save_heatmap(heatmap, background, "human_short")
 

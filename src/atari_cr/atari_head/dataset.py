@@ -1,6 +1,6 @@
 import os
 import random
-from typing import List
+from typing import List, Optional
 import cv2
 import numpy as np
 import torch
@@ -30,7 +30,8 @@ class GazeDataset(Dataset):
 
     def __init__(
         self, frames: Tensor, saliency: Tensor, train_indices: Tensor,
-        val_indices: Tensor, durations: Tensor, gazes: list[Tensor]
+        val_indices: Tensor, durations: Tensor, gazes: list[Tensor],
+        annotations: Optional[pl.DataFrame] = None
     ):
         self.frames = frames
         self.saliency = saliency
@@ -38,6 +39,7 @@ class GazeDataset(Dataset):
         self.val_indices = val_indices
         self.durations = durations
         self.gazes = gazes
+        self.annotations = annotations
 
     def split(self, batch_size=512):
         """
@@ -119,7 +121,8 @@ class GazeDataset(Dataset):
                 .select([
                     pl.col("frame_id"),
                     pl.col("gaze_positions").alias("gazes"),
-                    pl.col("duration(ms)")
+                    pl.col("duration(ms)"),
+                    pl.col("unclipped_reward").cum_sum().alias("cum_unclipped_reward")
                 ])
                 .with_row_index("trial_frame_id")
                 .collect()
@@ -190,9 +193,10 @@ class GazeDataset(Dataset):
         # Cast durations to torch tensor
         durations = Tensor([(duration if duration else 0.)
                                   for duration in list(df["duration(ms)"])])
+        annotations = df.select("cum_unclipped_reward")
 
         return GazeDataset(frames, saliency, train_indices, val_indices,
-                           durations, gazes)
+                           durations, gazes, annotations)
 
     @staticmethod
     def from_game_data(records: List[EpisodeRecord], test_split = 0.2):

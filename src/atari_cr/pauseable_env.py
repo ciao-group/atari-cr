@@ -195,10 +195,13 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         :param Array[2; i32] sensory_action:
         :returns int: Time in ms
         """
+        # Smallest absolute pixel distance: [10,0]
         pixel_distance = sensory_action if self.relative_sensory_actions \
             else sensory_action - self.fov_loc
+        # Smallest eccentricity: 5.31
         eccentricity = np.sqrt(np.sum(np.square(
             pixel_distance * VISUAL_DEGREES_PER_PIXEL )))
+        # Smallest emma_time: 0.116 seconds
         (_, _, remaining_enc_time), total_emma_time, fov_moved = \
             EMMA_fixation_time(eccentricity)
         return int(total_emma_time * 1000), int(remaining_enc_time * 1000)

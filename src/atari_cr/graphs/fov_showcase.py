@@ -16,7 +16,10 @@ img = np.array(
 img = img.astype(np.float64) / 255
 out_dir = "output/graphs/fovs"
 os.makedirs(out_dir, exist_ok=True)
-fixation = [32*3,32*3]
+multiple_out_dir = f"{out_dir}/multiple"
+os.makedirs(multiple_out_dir, exist_ok=True)
+fixations = np.array([[36,36], [57,15], [68,68]]) * 3
+fixation = fixations[0]
 
 # Match the visual info of the fovs
 info_dir = f"{out_dir}/info"
@@ -36,22 +39,30 @@ visual_infos = pl.DataFrame({fovs[i]: visual_infos[i] for i in range(len(fovs))}
 
 # Exponential fov
 plt.ylim(0,1)
-plt.plot(sizes, visual_infos["exponential"], alpha=0.75)
-plt.savefig(f"{info_dir}/exponential.png")
+plt.xlabel("Fovea size")
+plt.ylabel("Relative visual information")
+plt.plot(sizes, visual_infos["exponential"], alpha=0.75, lw=2)
+plt.savefig(f"{info_dir}/exponential.png", bbox_inches='tight', pad_inches=0.1,)
 # Windowed fovs
 for fov, size in zip(["window", "window_periph"], [window_size, periph_size]):
     plt.clf()
     plt.ylim(0.,1.)
-    plt.plot(sizes, visual_infos[fov], alpha=0.75)
-    plt.plot(sizes, visual_infos["exponential"], alpha=0.75, color=CMAP[1])
+    plt.xlabel("Fovea size")
+    plt.ylabel("Relative visual information")
+    plt.plot(sizes, visual_infos[fov], alpha=0.75, lw=2)
+    plt.plot(sizes, visual_infos["exponential"], alpha=0.75, color=CMAP[1], lw=2)
     # Vertical line for matching x value
-    plt.axvline(x=size, color=CMAP[1], linestyle='--', label=f'x = {size}', alpha=0.5)
-    plt.savefig(f"{info_dir}/{fov}.png")
+    plt.axvline(x=size, color=CMAP[1], linestyle='--', label=f'x = {size}', alpha=0.5, lw=2)
+    plt.savefig(f"{info_dir}/{fov}.png", bbox_inches='tight', pad_inches=0.1)
 print(visual_infos)
 
-# Original image with marks
-marked_img = cv2.drawMarker((img*255).astype(np.uint8), fixation, [0,255,0], 1, 15, 2)
-Image.fromarray(marked_img, "RGB").save(f"{out_dir}/original.png")
+# Original images with marks
+marked_img = (img.copy() * 255).astype(np.uint8)
+for i, fix in enumerate(fixations):
+    marked_img = cv2.drawMarker(marked_img, fix, [0,255,0], 1, 15, 2)
+    if i == 0:
+        Image.fromarray(marked_img, "RGB").save(f"{out_dir}/original.png")
+Image.fromarray(marked_img, "RGB").save(f"{multiple_out_dir}/original.png")
 
 fovs = [("window", window_size*3), ("window_periph", periph_size*3), ("exponential", 0)]
 for type, size in fovs:
@@ -59,6 +70,9 @@ for type, size in fovs:
     fov_img = fov.apply(img.copy().transpose(2,0,1), [fixation])
     Image.fromarray((fov_img.transpose(1,2,0) * 255).astype(np.uint8), "RGB").save(
         f"{out_dir}/{type}.png")
+    multiple_fov_img = fov.apply(img.copy().transpose(2,0,1), fixations)
+    Image.fromarray((multiple_fov_img.transpose(1,2,0) * 255).astype(np.uint8), "RGB").save(
+        f"{multiple_out_dir}/{type}.png")
 
 # Pyramids
 pyramid_dir = f"{out_dir}/pyramids"

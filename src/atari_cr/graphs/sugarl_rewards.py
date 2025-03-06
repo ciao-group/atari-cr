@@ -17,6 +17,30 @@ if __name__ == "__main__":
     out_dir = "output/graphs/rewards"
     os.makedirs(out_dir, exist_ok=True)
 
+    rewards = []
+    for file in progress_files:
+        rewards.append(
+            pl.scan_csv(file, ignore_errors=True, null_values=["null"],
+                schema_overrides={ "raw_reward": float })
+            # .filter("eval_env")
+            .tail(50)
+            .select("raw_reward")
+            .mean()
+            .collect()
+            .item()
+        )
+    r = (
+        pl.DataFrame({
+            "env": ["asterix", "hero", "seaquest", "asterix", "hero", "seaquest"],
+            "td": [1,1,1,4,4,4],
+            "rewards": rewards,
+        })
+        .pivot(index="env", columns="td", values="rewards")
+        .with_columns((pl.col("4") - pl.col("1")).alias("4(%)") / pl.col("1"))
+    )
+    print(r)
+    print("Mean increase when going to TD=4", r["4(%)"].mean())
+
     for ymax, label, file in zip(
         [650, 6100, 210, 650, 6100, 210],
         ["asterix" , "hero", "seaquest", "asterix_4td" , "hero_4td", "seaquest_4td"],
