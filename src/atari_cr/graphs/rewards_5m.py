@@ -38,4 +38,7 @@ if __name__ == "__main__":
         plt.clf()
         plt.scatter(*trial["timestep", "raw_reward"], marker=".", alpha=0.25)
         plt.plot(*trial["timestep", "windowed_reward"], color=CMAP[1])
-        plt.savefig(f"{out_dir}/{env}_{int(total_timesteps / 1000000)}m.png")
+        plt.xlabel("Timesteps")
+        plt.ylabel("Episodic Reward")
+        plt.savefig(f"{out_dir}/{env}_{int(total_timesteps / 1000000)}m.png",
+                    bbox_inches="tight", pad_inches=0.1)

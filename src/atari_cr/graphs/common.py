@@ -80,7 +80,11 @@ class Run:
                 .with_columns([
                     pl.col("env").cast(pl.Enum(["asterix", "seaquest", "hero"])),
                     pl.col("fov").cast(pl.Enum(["window", "window_periph", "exponential"]))
-                ]))
+                ])
+            )
+            # Rename emma_times column
+            if "emma_times" in result.columns:
+                result = result.rename({"emma_times": "step_times"})
             results.append(result)
         return pl.concat(results, how="vertical")
 

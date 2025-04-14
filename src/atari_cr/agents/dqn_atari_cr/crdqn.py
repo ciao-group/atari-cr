@@ -475,8 +475,7 @@ class CRDQN:
               sensory_actions: np.ndarray, td_update: Optional[TdUpdateInfo] = None,
               eval = False):
         """
-        Given an action, the agent does one step in the environment,
-        returning the next observation
+        Environment step including logging and PVM update.
 
         :param Array[n_envs] motor_actions: Numpy array containing motor action for all
             parallel training envs.

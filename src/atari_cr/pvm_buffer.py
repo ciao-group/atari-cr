@@ -40,6 +40,8 @@ class PVMBuffer:
             # -1 for black, 1 for white, 0 for uncertain pixels
             x = 2 * (x - 0.5)
 
+        assert x.shape == self.obs_size, \
+            "Item size has to match the size of the pvm buffer"
         self.buffer.append(x)
         if fov_loc is not None:
             self.fov_loc_buffer.append(fov_loc)
@@ -48,6 +50,7 @@ class PVMBuffer:
         return copy.deepcopy(self)
 
     def get_obs(self, mode="stack_max") -> np.ndarray:
+        # [B,PVM,C,H,W] ->
         if mode == "stack_max":
             # [B, 1, C, H, W]
             return np.amax(np.stack(self.buffer, axis=1), axis=1)
