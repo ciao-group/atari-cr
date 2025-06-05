@@ -11,8 +11,8 @@ from atari_cr.graphs.common import CMAP
 from atari_cr.utils import debug_array
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
 
-img = np.array(
-    Image.open("/home/niko/Repos/atari-cr/tests/assets/ms_pacman.png"))
+img = np.array(Image.open("data/Atari-HEAD/"
+    "ms_pacman/52_RZ_2394668_Aug-10-14-52-42/RZ_2394668_42.png"))
 img = img.astype(np.float64) / 255
 out_dir = "output/graphs/fovs"
 os.makedirs(out_dir, exist_ok=True)

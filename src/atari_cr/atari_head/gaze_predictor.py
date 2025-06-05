@@ -447,8 +447,8 @@ if __name__ == "__main__":
     if args.debug: torch.cuda.memory._record_memory_history(True)
 
     # Create dataset and data loader
-    save_dir = f"/home/niko/Repos/atari-cr/output/atari_head/{args.env}"
-    data_dir = f"/home/niko/Repos/atari-cr/data/Atari-HEAD/{args.env}"
+    save_dir = f"output/atari_head/{args.env}"
+    data_dir = f"data/Atari-HEAD/{args.env}"
     gaze_predictor: GazePredictor = GazePredictor.init(save_dir, data_dir)
 
     # Eval it

@@ -9,14 +9,13 @@ license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">3.8,<3.12"
 dependencies = [
-    "active-gym @ git+https://github.com/elicassion/active-gym.git#9f98d962a6bfb8033703c7e3f766b3cea05e12a3",
+    "active-gym @ git+https://github.com/elicassion/active-gym.git@9f98d962a6bfb8033703c7e3f766b3cea05e12a3",
     # curl -L https://www.atarimania.com/roms/Atari-2600-VCS-ROM-Collection.zip -o x.zip && unzip x.zip
     # python -m atari_py.import_roms ROMS && rm -r ROMS 'HC ROMS' x.zip
     "cython<3",
     "tb-nightly",
     "opencv-python>=4.10",
     "ale-py>=0.9",
-    "gymnasium[atari]==0.29",
     "autorom[accept-rom-license]",
     # Additionally used pacakages
     "typed-argument-parser",
@@ -35,10 +34,6 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-tf = [
-    "tensorflow[and-cuda]",
-    "opencv-python"
-]
 text = [
     "torch==2.3.0",
     "torchtext==0.18.0",

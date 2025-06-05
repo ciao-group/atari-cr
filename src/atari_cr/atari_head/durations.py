@@ -14,7 +14,7 @@ def get_durations(game: str):
     :param str game: Name of the atari game
     :return Tensor[21]:
     """
-    game_dir = f"/home/niko/Repos/atari-cr/data/Atari-HEAD/{game}"
+    game_dir = f"data/Atari-HEAD/{game}"
     if not os.path.exists(game_dir):
         raise IOError(f"Game directory {game_dir} does not exist")
 

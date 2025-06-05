@@ -1,5 +1,6 @@
 import unittest
 from sys import argv
+from os.path import expanduser
 
 from atari_cr.agents.dqn_atari_cr.main import main, ArgParser
 
@@ -18,7 +19,7 @@ class TestMain(unittest.TestCase):
                 "--use_pause_env",
                 "--action_repeat", "5",
                 "--evaluator",
-                "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth"
+                "output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth"
         ])
 
         args = ArgParser().parse_args(known_only=True)
@@ -37,7 +38,7 @@ class TestMain(unittest.TestCase):
                 "--pause_cost", "0.05",
                 "--action_repeat", "5",
                 "--evaluator",
-                "/home/niko/Repos/atari-cr/output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth",
+                "output/atari_head/ms_pacman/drout0.3/999/checkpoint.pth",
                 "--og_env",
         ])
 

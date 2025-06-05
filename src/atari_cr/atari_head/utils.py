@@ -19,6 +19,7 @@ def transform_to_proper_csv(game_dir: str):
     :param str game_dir: The directory containing files for one game.
         Obtained by unzipping \\<game\\>.zip
     """
+    print(f"Tranforming .txt files in {game_dir}")
     csv_files = list(filter(
         lambda file_name: ".txt" in file_name, os.listdir(game_dir)))
     for file_name in csv_files:

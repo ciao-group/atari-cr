@@ -61,6 +61,9 @@ class ArgParser(Tap):
     saccade_cost_scale: float = 0.000 # How much to penalize bigger eye movements
     # EMMA reference: doi.org/10.1016/S1389-0417(00)00015-2
 
+    # Dirs
+    atari_head_dir: str = "data/Atari-HEAD" # Path to unzipped Atari-HEAD files
+
     # Misc
     ignore_sugarl: bool = False # Whether to ignore the sugarl term for Q net learning
     no_model_output: bool = False # Whether to disable saving the finished model
@@ -137,9 +140,12 @@ def main(args: ArgParser):
     env = make_train_env(args)
 
     # Gaze predictor for evaluation of the agent's human-plausibility
+    if not os.path.exists(args.atari_head_dir):
+        raise FileNotFoundError("Atari-HEAD data not found. Download and unzip the dataset and"
+            "point the param --atari_head_dir to it.")
     evaluator = GazePredictor.init(
-        f"/home/niko/Repos/atari-cr/output/atari_head/{args.env}",
-        f"/home/niko/Repos/atari-cr/data/Atari-HEAD/{args.env}"
+        f"{args.atari_head_dir}/{args.env}",
+        f"data/Atari-HEAD/{args.env}"
     ) if args.evaluator else None
 
     agent = CRDQN(
