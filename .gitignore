@@ -11,7 +11,8 @@ build
 *cache*
 *.png
 output
-data
+data/**.png
+**.tar.bz2
 ray_results
 *.np
 *.pkl
