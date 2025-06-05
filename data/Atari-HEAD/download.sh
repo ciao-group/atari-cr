@@ -9,10 +9,8 @@ unzip head.zip -d $BASE_DIR
 rm head.zip
 
 # Loop through each .zip file in the specified directory
-game_dirs="["
 for zip_file_path in "$BASE_DIR"/*.zip; do
   # Unzip the contents into the new directory
-  echo Unzipping $zip_file_path
   unzip "$zip_file_path" -d "$BASE_DIR"
   
   # Delete the original zip file if extraction was successful
@@ -25,7 +23,6 @@ for zip_file_path in "$BASE_DIR"/*.zip; do
   # Untar all the trial files
   game_name=$(basename "$zip_file_path")
   game_name="${game_name%.zip}"
-  game_dirs+="'$BASE_DIR/$game_name',"
   for trial_tar in "$BASE_DIR/$game_name"/*.tar.bz2; do
     echo $trial_tar
     tar -xjf "$trial_tar" -C "$BASE_DIR/$game_name"
@@ -40,6 +37,14 @@ for zip_file_path in "$BASE_DIR"/*.zip; do
 done
 
 # Tranform .txt files to .csv
+game_dirs="["
+for game_dir in "$BASE_DIR"/*; do
+  if [ ! -d $game_dir ]; then
+    continue
+  fi
+  game_dirs+="'$game_dir',"
+done
 game_dirs=${game_dirs::-1}
 game_dirs+="]"
+echo $game_dirs
 python -c "from atari_cr.atari_head.utils import transform_to_proper_csv; [transform_to_proper_csv(name) for name in $game_dirs]"

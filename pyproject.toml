@@ -10,24 +10,22 @@ readme = "README.md"
 requires-python = ">3.8,<3.12"
 dependencies = [
     "active-gym @ git+https://github.com/elicassion/active-gym.git@9f98d962a6bfb8033703c7e3f766b3cea05e12a3",
-    # curl -L https://www.atarimania.com/roms/Atari-2600-VCS-ROM-Collection.zip -o x.zip && unzip x.zip
-    # python -m atari_py.import_roms ROMS && rm -r ROMS 'HC ROMS' x.zip
     "cython<3",
-    "tb-nightly",
+    "tb-nightly==2.20.0a20250605",
     "opencv-python>=4.10",
     "ale-py>=0.9",
-    "autorom[accept-rom-license]",
+    "autorom[accept-rom-license]==0.6.1",
     # Additionally used pacakages
-    "typed-argument-parser",
-    "scikit-learn",
-    "ray[tune,default,rllib]",
-    "stable-baselines3",
-    "optuna",
-    "torchmetrics",
-    "h5py",
-    "tqdm",
-    "polars[numpy,plot]",
-    "scipy",
+    "typed-argument-parser==1.10.1",
+    "scikit-learn==1.6.1",
+    "ray[tune,default,rllib]==2.38",
+    "stable-baselines3==2.3.2",
+    "optuna==4.3.0",
+    "torchmetrics==1.7.2",
+    "h5py==3.13.0",
+    "tqdm==4.67.1",
+    "polars[numpy,plot]==1.30.0",
+    "scipy==1.15.3",
 ]
 classifiers = [
     "Private :: Do Not Upload"

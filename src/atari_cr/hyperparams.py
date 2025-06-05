@@ -89,7 +89,7 @@ if __name__ == "__main__":
             trial_name_creator=lambda t: t.trial_id,
         ),
         run_config=train.RunConfig(
-            # storage_path=expanduser('~') + "atari-cr/output/ray_results",
+            storage_path="output/ray_results",
             # stop=None if GRID_SEARCH else TrialPlateauStopper(
             #     metric, mode=mode, num_results=8, grace_period=1000),
         )

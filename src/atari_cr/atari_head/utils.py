@@ -4,6 +4,7 @@ import numpy as np
 import polars as pl
 import torch
 import json
+from multiprocessing import Pool
 
 SCREEN_SIZE = (84, 84)
 # Atari-HEAD Screen Size in visual degrees: 44,6 x 28,5
@@ -11,6 +12,45 @@ SCREEN_SIZE = (84, 84)
 # Visual Degrees per Pixel with 84 x 84 pixels: 0,5310 x 0,3393
 VISUAL_DEGREE_SCREEN_SIZE = (44.6, 28.5) # (W,H)
 VISUAL_DEGREES_PER_PIXEL = np.array(VISUAL_DEGREE_SCREEN_SIZE) / np.array(SCREEN_SIZE)
+
+""" Transform one given .txt file to proper csv """
+def _txt_to_csv(args: tuple[str, str]):
+    game_dir, file_name = args
+
+    # Read the original file
+    file_path = f"{game_dir}/{file_name}"
+    with open(file_path, "r") as f:
+        lines = f.readlines()
+
+    data = []
+    for line in lines[1:]:
+        # Put the gaze positions into a list of tuples instead of a flat list
+        tupled_gaze_positions = []
+        gaze_positions = line.split(",")[6:]
+        for i in range(len(gaze_positions) // 2):
+            x_coord = float(gaze_positions[2 * i])
+            y_coord = float(gaze_positions[2 * i + 1])
+            tupled_gaze_positions.append((x_coord, y_coord))
+
+        # Append a new row to the data
+        data.append([
+            *[None if x == "null" else x for x in line.split(",")[:6]],
+            json.dumps(tupled_gaze_positions),
+        ])
+
+    # Export the data to csv and delete the original files
+    # The last row only contains null values
+    df = pl.DataFrame(data[:-1], orient="row", schema={
+        "frame_id": pl.String,
+        "episode_id": pl.Int32,
+        "score": pl.Float32,
+        "duration(ms)": pl.Float32,
+        "unclipped_reward": pl.Float32,
+        "action": pl.Int32,
+        "gaze_positions": pl.String,
+    })
+    df.write_csv(".".join(file_path.split(".")[:-1]) + ".csv")
+    os.remove(file_path)
 
 def transform_to_proper_csv(game_dir: str):
     """
@@ -22,42 +62,9 @@ def transform_to_proper_csv(game_dir: str):
     print(f"Tranforming .txt files in {game_dir}")
     csv_files = list(filter(
         lambda file_name: ".txt" in file_name, os.listdir(game_dir)))
-    for file_name in csv_files:
 
-        # Read the original file
-        file_path = f"{game_dir}/{file_name}"
-        with open(file_path, "r") as f:
-            lines = f.readlines()
-
-        data = []
-        for line in lines[1:]:
-            # Put the gaze positions into a list of tuples instead of a flat list
-            tupled_gaze_positions = []
-            gaze_positions = line.split(",")[6:]
-            for i in range(len(gaze_positions) // 2):
-                x_coord = float(gaze_positions[2 * i])
-                y_coord = float(gaze_positions[2 * i + 1])
-                tupled_gaze_positions.append((x_coord, y_coord))
-
-            # Append a new row to the data
-            data.append([
-                *[None if x == "null" else x for x in line.split(",")[:6]],
-                json.dumps(tupled_gaze_positions),
-            ])
-
-        # Export the data to csv and delete the original files
-        # The last row only contains null values
-        df = pl.DataFrame(data[:-1], orient="row", schema={
-            "frame_id": pl.String,
-            "episode_id": pl.Int32,
-            "score": pl.Float32,
-            "duration(ms)": pl.Float32,
-            "unclipped_reward": pl.Float32,
-            "action": pl.Int32,
-            "gaze_positions": pl.String,
-        })
-        df.write_csv(".".join(file_path.split(".")[:-1]) + ".csv")
-        os.remove(file_path)
+    with Pool() as p:
+        p.map(_txt_to_csv, [(game_dir, f) for f in csv_files])
 
 def open_mp4_as_frame_list(path: str):
     video = cv2.VideoCapture(path)

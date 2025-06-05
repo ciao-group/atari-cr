@@ -13,6 +13,7 @@ build
 output
 data/**.png
 **.tar.bz2
+**.zip
 ray_results
 *.np
 *.pkl
@@ -20,6 +21,7 @@ ray_results
 **/*.pt
 *.csv
 tests/assets/*
+uv.lock
 
 # Old dir structure
 runs

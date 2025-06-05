@@ -59,23 +59,15 @@
             ],
             "args": [
                 "--capture_video",
-                "--env", "asterix",
                 // Debug config
                 "--exp_name", "dqn_cr_debug",
                 "--total_timesteps", "1_000",
                 "--learning_start", "100",
                 // "--debug",
                 // Additional config
-                "--pause_cost", "0.1",
                 "--use_pause_env",
-                "--action_repeat", "5",
-                "--evaluator", 
-                "--fov", "window",
+                "--evaluator",
                 "--timed_env",
-                "--td_steps", "4",
-                "--gamma", "0.99",
-                "--sensory_action_x_size", "8",
-                "--sensory_action_y_size", "8",
             ],
             "justMyCode": false,
             "env": {"PYDEVD_DISABLE_FILE_VALIDATION": "1"}

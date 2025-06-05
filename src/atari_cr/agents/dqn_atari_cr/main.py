@@ -14,37 +14,37 @@ from atari_cr.foveation import FovType
 
 class ArgParser(Tap):
     exp_name: str = os.path.basename(__file__).rstrip(".py") # Name of this experiment
-    seed: int = 0 # The seed of the experiment
+    seed: int = 0 # Seed of the experiment
     disable_cuda: bool = False # Whether to force the use of CPU
-    capture_video: bool = False # Whether to capture videos of the agent performances
+    capture_video: bool = False # Whether to capture gameplay videos
 
     # Env settings
-    env: str = "boxing" # The ID of the environment
-    env_num: int = 1 # The number of envs to train in parallel
-    frame_stack: int = 4 # The number of frames making up one observation
-    action_repeat: int = 4 # The number of times an action is repeated
+    env: str = "asterix" # ID of the environment
+    env_num: int = 1 # Number of envs to train in parallel
+    frame_stack: int = 4 # Number of frames making up one observation
+    action_repeat: int = 5 # Number of times an action is repeated
     clip_reward: bool = False # Whether to clip rewards
     sticky_action_prob: float = 0.0 # Probability an action is repeated next timestep
 
     # Fovea settings
-    fov_size: int = 20 # UNUSED # The size of the fovea
+    fov_size: int = 20 # UNUSED # Size of the fovea
     fov_init_loc: int = 0 # Where to initialize the fovea
     relative_sensory_actions: bool = False # Relative or absolute sensory actions
     sensory_action_space: int = 10 # Maximum distance in one sensory step
     resize_to_full: bool = False # No idea what that is
-    sensory_action_x_size: int = 4 # How many smallest sensory steps fit in x direction
-    sensory_action_y_size: int = 4 # How many smallest sensory steps fit in y direction
+    sensory_action_x_size: int = 8 # How many smallest sensory steps fit in x direction
+    sensory_action_y_size: int = 8 # How many smallest sensory steps fit in y direction
     pvm_stack: int = 3 # How many normal observation to aggregate in the PVM buffer
 
     # Algorithm specific arguments
-    total_timesteps: int = 3000000 # The number of timesteps
-    learning_rate: float = 1e-4 # The learning rate
-    buffer_size: int = 100000 # The size of the replay buffer
-    gamma: float = 0.99 # The discount factor gamma
+    total_timesteps: int = 3000000 # Number of timesteps
+    learning_rate: float = 1e-4 # Learning rate
+    buffer_size: int = 10_000 # Size of the replay buffer
+    gamma: float = 0.99 # Discount factor gamma
     target_network_frequency: int = 10000 # Timesteps between Q network updates
-    batch_size: int = 32 # The batch size during training
-    start_e: float = 1.0 # The starting value for the exploration probability epsilon
-    end_e: float = 0.01 # The final value for the exploration probability epsilon
+    batch_size: int = 32 # Bathc size during training
+    start_e: float = 1.0 # Starting value for the exploration probability epsilon
+    end_e: float = 0.01 # Final value for the exploration probability epsilon
     exploration_fraction: float = 0.10 # Fraction of timesteps to reach the max epsilon
     learning_start: int = 80000 # Timesteps before training starts on the replay buffer
     train_frequency: int = 4 # Steps to take in the env before a new training iteration
@@ -56,7 +56,7 @@ class ArgParser(Tap):
 
     # Pause args
     use_pause_env: bool = False # Whether to allow pauses for more observations per step
-    pause_cost: float = 0.1 # The cost for the env to only take a sensory step
+    pause_cost: float = 0.1 # Cost for the env to only take a sensory step
     consecutive_pause_limit: int = 20 # Maximum allowed number of consecutive pauses
     saccade_cost_scale: float = 0.000 # How much to penalize bigger eye movements
     # EMMA reference: doi.org/10.1016/S1389-0417(00)00015-2
@@ -75,7 +75,7 @@ class ArgParser(Tap):
     timed_env: bool = False # Whether to use a time sensitve env for pausing
     pause_feat: bool = False # Whether to tell the policy how many pauses have been made
     s_action_feat: bool = False # Whether to give the prev sensory action to the policy
-    td_steps: int = 1 # Number of steps for n-step TD learning
+    td_steps: int = 4 # Number of steps for n-step TD learning
     mean_pvm: bool = False # Whether to combine obs in pvm using mean instead of max
 
 def make_env(seed: int, args: ArgParser, training = False):
