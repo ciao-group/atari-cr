@@ -27,6 +27,9 @@ def trainable(config: dict):
     #     return
 
     # Start training
+
+    print(f"Config Atari-Head: {config}")
+    config["atari_head_dir"] = "/Users/mlorenz/Dev/atari-cr/data/Atari-HEAD"
     args = ArgParser().from_dict(config)
     eval_returns, out_paths = main(args)
 
@@ -35,11 +38,11 @@ if __name__ == "__main__":
     DEBUG = False
     GRID_SEARCH = True
     concurrent_runs = 3
-    num_samples = 2 * concurrent_runs if DEBUG else 90
+    num_samples = 2 * concurrent_runs if DEBUG else 6
 
     trainable = tune.with_resources(
         trainable,
-        {"cpu": 8//concurrent_runs, "gpu": 1/concurrent_runs})
+        {"cpu": 8//concurrent_runs, "gpu": 0/concurrent_runs})
 
     metric, mode = ("human_likeness", "max") if GAZE_TARGET else ("raw_reward", "max")
     tuner = tune.Tuner(
@@ -51,7 +54,7 @@ if __name__ == "__main__":
             "total_timesteps": 3_000_000,
             "no_pvm_visualization": True,
             "use_pause_env": True,
-            "env": "seaquest", # Other: breakout ms_pacman seaquest asterix hero
+            "env": "asterix", # Other: breakout ms_pacman seaquest asterix hero
             "exp_name": "tuning",
             "learning_start": 80_000,
             "debug": DEBUG,
@@ -75,7 +78,7 @@ if __name__ == "__main__":
                 "use_pause_env": tune.grid_search([False]),
                 "total_timesteps": tune.grid_search([5_000_000]),
                 "seed": tune.grid_search([0,1]),
-                "env": tune.grid_search(["asterix", "seaquest", "hero"]),
+                "env": tune.grid_search(["asterix"]), # "seaquest", "hero"
             }
         },
         tune_config=tune.TuneConfig(
@@ -89,7 +92,7 @@ if __name__ == "__main__":
             trial_name_creator=lambda t: t.trial_id,
         ),
         run_config=train.RunConfig(
-            storage_path="output/ray_results",
+            storage_path="/Users/mlorenz/Dev/atari-cr/output/ray_results",
             # stop=None if GRID_SEARCH else TrialPlateauStopper(
             #     metric, mode=mode, num_results=8, grace_period=1000),
         )

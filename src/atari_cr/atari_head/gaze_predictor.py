@@ -138,7 +138,8 @@ class GazePredictor():
               output_dir: str, save_interval: Optional[int] = None):
         if n_epochs == 0: return
         self.model.train()
-
+        print("Start GazePredictor Training")
+        print(f"Epoch {n_epochs}")
         # Default args
         if not save_interval: save_interval = n_epochs // 10
 

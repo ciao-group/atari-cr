@@ -4,11 +4,14 @@ from gymnasium.vector import SyncVectorEnv
 import torch
 from tap import Tap
 
+from stable_baselines3 import PPO
+
 from active_gym.atari_env import AtariEnv, AtariEnvArgs, RecordWrapper, FixedFovealEnv
 from atari_cr.atari_head.gaze_predictor import GazePredictor
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
+from atari_cr.agents.dqn_atari_cr.PVMWrapper import PVMWrapper, MultiActionWrapper, CRGymWrapper
 from atari_cr.foveation import FovType
 
 
@@ -62,7 +65,7 @@ class ArgParser(Tap):
     # EMMA reference: doi.org/10.1016/S1389-0417(00)00015-2
 
     # Dirs
-    atari_head_dir: str = "data/Atari-HEAD" # Path to unzipped Atari-HEAD files
+    atari_head_dir: str = "/Users/mlorenz/Dev/atari-cr/data/Atari-HEAD" # Path to unzipped Atari-HEAD files
 
     # Misc
     ignore_sugarl: bool = False # Whether to ignore the sugarl term for Q net learning
@@ -116,6 +119,8 @@ def make_env(seed: int, args: ArgParser, training = False):
             'repeat_action_probability', args.sticky_action_prob)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
+        env = CRGymWrapper(env, frame_stack=args.frame_stack, pvm_stack=args.pvm_stack,)
+        #env = MultiActionWrapper(env, n_motor=env.motor_action_space.n, n_sensory=len(env.sensor_action_set))
 
         return env
 
@@ -140,12 +145,13 @@ def main(args: ArgParser):
     env = make_train_env(args)
 
     # Gaze predictor for evaluation of the agent's human-plausibility
+    print(f"Atari-Head-Dir: {args.atari_head_dir}")
     if not os.path.exists(args.atari_head_dir):
-        raise FileNotFoundError("Atari-HEAD data not found. Download and unzip the dataset and"
-            "point the param --atari_head_dir to it.")
+        raise FileNotFoundError(f"Atari-HEAD data not found at {args.atari_head_dir}. Download and unzip the dataset and "
+            "point the param --atari_head_dir to it. ")
     evaluator = GazePredictor.init(
         f"{args.atari_head_dir}/{args.env}",
-        f"data/Atari-HEAD/{args.env}"
+        f"{args.atari_head_dir}/{args.env}"
     ) if args.evaluator else None
 
     agent = CRDQN(
@@ -190,10 +196,35 @@ def main(args: ArgParser):
 
     return eval_returns, out_paths
 
+def main_PPO(args: ArgParser):
+    # Use bfloat16 to speed up matrix computation
+    torch.set_float32_matmul_precision("medium")
+
+    seed_everything(args.seed)
+
+
+    # Gaze predictor for evaluation of the agent's human-plausibility
+    print(f"Atari-Head-Dir: {args.atari_head_dir}")
+    if not os.path.exists(args.atari_head_dir):
+        raise FileNotFoundError(
+            f"Atari-HEAD data not found at {args.atari_head_dir}. Download and unzip the dataset and "
+            "point the param --atari_head_dir to it. ")
+    evaluator = GazePredictor.init(
+        f"{args.atari_head_dir}/{args.env}",
+        f"{args.atari_head_dir}/{args.env}"
+    ) if args.evaluator else None
+
+    # Create one env for each pause cost
+    env = make_train_env(args)
+    model = PPO("MlpPolicy", env, verbose=1)
+    model.learn(total_timesteps=args.total_timesteps)
+
+
 if __name__ == "__main__":
     args = ArgParser().parse_args()
     # Align windowed fov size with exponential fov size
     match args.fov:
         case "window": args.fov_size = 26
         case "window_periph": args.fov_size = 20
-    main(args)
+    print("Hello World!")
+    main_PPO(args)
