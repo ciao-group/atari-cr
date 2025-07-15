@@ -163,7 +163,8 @@ class GazeDataset(Dataset):
             else:
                 print(f"Creating saliency maps for {filename}")
                 os.makedirs(saliency_path, exist_ok=True)
-                trial_saliency = [GazeDataset.create_saliency_map(gazes.cuda()).cpu()
+                device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+                trial_saliency = [GazeDataset.create_saliency_map(gazes.to(torch.float32).to(device)).cpu()
                                   for gazes in trial_gazes]
                 torch.save(trial_saliency, save_path)
                 print(f"Saliency maps saved under {save_path}")
@@ -264,7 +265,7 @@ class GazeDataset(Dataset):
         device = gaze_positions.device
 
         # Double precision; helpful for AUC score calculation later
-        dtype = torch.float64
+        dtype = torch.float32
         gaze_positions = gaze_positions.to(dtype)
 
         # Return zeros when there is no gaze

@@ -3,6 +3,7 @@ import os
 import time
 import cv2
 import polars as pl
+import platform
 
 import numpy as np
 import torch
@@ -149,10 +150,16 @@ class CRDQN:
             self.env.envs[0].fov_init_loc = self._random_sensory_action()
         self._visualize_sensory_actions()
 
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() and cuda else "cpu")
-        assert self.device.type == "cuda", \
-            f"Set up cuda to run. Current device: {self.device.type}"
+        if platform.system() == 'Darwin':
+            self.device = torch.device(
+                "mps" if torch.backends.mps.is_available() and cuda else "cpu")
+            assert self.device.type == "mps", \
+                f"Set up mps to run. Current device: {self.device.type}"
+        else:
+            self.device = torch.device(
+                "cuda" if torch.cuda.is_available() and cuda else "cpu")
+            assert self.device.type == "cuda", \
+                f"Set up cuda to run. Current device: {self.device.type}"
 
         # Q networks
         self.q_network = QNetwork(
@@ -236,6 +243,8 @@ class CRDQN:
         eval_returns, out_paths = self.evaluate(td_update, file_output=False)
 
         while self.timestep < n:
+            if self.timestep % 1000 == 0:
+                print(f"Timestep {self.timestep}")
             # Cast sensory action ids to coordinates and remove the env axis
             prev_sensory_actions, consecutive_pauses = self._preprocess_features()
 
