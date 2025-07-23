@@ -1,25 +1,31 @@
 import os
+import csv
+from datetime import datetime
 
-from gymnasium.vector import SyncVectorEnv
+import numpy as np
 import torch
+from torch.utils.tensorboard import SummaryWriter
 from tap import Tap
-
+from gymnasium.vector import SyncVectorEnv
 from stable_baselines3 import PPO
+import matplotlib.pyplot as plt
 
 from active_gym.atari_env import AtariEnv, AtariEnvArgs, RecordWrapper, FixedFovealEnv
 from atari_cr.atari_head.gaze_predictor import GazePredictor
+from atari_cr.atari_head.dataset import GazeDataset
 from atari_cr.utils import (seed_everything, get_sugarl_reward_scale_atari)
 from atari_cr.pauseable_env import PauseableFixedFovealEnv
 from atari_cr.agents.dqn_atari_cr.crdqn import CRDQN
 from atari_cr.agents.dqn_atari_cr.PVMWrapper import PVMWrapper, MultiActionWrapper, CRGymWrapper
 from atari_cr.foveation import FovType
+from atari_cr.models import DurationInfo
 
 
 class ArgParser(Tap):
     exp_name: str = os.path.basename(__file__).rstrip(".py") # Name of this experiment
     seed: int = 0 # Seed of the experiment
     disable_cuda: bool = False # Whether to force the use of CPU
-    capture_video: bool = False # Whether to capture gameplay videos
+    capture_video: bool = True # Whether to capture gameplay videos
 
     # Env settings
     env: str = "asterix" # ID of the environment
@@ -72,7 +78,7 @@ class ArgParser(Tap):
     no_model_output: bool = False # Whether to disable saving the finished model
     no_pvm_visualization: bool = False # Whether to disable output of PVM visualizations
     debug: bool = False # Debug mode for more output
-    evaluator: bool = False # Whether to use a model to evaluate human-likeness
+    evaluator: bool = True # Whether to use a model to evaluate human-likeness
     fov: FovType = "window" # Type of fovea
     og_env: bool = False # Whether to use normal sugarl env
     timed_env: bool = False # Whether to use a time sensitve env for pausing
@@ -216,8 +222,115 @@ def main_PPO(args: ArgParser):
 
     # Create one env for each pause cost
     env = make_train_env(args)
-    model = PPO("MlpPolicy", env, verbose=1)
+    policy_kwargs = {
+        "net_arch": {
+            "pi": [1024, 1024],
+            "vf": [1024, 1024]
+        },
+        "ortho_init": True
+    }
+    model = PPO("MlpPolicy", env, verbose=1, policy_kwargs=policy_kwargs, gamma=0.999)
     model.learn(total_timesteps=args.total_timesteps)
+
+    evaluate_ppo(model=model, args=args)
+
+
+
+def evaluate_ppo(model: PPO, args: ArgParser):
+
+    eval_env = make_eval_env(999, args)  # single env for eval
+
+
+    # Prepare output folder
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = os.path.join("ppo_eval_outputs", f"eval_{now}")
+    os.makedirs(output_dir, exist_ok=True)
+    csv_path = os.path.join(output_dir, "eval_log.csv")
+
+    writer = SummaryWriter(log_dir=os.path.join("ppo_eval_outputs", f"eval_{now}", "tensorboard"))
+
+    if args.evaluator:
+        evaluator = GazePredictor.init(
+            f"{args.atari_head_dir}/{args.env}",
+            f"{args.atari_head_dir}/{args.env}"
+        )
+
+    all_returns = []
+    all_aucs = []
+    duration_infos = []
+    emma_times = []
+    with open(csv_path, mode="w", newline="") as csv_file:
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(["episode", "reward", "length", "auc"])
+
+        for ep in range(args.n_evals):
+            obs, _ = eval_env.reset()
+            done, truncated = False, False
+            total_reward, ep_len = 0.0, 0
+
+            pvm_obs_buffer = [obs[0, -1]] # TODO: Does it have shape [1, 84, 84]?
+
+            while not (done or truncated):
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, done, truncated, info = eval_env.step(action)
+                total_reward += reward[0]
+                ep_len += 1
+                pvm_obs_buffer.append(obs[0, -1])
+
+            # AUC evaluation
+            if args.evaluator:
+                episode_record =eval_env.envs[0].prev_episode
+                # AUC calculation
+                # No evaluation if the episode consists of only pauses
+                if episode_record.annotations["pauses"].sum() < len(episode_record.annotations):
+                    dataset = GazeDataset.from_game_data([episode_record])
+                    loader = dataset.to_loader()
+                    all_aucs.append(evaluator.eval(loader)["auc"])
+
+                    # Duration error calculation
+                    duration_infos.append(
+                        DurationInfo.from_episodes([episode_record], args.env))
+
+                emma_times.extend(episode_record.annotations["step_time"].drop_nulls().to_list())
+
+            eval_env.close()
+
+
+            aucs = None
+            if args.evaluator:
+                aucs = sum(all_aucs) / len(all_aucs)
+            duration_info = DurationInfo(np.concatenate(duration_infos), args.env)
+
+            # Save results
+            csv_writer.writerow([ep, total_reward, ep_len, aucs if aucs else ""])
+
+            # Optional PNG/Video
+            if args.capture_video and ep % 4 == 0:
+                path = os.path.join(output_dir, f"pvm_episode_{ep}.png")
+                save_pvm_sequence(np.stack(pvm_obs_buffer), path)
+
+            all_returns.append(total_reward)
+
+    # TensorBoard Logging
+    avg_return = np.mean(all_returns)
+    avg_auc = np.mean(all_aucs) if all_aucs else 0.0
+    writer.add_scalar("eval/avg_reward", avg_return)
+    writer.add_scalar("eval/avg_auc", avg_auc)
+    writer.add_scalar("eval/episodes", args.n_evals)
+    writer.flush()
+    writer.close()
+
+    print(f"[EVAL DONE] Avg Reward: {avg_return:.2f} | Avg AUC: {avg_auc:.3f} | Log saved to: {output_dir}")
+
+def save_pvm_sequence(pvm_stack: np.ndarray, path: str):
+    fig, axs = plt.subplots(1, len(pvm_stack), figsize=(len(pvm_stack) * 200, 200))
+    for i, frame in enumerate(pvm_stack):
+        axs[i].imshow(frame, cmap='gray')
+        axs[i].axis("off")
+    plt.tight_layout()
+    plt.savefig(path)
+    plt.close()
+
 
 
 if __name__ == "__main__":
