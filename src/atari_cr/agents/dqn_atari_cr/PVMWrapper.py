@@ -50,7 +50,7 @@ class MultiActionWrapper(gym.Wrapper):
 
 
 class CRGymWrapper(gym.Wrapper):
-    def __init__(self, env, frame_stack=4, pvm_stack=3,
+    def __init__(self, env, frame_stack=32, pvm_stack=24,
                  sensory_action_quant=(4, 4), mean_pvm=False):
         super().__init__(env)
 
