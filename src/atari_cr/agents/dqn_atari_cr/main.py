@@ -323,7 +323,7 @@ def evaluate_ppo(model: PPO, args: ArgParser):
     print(f"[EVAL DONE] Avg Reward: {avg_return:.2f} | Avg AUC: {avg_auc:.3f} | Log saved to: {output_dir}")
 
 def save_pvm_sequence(pvm_stack: np.ndarray, path: str):
-    fig, axs = plt.subplots(1, len(pvm_stack), figsize=(len(pvm_stack) * 200, 200))
+    fig, axs = plt.subplots(1, len(pvm_stack), figsize=(len(pvm_stack) * 20, 20))
     for i, frame in enumerate(pvm_stack):
         axs[i].imshow(frame, cmap='gray')
         axs[i].axis("off")
