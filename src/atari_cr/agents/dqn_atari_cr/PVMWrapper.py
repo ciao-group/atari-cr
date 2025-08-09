@@ -70,7 +70,7 @@ class CRGymWrapper(gym.Wrapper):
         self.n_sensory = len(self.sensory_action_set)
 
         # Override action and observation space
-        self.action_space = MultiDiscrete([self.n_motor, self.n_sensory], dtype=np.uint8)
+        self.action_space = MultiDiscrete([self.n_motor, self.n_sensory], dtype=np.uint16)
         self.observation_space = Box(
             low=0, high=255, shape=(frame_stack, *self.obs_shape), dtype=np.float32)
 
