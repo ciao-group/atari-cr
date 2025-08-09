@@ -7,6 +7,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from tap import Tap
 from gymnasium.vector import SyncVectorEnv
+from stable_baselines3.common.vec_env.dummy_vec_env import DummyVecEnv
 from stable_baselines3 import PPO
 import matplotlib.pyplot as plt
 
@@ -29,7 +30,7 @@ class ArgParser(Tap):
 
     # Env settings
     env: str = "asterix" # ID of the environment
-    env_num: int = 1 # Number of envs to train in parallel
+    env_num: int = 10 # Number of envs to train in parallel
     frame_stack: int = 4 # Number of frames making up one observation
     action_repeat: int = 5 # Number of times an action is repeated
     clip_reward: bool = False # Whether to clip rewards
@@ -64,7 +65,7 @@ class ArgParser(Tap):
     checkpoint: str = "" # Checkpoint to resume training
 
     # Pause args
-    use_pause_env: bool = False # Whether to allow pauses for more observations per step
+    use_pause_env: bool = True # Whether to allow pauses for more observations per step
     pause_cost: float = 0.1 # Cost for the env to only take a sensory step
     consecutive_pause_limit: int = 20 # Maximum allowed number of consecutive pauses
     saccade_cost_scale: float = 0.000 # How much to penalize bigger eye movements
@@ -134,12 +135,13 @@ def make_env(seed: int, args: ArgParser, training = False):
 
 def make_train_env(args: ArgParser):
     envs = [make_env(args.seed + i, args) for i in range(args.env_num)]
-    return SyncVectorEnv(envs)
+    return DummyVecEnv(envs)
 
 def make_eval_env(seed, args: ArgParser):
     """ Return VecEnv with a single environment """
     envs = [make_env(args.seed + seed, args, training=False)]
-    return SyncVectorEnv(envs)
+    # return SyncVectorEnv(envs)
+    return DummyVecEnv(envs)
 
 def main(args: ArgParser):
     # Use bfloat16 to speed up matrix computation

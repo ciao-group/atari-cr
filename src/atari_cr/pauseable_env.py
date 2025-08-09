@@ -71,7 +71,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         self.prev_episode: Optional[EpisodeRecord] = None
         self.env: AtariEnv
 
-    def reset(self):
+    def reset(self, seed: int | None=None):
         self.state, info = self.env.reset() # -> [4,84,84;f64]
         assert self.state.shape == (4,84,84)
         self.state[:3] = np.full(self.state.shape[1:], 0.5)
