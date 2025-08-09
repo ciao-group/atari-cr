@@ -30,3 +30,11 @@ recordings
 trained_models
 *.html
 *.bin
+
+# Mac
+*output*
+data/*
+active_gym*
+*.DS_Store
+.idea
+
