@@ -1,7 +1,7 @@
 import os
 import csv
 from datetime import datetime
-
+from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -47,7 +47,7 @@ class ArgParser(Tap):
     pvm_stack: int = 3 # How many normal observation to aggregate in the PVM buffer
 
     # Algorithm specific arguments
-    total_timesteps: int = 3000000 # Number of timesteps
+    total_timesteps: int = int(3e6) #3000000 # Number of timesteps
     learning_rate: float = 1e-4 # Learning rate
     buffer_size: int = 10_000 # Size of the replay buffer
     gamma: float = 0.99 # Discount factor gamma
@@ -226,15 +226,20 @@ def main_PPO(args: ArgParser):
     env = make_train_env(args)
     policy_kwargs = {
         "net_arch": {
-            "pi": [1024, 1024],
-            "vf": [1024, 1024]
+            "pi": [512, 512],
+            "vf": [512, 512]
         },
         "ortho_init": True
     }
-    model = PPO("MlpPolicy", env, verbose=1, policy_kwargs=policy_kwargs, gamma=0.999)
+    model = PPO("MlpPolicy", env, device="mps", verbose=1, policy_kwargs=policy_kwargs, gamma=0.999, ent_coef=0.05)
     model.learn(total_timesteps=args.total_timesteps)
 
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = Path("PPO_Models")
+    output_dir.mkdir(exist_ok=True, parents=True)
+    model.save(path=output_dir / Path(f"PPO_{now}"))
     evaluate_ppo(model=model, args=args)
+
 
 
 
@@ -343,3 +348,4 @@ if __name__ == "__main__":
         case "window_periph": args.fov_size = 20
     print("Hello World!")
     main_PPO(args)
+
