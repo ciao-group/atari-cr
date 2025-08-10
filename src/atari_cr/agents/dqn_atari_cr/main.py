@@ -141,7 +141,8 @@ def make_eval_env(seed, args: ArgParser):
     """ Return VecEnv with a single environment """
     envs = [make_env(args.seed + seed, args, training=False)]
     # return SyncVectorEnv(envs)
-    return DummyVecEnv(envs)
+    return envs[0]()
+    #return DummyVecEnv(envs)
 
 def main(args: ArgParser):
     # Use bfloat16 to speed up matrix computation
@@ -272,21 +273,23 @@ def evaluate_ppo(model: PPO, args: ArgParser):
 
         for ep in range(args.n_evals):
             obs, _ = eval_env.reset()
+            obs = obs.astype(np.float32)
             done, truncated = False, False
             total_reward, ep_len = 0.0, 0
 
-            pvm_obs_buffer = [obs[0, -1]] # TODO: Does it have shape [1, 84, 84]?
+            pvm_obs_buffer = [obs[-1]] # TODO: Does it have shape [1, 84, 84]?
 
             while not (done or truncated):
                 action, _ = model.predict(obs, deterministic=True)
                 obs, reward, done, truncated, info = eval_env.step(action)
-                total_reward += reward[0]
+                obs = obs.astype(np.float32)
+                total_reward += reward
                 ep_len += 1
-                pvm_obs_buffer.append(obs[0, -1])
+                pvm_obs_buffer.append(obs[-1])
 
             # AUC evaluation
             if args.evaluator:
-                episode_record =eval_env.envs[0].prev_episode
+                episode_record =eval_env.prev_episode
                 # AUC calculation
                 # No evaluation if the episode consists of only pauses
                 if episode_record.annotations["pauses"].sum() < len(episode_record.annotations):
