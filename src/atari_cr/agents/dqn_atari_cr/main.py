@@ -272,6 +272,7 @@ def evaluate_ppo(model: PPO, args: ArgParser):
         csv_writer.writerow(["episode", "reward", "length", "auc"])
 
         for ep in range(args.n_evals):
+            print(f"Episode: {ep}")
             obs, _ = eval_env.reset()
             obs = obs.astype(np.float32)
             done, truncated = False, False
@@ -284,11 +285,15 @@ def evaluate_ppo(model: PPO, args: ArgParser):
                 obs, reward, done, truncated, info = eval_env.step(action)
                 obs = obs.astype(np.float32)
                 total_reward += reward
-                ep_len += 1
                 pvm_obs_buffer.append(obs[-1])
+                if ep_len > 100_000:
+                    print(f"break due to ep_len > 100_000")
+                    break
+                ep_len += 1
 
             # AUC evaluation
             if args.evaluator:
+                print("AUC Evaluation")
                 episode_record =eval_env.prev_episode
                 # AUC calculation
                 # No evaluation if the episode consists of only pauses
@@ -313,6 +318,7 @@ def evaluate_ppo(model: PPO, args: ArgParser):
 
             # Save results
             csv_writer.writerow([ep, total_reward, ep_len, aucs if aucs else ""])
+            print(f"total_reward: {total_reward}")
 
             # Optional PNG/Video
             if args.capture_video and ep % 4 == 0:
