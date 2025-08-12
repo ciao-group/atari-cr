@@ -257,6 +257,7 @@ def main_PPO(args: ArgParser):
 
 
 def evaluate_ppo(model: PPO, args: ArgParser):
+    print("\nEVALUATION\n")
 
     eval_env = make_eval_env(999, args)  # single env for eval
 
@@ -291,8 +292,13 @@ def evaluate_ppo(model: PPO, args: ArgParser):
             total_reward, ep_len = 0.0, 0
 
             pvm_obs_buffer = [obs[-1]] # TODO: Does it have shape [1, 84, 84]?
+            start_time = datetime.now()
 
             while not (done or truncated):
+                if (ep_len + 1) % 2048 == 0:
+                    measure_time = datetime.now()
+                    print(f"ep_len: {ep_len} fps: {(measure_time - start_time).total_seconds() / ep_len}")
+                    start_time = measure_time
                 action, _ = model.predict(obs, deterministic=True)
                 obs, reward, done, truncated, info = eval_env.step(action)
                 obs = obs.astype(np.float32)
@@ -333,7 +339,7 @@ def evaluate_ppo(model: PPO, args: ArgParser):
             print(f"total_reward: {total_reward}")
 
             # Optional PNG/Video
-            if args.capture_video and ep % 4 == 0:
+            if args.capture_video:
                 path = os.path.join(output_dir, f"pvm_episode_{ep}.png")
                 save_pvm_sequence(np.stack(pvm_obs_buffer), path)
 
