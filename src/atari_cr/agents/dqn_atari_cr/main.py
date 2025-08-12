@@ -293,6 +293,7 @@ def evaluate_ppo(model: PPO, args: ArgParser):
 
             pvm_obs_buffer = [obs[-1]] # TODO: Does it have shape [1, 84, 84]?
             start_time = datetime.now()
+            exceeding_step_limit = False
 
             while not (done or truncated):
                 if (ep_len + 1) % 2048 == 0:
@@ -306,11 +307,12 @@ def evaluate_ppo(model: PPO, args: ArgParser):
                 pvm_obs_buffer.append(obs[-1])
                 if ep_len > 100_000:
                     print(f"break due to ep_len > 100_000")
+                    exceeding_step_limit = True
                     break
                 ep_len += 1
 
             # AUC evaluation
-            if args.evaluator:
+            if args.evaluator and not exceeding_step_limit:
                 print("AUC Evaluation")
                 episode_record =eval_env.prev_episode
                 # AUC calculation
@@ -330,7 +332,7 @@ def evaluate_ppo(model: PPO, args: ArgParser):
 
 
             aucs = None
-            if args.evaluator:
+            if args.evaluator and not exceeding_step_limit:
                 aucs = sum(all_aucs) / len(all_aucs)
             duration_info = DurationInfo(np.concatenate(duration_infos), args.env)
 
