@@ -232,13 +232,25 @@ def main_PPO(args: ArgParser):
         },
         "ortho_init": True
     }
-    model = PPO("MlpPolicy", env, device="mps", verbose=1, policy_kwargs=policy_kwargs, gamma=0.999, ent_coef=0.05)
-    model.learn(total_timesteps=args.total_timesteps)
-
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = Path("PPO_Models")
     output_dir.mkdir(exist_ok=True, parents=True)
-    model.save(path=output_dir / Path(f"PPO_{now}"))
+    tensorboard_log_dir = output_dir / Path(f"PPO_{now}") / "tensorboard_log"
+
+    model = PPO("MlpPolicy", env, device="mps", verbose=1, tensorboard_log=str(tensorboard_log_dir.absolute()), policy_kwargs=policy_kwargs, gamma=0.999, ent_coef=0.05)
+    model.learn(total_timesteps=args.total_timesteps)
+
+    model_path = output_dir / Path(f"PPO_{now}")
+
+    model.save(path=model_path)
+
+    print(f"Saving model to {str(model_path)+'.zip'} ...")
+    # directly write to storage in case it crashes on eval
+    with open(str(model_path)+".zip", "rb+") as f:
+        f.flush()
+        os.fsync(f.fileno())
+    print("Model saved")
+
     evaluate_ppo(model=model, args=args)
 
 
