@@ -7,6 +7,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from tap import Tap
 from gymnasium.vector import SyncVectorEnv
+import platform
 from stable_baselines3.common.vec_env.dummy_vec_env import DummyVecEnv
 from stable_baselines3 import PPO
 import matplotlib.pyplot as plt
@@ -237,7 +238,13 @@ def main_PPO(args: ArgParser):
     output_dir.mkdir(exist_ok=True, parents=True)
     tensorboard_log_dir = output_dir / Path(f"PPO_{now}") / "tensorboard_log"
 
-    model = PPO("MlpPolicy", env, device="mps", verbose=1, tensorboard_log=str(tensorboard_log_dir.absolute()), policy_kwargs=policy_kwargs, gamma=0.999, ent_coef=0.05)
+    device = (
+        "mps"
+        if platform.system() == "Darwin"
+        else ("cuda" if torch.cuda.is_available() else "auto")
+    )
+
+    model = PPO("MlpPolicy", env, device=device, verbose=1, tensorboard_log=str(tensorboard_log_dir.absolute()), policy_kwargs=policy_kwargs, gamma=0.999, ent_coef=0.05)
     model.learn(total_timesteps=args.total_timesteps)
 
     model_path = output_dir / Path(f"PPO_{now}")
