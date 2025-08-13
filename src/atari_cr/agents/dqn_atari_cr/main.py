@@ -305,7 +305,7 @@ def evaluate_ppo(model: PPO, args: ArgParser):
             while not (done or truncated):
                 if (ep_len + 1) % 2048 == 0:
                     measure_time = datetime.now()
-                    print(f"ep_len: {ep_len} fps: {(measure_time - start_time).total_seconds() / ep_len}")
+                    print(f"ep_len: {ep_len} fps: {(measure_time - start_time).total_seconds() / 2048}")
                     start_time = measure_time
                 action, _ = model.predict(obs, deterministic=True)
                 obs, reward, done, truncated, info = eval_env.step(action)
