@@ -9,6 +9,7 @@ from tap import Tap
 from gymnasium.vector import SyncVectorEnv
 import platform
 from stable_baselines3.common.vec_env.dummy_vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3 import PPO
 import matplotlib.pyplot as plt
 
@@ -226,6 +227,7 @@ def main_PPO(args: ArgParser):
 
     # Create one env for each pause cost
     env = make_train_env(args)
+    env = VecMonitor(env)
     policy_kwargs = {
         "net_arch": {
             "pi": [512, 512],
