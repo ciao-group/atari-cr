@@ -312,8 +312,8 @@ def evaluate_ppo(model: PPO, args: ArgParser):
                 obs = obs.astype(np.float32)
                 total_reward += reward
                 pvm_obs_buffer.append(obs[-1])
-                if ep_len > 100_000:
-                    print(f"break due to ep_len > 100_000")
+                if ep_len > 10_000:
+                    print(f"break due to ep_len > 10_000")
                     exceeding_step_limit = True
                     break
                 ep_len += 1
