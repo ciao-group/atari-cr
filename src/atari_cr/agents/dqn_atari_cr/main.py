@@ -258,24 +258,23 @@ def main_PPO(args: ArgParser):
         os.fsync(f.fileno())
     print("Model saved")
 
-    evaluate_ppo(model=model, args=args)
+    evaluate_ppo(model=model, org_timestamp=now, args=args)
 
 
 
 
-def evaluate_ppo(model: PPO, args: ArgParser):
+def evaluate_ppo(model: PPO, org_timestamp:str, args: ArgParser):
     print("\nEVALUATION\n")
 
     eval_env = make_eval_env(999, args)  # single env for eval
 
 
     # Prepare output folder
-    now = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join("ppo_eval_outputs", f"eval_{now}")
+    output_dir = os.path.join("ppo_eval_outputs", f"eval_{org_timestamp}")
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "eval_log.csv")
 
-    writer = SummaryWriter(log_dir=os.path.join("ppo_eval_outputs", f"eval_{now}", "tensorboard"))
+    writer = SummaryWriter(log_dir=os.path.join("ppo_eval_outputs", f"eval_{org_timestamp}", "tensorboard"))
 
     if args.evaluator:
         evaluator = GazePredictor.init(
