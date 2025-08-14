@@ -392,3 +392,11 @@ if __name__ == "__main__":
     print("Hello World!")
     main_PPO(args)
 
+    """
+    # evaluate
+    path = "PPO_Models/PPO_20250813_203630.zip"
+    #path = "PPO_Models/PPO_20250813_203713.zip"
+    model = PPO.load(path, device="mps")
+    evaluate_ppo(model, org_timestamp="20250813_203630", args= args)
+    """
+
