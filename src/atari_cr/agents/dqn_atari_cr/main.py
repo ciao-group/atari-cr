@@ -319,6 +319,11 @@ def evaluate_ppo(model: PPO, org_timestamp:str, args: ArgParser):
                     break
                 ep_len += 1
 
+            if exceeding_step_limit:
+                print(f"total reward: {total_reward}")
+                all_returns.append(total_reward)
+                continue
+
             # AUC evaluation
             if args.evaluator and not exceeding_step_limit:
                 print("AUC Evaluation")
@@ -342,7 +347,8 @@ def evaluate_ppo(model: PPO, org_timestamp:str, args: ArgParser):
             aucs = None
             if args.evaluator and not exceeding_step_limit:
                 aucs = sum(all_aucs) / len(all_aucs)
-            duration_info = DurationInfo(np.concatenate(duration_infos), args.env)
+            if len(duration_infos) > 0:
+                duration_info = DurationInfo(np.concatenate(duration_infos), args.env)
 
             # Save results
             csv_writer.writerow([ep, total_reward, ep_len, aucs if aucs else ""])
@@ -367,7 +373,7 @@ def evaluate_ppo(model: PPO, org_timestamp:str, args: ArgParser):
     print(f"[EVAL DONE] Avg Reward: {avg_return:.2f} | Avg AUC: {avg_auc:.3f} | Log saved to: {output_dir}")
 
 def save_pvm_sequence(pvm_stack: np.ndarray, path: str):
-    fig, axs = plt.subplots(2, len(pvm_stack), figsize=(len(pvm_stack) * 2, 2))
+    fig, axs = plt.subplots(1, len(pvm_stack), figsize=(len(pvm_stack) * 2, 2))
     for i, frame in enumerate(pvm_stack):
         axs[i].imshow(frame, cmap='gray')
         axs[i].axis("off")
