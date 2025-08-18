@@ -55,6 +55,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
             "sensory_action": Box(low=self.sensory_action_space[0],
                                  high=self.sensory_action_space[1], dtype=int),
         })
+        self.motor_actions_dict = {i: i for i in range(self.action_space["motor_action"].n)} # {i: 9 - i for i in range(10)} # reverse order
         self.pause_action = None if no_pauses else \
             self.action_space["motor_action"].n - 1
 
@@ -104,7 +105,10 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         if self.time_passed < 0:
             self.time_passed = 0
 
-        if action["motor_action"] == self.pause_action: # Pause step
+
+        motor_action = self.motor_actions_dict[action["motor_action"]]
+
+        if motor_action == self.pause_action: # Pause step
             step_info = self._pre_step_logging(action)
 
             self.consecutive_pauses += 1
@@ -154,7 +158,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
                 # Only the last state is kept
                 self.state, partial_reward, done, truncated, info = \
-                    self.env.step(action=action["motor_action"])
+                    self.env.step(action=motor_action)
                 # Sum up rewards
                 reward += partial_reward
 
@@ -183,7 +187,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
         # Sensory step
         fov_state = self._fov_step(
             full_state=self.state, action=action["sensory_action"])
-        if action["motor_action"] != self.pause_action:
+        if motor_action != self.pause_action:
             self.prev_gazes = []
 
         return fov_state, reward, done, truncated, info
@@ -208,13 +212,14 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
     def _pre_step_logging(self, action: dict):
         """ Logs the state before the action is taken. """
+        motor_action = self.motor_actions_dict[action["motor_action"]]
         self.timestep += 1
         step_info = StepInfo.new()
         step_info["timestep"] = self.timestep
         step_info["fov_loc"] = self.fov_loc.tolist()
-        step_info["motor_action"] = action["motor_action"]
+        step_info["motor_action"] = motor_action
         step_info["sensory_action"] = action["sensory_action"]
-        step_info["pauses"] = int(action["motor_action"] == self.pause_action)
+        step_info["pauses"] = int(motor_action == self.pause_action)
         self.frames.append(self.unwrapped.render())
         return step_info
 
