@@ -230,8 +230,8 @@ def main_PPO(args: ArgParser):
     env = VecMonitor(env)
     policy_kwargs = {
         "net_arch": {
-            "pi": [512, 512],
-            "vf": [512, 512]
+            "pi": [4096, 4096],
+            "vf": [4096, 4096]
         },
         "ortho_init": True
     }
@@ -246,7 +246,7 @@ def main_PPO(args: ArgParser):
         else ("cuda" if torch.cuda.is_available() else "auto")
     )
 
-    model = PPO("MlpPolicy", env, device=device, verbose=1, tensorboard_log=str(tensorboard_log_dir.absolute()), policy_kwargs=policy_kwargs, gamma=0.999, ent_coef=0.05)
+    model = PPO("MlpPolicy", env, device=device, verbose=1, tensorboard_log=str(tensorboard_log_dir.absolute()), policy_kwargs=policy_kwargs)
     model.learn(total_timesteps=args.total_timesteps)
 
     model_path = output_dir / Path(f"PPO_{now}")
