@@ -62,7 +62,7 @@ class ArgParser(Tap):
     # EMMA reference: doi.org/10.1016/S1389-0417(00)00015-2
 
     # Dirs
-    atari_head_dir: str = "data/Atari-HEAD" # Path to unzipped Atari-HEAD files
+    atari_head_dir: str = "/Users/mlorenz/Dev/atari-cr/data/Atari-HEAD" # Path to unzipped Atari-HEAD files
 
     # Misc
     ignore_sugarl: bool = False # Whether to ignore the sugarl term for Q net learning
@@ -145,7 +145,7 @@ def main(args: ArgParser):
             "point the param --atari_head_dir to it.")
     evaluator = GazePredictor.init(
         f"{args.atari_head_dir}/{args.env}",
-        f"data/Atari-HEAD/{args.env}"
+        f"{args.atari_head_dir}/{args.env}"
     ) if args.evaluator else None
 
     agent = CRDQN(
