@@ -212,6 +212,8 @@ class CRDQN:
         self.video_dir = os.path.join(self.run_dir, "recordings")
         self.pvm_dir = os.path.join(self.run_dir, "pvms")
         self.model_dir = os.path.join(self.run_dir, "trained_models")
+        avg_rewards = 0
+        raw_avg_rewards = []
 
         # Load existing run if there is one
         if self.checkpoint:
@@ -269,6 +271,14 @@ class CRDQN:
                 sensory_actions,
                 td_update,
             )
+            avg_rewards += rewards
+            if self.timestep % 1000 == 0:
+                print(f"Reward {avg_rewards/1000}")
+                try:
+                    print(f"Episode info {infos['episode_info']}")
+                except KeyError:
+                    pass
+                avg_rewards = 0
 
             # Add new pvm ovbervation to the buffer
             self.rb.add(pvm_obs, next_pvm_obs, motor_actions, sensory_action_ids,
