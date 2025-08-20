@@ -213,7 +213,8 @@ class CRDQN:
         self.pvm_dir = os.path.join(self.run_dir, "pvms")
         self.model_dir = os.path.join(self.run_dir, "trained_models")
         avg_rewards = 0
-        raw_avg_rewards = []
+        raw_avg_rewards = 0
+        max_raw_reward = 0
 
         # Load existing run if there is one
         if self.checkpoint:
@@ -240,12 +241,13 @@ class CRDQN:
         # Init return value
         eval_returns = []
         td_update = None
+        log_steps = 1000
 
         # Calculate the first auc
         eval_returns, out_paths = self.evaluate(td_update, file_output=False)
 
         while self.timestep < n:
-            if self.timestep % 1000 == 0:
+            if self.timestep % log_steps == 0:
                 print(f"Timestep {self.timestep}")
             # Cast sensory action ids to coordinates and remove the env axis
             prev_sensory_actions, consecutive_pauses = self._preprocess_features()
@@ -272,13 +274,23 @@ class CRDQN:
                 td_update,
             )
             avg_rewards += rewards
-            if self.timestep % 1000 == 0:
-                print(f"Reward {avg_rewards/1000}")
+            try:
+                raw_reward = infos['episode_info'][0][0]['raw_reward']
+                raw_avg_rewards += raw_reward
+                before = max_raw_reward
+                max_raw_reward = max(max_raw_reward, raw_reward)
+                if before < max_raw_reward:
+                    print(f"\n---\nnew max episodic reward: {max_raw_reward}\n---\n")
+            except KeyError:
+                pass
+            if self.timestep % log_steps == 0:
+                print(f"Reward {avg_rewards/log_steps}")
                 try:
-                    print(f"Episode info {infos['episode_info']}")
+                    print(f"raw avg reward: {raw_avg_rewards/log_steps}")
                 except KeyError:
                     pass
                 avg_rewards = 0
+                raw_avg_rewards = 0
 
             # Add new pvm ovbervation to the buffer
             self.rb.add(pvm_obs, next_pvm_obs, motor_actions, sensory_action_ids,
