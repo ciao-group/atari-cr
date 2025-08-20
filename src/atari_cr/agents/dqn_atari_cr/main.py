@@ -70,7 +70,7 @@ class ArgParser(Tap):
     use_pause_env: bool = True # Whether to allow pauses for more observations per step
     pause_cost: float = 1e-5 # Cost for the env to only take a sensory step
     consecutive_pause_limit: int = 20 # Maximum allowed number of consecutive pauses
-    saccade_cost_scale: float = 0.000 # How much to penalize bigger eye movements
+    saccade_cost_scale: float = 0.1 # How much to penalize bigger eye movements
     # EMMA reference: doi.org/10.1016/S1389-0417(00)00015-2
 
     # Dirs
