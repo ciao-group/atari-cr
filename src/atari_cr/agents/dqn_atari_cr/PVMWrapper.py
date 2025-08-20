@@ -78,6 +78,10 @@ class CRGymWrapper(gym.Wrapper):
         self.env.fov_init_loc = self._random_sensory_action()
         self.env.fov_loc = self.env.fov_init_loc
 
+        self.num_steps_total = 0
+        self.reward_avg = 0
+        self.raw_reward_max = 0
+
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         self.pvm_buffer.init_pvm_buffer()
@@ -91,6 +95,20 @@ class CRGymWrapper(gym.Wrapper):
         act = {"motor_action": int(motor_action_id), "sensory_action": sensory_action}
         obs, reward, done, truncated, info = self.env.step(act)
         self.pvm_buffer.append(np.expand_dims(obs, 0))
+        self.reward_avg += reward
+
+        try:
+            before = self.raw_reward_max
+            self.raw_reward_max = max(self.raw_reward_max, info['episode_info'][0]['raw_reward'])
+            if before < self.raw_reward_max:
+                print(f"new raw reward max: {self.raw_reward_max}")
+        except KeyError:
+            pass
+
+        if self.num_steps_total % 20000 == 0:
+            #print(f"reward: {self.reward_avg / 20000}")
+            self.reward_avg = 0
+
         return self._get_pvm_obs(), reward, done, truncated, info
 
     def _get_pvm_obs(self):
