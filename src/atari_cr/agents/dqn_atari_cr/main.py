@@ -29,6 +29,7 @@ class ArgParser(Tap):
     seed: int = 0 # Seed of the experiment
     disable_cuda: bool = False # Whether to force the use of CPU
     capture_video: bool = True # Whether to capture gameplay videos
+    train_on_existing_model: str = ""
 
     # Env settings
     env: str = "asterix" # ID of the environment
@@ -245,9 +246,13 @@ def main_PPO(args: ArgParser):
         if platform.system() == "Darwin"
         else ("cuda" if torch.cuda.is_available() else "auto")
     )
-
-    model = PPO("MlpPolicy", env, device=device, verbose=1, tensorboard_log=str(tensorboard_log_dir.absolute()), policy_kwargs=policy_kwargs)
+    if not args.train_on_existing_model:
+        model = PPO("MlpPolicy", env, device=device, verbose=1, tensorboard_log=str(tensorboard_log_dir.absolute()), policy_kwargs=policy_kwargs)
+    else:
+        print(f"Train on existing model: {args.train_on_existing_model}")
+        model = PPO.load(args.train_on_existing_model, env=env, device=device)
     model.learn(total_timesteps=args.total_timesteps)
+
 
     model_path = output_dir / Path(f"PPO_{now}")
 
