@@ -16,7 +16,7 @@ class ArgParser(Tap):
     exp_name: str = os.path.basename(__file__).rstrip(".py") # Name of this experiment
     seed: int = 0 # Seed of the experiment
     disable_cuda: bool = False # Whether to force the use of CPU
-    capture_video: bool = False # Whether to capture gameplay videos
+    capture_video: bool = True # Whether to capture gameplay videos
 
     # Env settings
     env: str = "asterix" # ID of the environment
@@ -27,13 +27,13 @@ class ArgParser(Tap):
     sticky_action_prob: float = 0.0 # Probability an action is repeated next timestep
 
     # Fovea settings
-    fov_size: int = 20 # UNUSED # Size of the fovea
+    fov_size: int = 84 # UNUSED # Size of the fovea
     fov_init_loc: int = 0 # Where to initialize the fovea
     relative_sensory_actions: bool = False # Relative or absolute sensory actions
     sensory_action_space: int = 10 # Maximum distance in one sensory step
     resize_to_full: bool = False # No idea what that is
-    sensory_action_x_size: int = 8 # How many smallest sensory steps fit in x direction
-    sensory_action_y_size: int = 8 # How many smallest sensory steps fit in y direction
+    sensory_action_x_size: int = 1 # How many smallest sensory steps fit in x direction
+    sensory_action_y_size: int = 1 # How many smallest sensory steps fit in y direction
     pvm_stack: int = 3 # How many normal observation to aggregate in the PVM buffer
 
     # Algorithm specific arguments
@@ -69,8 +69,8 @@ class ArgParser(Tap):
     no_model_output: bool = False # Whether to disable saving the finished model
     no_pvm_visualization: bool = False # Whether to disable output of PVM visualizations
     debug: bool = False # Debug mode for more output
-    evaluator: bool = False # Whether to use a model to evaluate human-likeness
-    fov: FovType = "exponential" # Type of fovea
+    evaluator: bool = True # Whether to use a model to evaluate human-likeness
+    fov: FovType = "window" # Type of fovea
     og_env: bool = False # Whether to use normal sugarl env
     timed_env: bool = False # Whether to use a time sensitve env for pausing
     pause_feat: bool = False # Whether to tell the policy how many pauses have been made

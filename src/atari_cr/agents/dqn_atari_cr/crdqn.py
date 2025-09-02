@@ -132,6 +132,7 @@ class CRDQN:
         self.td_steps = td_steps
         self.checkpoint = checkpoint
         self.mean_pvm = mean_pvm
+        self.sensory_action_space_quantization = sensory_action_space_quantization
 
         self.n_envs = len(self.env.envs) if isinstance(self.env, VectorEnv) else 1
         self.timestep = 0
@@ -754,6 +755,6 @@ class CRDQN:
             ).astype(int)
             for i in [0,1]]
         # Shift the coords to the middle
-        discrete_coords = [coords + int(coords[1] / 2) for coords in discrete_coords]
+        discrete_coords = [coords + int(coords[1] / 2) if len(coords) > 1 else np.append(coords, 0) for coords in discrete_coords]
         # Discrete action set as cross product of possible x and y steps
-        return np.stack(np.meshgrid(*discrete_coords)).T.reshape((-1,2))
+        return np.unique(np.stack(np.meshgrid(*discrete_coords)).T.reshape((-1,2)), axis=0)
