@@ -247,7 +247,7 @@ class CRDQN:
         log_steps = 1000
 
         # Calculate the first auc
-        eval_returns, out_paths = self.evaluate(td_update, file_output=False)
+        eval_returns, out_paths = self.evaluate(td_update, file_output=True)
 
         while self.timestep < n:
             if self.timestep % log_steps == 0:
@@ -329,7 +329,7 @@ class CRDQN:
 
             # Test against Atari-HEAD gaze predictor
             if self.timestep % 100_000 == 0:
-                eval_returns, out_paths = self.evaluate(td_update, file_output=False)
+                eval_returns, out_paths = self.evaluate(td_update, file_output=True)
 
         self.env.close()
 
