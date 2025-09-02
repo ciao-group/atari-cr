@@ -150,7 +150,7 @@ class CRDQN:
 
         # Initialize the fovea location randomly
         for i in range(len(self.env.envs)):
-            self.env.envs[0].fov_init_loc = self._random_sensory_action()
+            self.env.envs[i].fov_init_loc = self._random_sensory_action()
         self._visualize_sensory_actions()
 
         if platform.system() == 'Darwin':
