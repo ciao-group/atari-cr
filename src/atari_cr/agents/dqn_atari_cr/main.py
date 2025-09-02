@@ -182,6 +182,7 @@ def main(args: ArgParser):
         td_steps=args.td_steps,
         checkpoint=args.checkpoint,
         mean_pvm=args.mean_pvm,
+        pausable_env=args.use_pause_env,
     )
     eval_returns, out_paths = agent.learn(
         n=args.total_timesteps,

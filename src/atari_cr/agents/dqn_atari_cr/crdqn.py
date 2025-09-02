@@ -66,6 +66,7 @@ class CRDQN:
             td_steps = 1,
             checkpoint="",
             mean_pvm=False,
+            pausable_env=False,
         ):
         """
         :param env `gymnasium.Env`:
@@ -145,6 +146,8 @@ class CRDQN:
         self.sensory_action_set = self.create_sensory_action_set(
             self.obs_size, *sensory_action_space_quantization)
 
+        self.pausable_env = pausable_env
+
         # Initialize the fovea location randomly
         for i in range(len(self.env.envs)):
             self.env.envs[0].fov_init_loc = self._random_sensory_action()
@@ -208,7 +211,7 @@ class CRDQN:
         """
         # Define output paths
         run_identifier = os.path.join(experiment_name, self.env_name)
-        self.run_dir = os.path.join("output/runs", run_identifier)
+        self.run_dir = os.path.join("output/runs", "pause" if self.pausable_env else "no_pause", f"{self.sensory_action_space_quantization}", run_identifier)
         self.video_dir = os.path.join(self.run_dir, "recordings")
         self.pvm_dir = os.path.join(self.run_dir, "pvms")
         self.model_dir = os.path.join(self.run_dir, "trained_models")
