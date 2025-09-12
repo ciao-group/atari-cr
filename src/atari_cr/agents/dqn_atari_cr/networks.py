@@ -118,21 +118,21 @@ class QNetwork(nn.Module):
 
 # @torch.compile()
 class SelfPredictionNetwork(nn.Module):
-    def __init__(self, env):
+    def __init__(self, env, frame_stack: int):
         super().__init__()
         assert isinstance(env.single_action_space, spaces.Dict), \
             "SelfPredictionNetwork only works with Dict action space"
         motor_out_dim = env.single_action_space["motor_action"].n
 
         self.backbone = nn.Sequential(
-            nn.Conv2d(8, 32, 8, stride=4),
+            nn.Conv2d(2*frame_stack, 8*frame_stack, 8, stride=4),
             nn.ReLU(),
-            nn.Conv2d(32, 64, 4, stride=2),
+            nn.Conv2d(8*frame_stack, 16*frame_stack, 4, stride=2),
             nn.ReLU(),
-            nn.Conv2d(64, 64, 3, stride=1),
+            nn.Conv2d(16*frame_stack, 16*frame_stack, 3, stride=1),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(3136, 512),
+            nn.Linear(784 * frame_stack, 512),
             nn.ReLU(),
         )
 

@@ -180,7 +180,7 @@ class CRDQN:
         self.target_network.eval()
 
         # Self Prediction Networks; used to judge the quality of sensory actions
-        self.sfn = SelfPredictionNetwork(self.env).to(self.device)
+        self.sfn = SelfPredictionNetwork(self.env, self.frame_stack).to(self.device)
         self.sfn_optimizer = Adam(self.sfn.parameters(), lr=learning_rate)
 
         init_sensory_action = np.where(
