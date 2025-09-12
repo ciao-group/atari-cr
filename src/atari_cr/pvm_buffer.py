@@ -121,7 +121,7 @@ class PVMBuffer:
 
         # Cut off the padding
         height_to_cut = (self.max_len - 1) * (pvm_obs.shape[3] + line_width)
-        final_grid = full_grid[:-height_to_cut, :, :]
+        final_grid = full_grid[:-height_to_cut, :, :] if height_to_cut > 0 else full_grid
 
         return Image.fromarray(final_grid, mode="RGB")
 

@@ -167,11 +167,11 @@ class CRDQN:
 
         # Q networks
         self.q_network = QNetwork(
-            self.env, len(self.sensory_action_set), pause_feat, s_action_feat
+            self.env, len(self.sensory_action_set), pause_feat, s_action_feat, self.frame_stack
         ).to(self.device)
         self.optimizer = Adam(self.q_network.parameters(), lr=learning_rate)
         self.target_network = QNetwork(
-            self.env, len(self.sensory_action_set), pause_feat, s_action_feat
+            self.env, len(self.sensory_action_set), pause_feat, s_action_feat, self.frame_stack
         ).to(self.device)
         self.target_network.load_state_dict(self.q_network.state_dict())
 

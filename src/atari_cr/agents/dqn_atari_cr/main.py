@@ -21,7 +21,7 @@ class ArgParser(Tap):
     # Env settings
     env: str = "asterix" # ID of the environment
     env_num: int = 1 # Number of envs to train in parallel
-    frame_stack: int = 4 # Number of frames making up one observation
+    frame_stack: int = 1 # Number of frames making up one observation
     action_repeat: int = 5 # Number of times an action is repeated
     clip_reward: bool = False # Whether to clip rewards
     sticky_action_prob: float = 0.0 # Probability an action is repeated next timestep
@@ -34,7 +34,7 @@ class ArgParser(Tap):
     resize_to_full: bool = False # No idea what that is
     sensory_action_x_size: int = 1 # How many smallest sensory steps fit in x direction
     sensory_action_y_size: int = 1 # How many smallest sensory steps fit in y direction
-    pvm_stack: int = 3 # How many normal observation to aggregate in the PVM buffer
+    pvm_stack: int = 1 # How many normal observation to aggregate in the PVM buffer
 
     # Algorithm specific arguments
     total_timesteps: int = 1200000 # Number of timesteps
@@ -195,8 +195,8 @@ if __name__ == "__main__":
     args = ArgParser().parse_args()
     # Align windowed fov size with exponential fov size
     match args.fov:
-        case "window": args.fov_size = 26
-        case "window_periph": args.fov_size = 20
+        case "window": args.fov_size = 80
+        case "window_periph": args.fov_size = 80
     eval_returns, out_paths = main(args)
     print("Eval returns")
     print(eval_returns)

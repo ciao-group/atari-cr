@@ -73,7 +73,7 @@ class PauseableFixedFovealEnv(gym.Wrapper):
 
     def reset(self):
         self.state, info = self.env.reset() # -> [4,84,84;f64]
-        assert self.state.shape == (4,84,84)
+        #assert self.state.shape == (4,84,84)
         self.state[:3] = np.full(self.state.shape[1:], 0.5)
         self.frames = []
 

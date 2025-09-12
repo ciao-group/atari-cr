@@ -10,7 +10,7 @@ from gymnasium.vector import VectorEnv
 
 class QNetwork(nn.Module):
     def __init__(self, env, sensory_out_dim: int, pause_feat: bool,
-                 s_action_feat: bool):
+                 s_action_feat: bool, frame_stack: int = 4):
         super().__init__()
         self.pause_feat = pause_feat
         self.s_action_feat = s_action_feat
@@ -22,20 +22,20 @@ class QNetwork(nn.Module):
         self.sensory_out_dim = sensory_out_dim
 
         self.conv_backbone = nn.Sequential( # -> [4,84,84]
-            nn.Conv2d(4, 32, 8, stride=4), # -> [32,20,20]
-            nn.BatchNorm2d(32),
+            nn.Conv2d(frame_stack, frame_stack*8, 8, stride=4), # -> [32,20,20]
+            nn.BatchNorm2d(frame_stack*8),
             act(),
-            nn.Conv2d(32, 64, 4, stride=2), # -> [64,9,9]
-            nn.BatchNorm2d(64),
+            nn.Conv2d(frame_stack*8, frame_stack*16, 4, stride=2), # -> [64,9,9]
+            nn.BatchNorm2d(frame_stack*16),
             act(),
-            nn.Conv2d(64, 64, 3, stride=1), # -> [64,7,7]
-            nn.BatchNorm2d(64),
+            nn.Conv2d(frame_stack*16, frame_stack*16, 3, stride=1), # -> [64,7,7]
+            nn.BatchNorm2d(frame_stack*16),
             act(),
             nn.Flatten(), # -> [3136]
         )
 
         # Here is where additional features are given to the model
-        dim = 3136
+        dim = 784 * frame_stack # 3136 / 4 = 784
         if pause_feat: dim += 1
         if s_action_feat: dim += 2
 
@@ -51,7 +51,7 @@ class QNetwork(nn.Module):
     def forward(self, x, consecutive_pauses: Optional[torch.Tensor] = None,
                 s_actions: Optional[torch.Tensor] = None):
         """
-        :param Tensor[B,4,84,84;f32] x: Stack of greyscale frames with values between
+        :param Tensor[B,frame_stack,84,84;f32] x: Stack of greyscale frames with values between
             0 and 1
         :param Tensor[B] consecutive_pauses:
         :param Tensor[B,2] s_action: Coordinates of the previous sensory action.
@@ -78,7 +78,7 @@ class QNetwork(nn.Module):
         """
         Epsilon greedy action selection for exploration during training.
 
-        :param Array[B,4,84,84] pvm_obs: PVM Obs for every env in the vec env
+        :param Array[B,frame_stack,84,84] pvm_obs: PVM Obs for every env in the vec env
         :param torch.device device: The device to perform computations on
         :param float epsilon: Probability of selecting a random action
         :param Tensor[B;i64] consecutive_pauses: Pause count for every env
