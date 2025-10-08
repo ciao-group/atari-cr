@@ -6,7 +6,7 @@ import torch
 from torch import Tensor
 
 from atari_cr.atari_head.dataset import GazeDataset
-from atari_cr.graphs.common import best_auc
+from atari_cr.graphs.common import best_auc, best_auc_asterix
 from atari_cr.models import EpisodeRecord
 
 def save_heatmap(heatmap: Tensor, background: np.ndarray, label: str):
@@ -25,7 +25,7 @@ if __name__ == "__main__":
     os.makedirs(output_dir, exist_ok=True)
 
     # Best Agent heatmap
-    best_episode = EpisodeRecord.load(best_auc["eval"])
+    best_episode = EpisodeRecord.load(best_auc_asterix["eval"])
     # Episode is 491 frames long, achieves a score of 2820
     background = best_episode.frames[0]
     heatmap = GazeDataset.create_saliency_map(
@@ -34,7 +34,7 @@ if __name__ == "__main__":
 
     # Atari HEAD heatmap
     dataset = GazeDataset.from_atari_head_files(
-        f"data/Atari-HEAD/{best_auc['env']}", single_trial=True, load_saliency=True
+        f"data/Atari-HEAD/{best_auc_asterix['env']}", single_trial=True, load_saliency=True
     )
     # First frame with a score >= 2820: 526
     heatmap = dataset.saliency.mean(dim=0)

@@ -21,6 +21,14 @@ best_auc = {
     "env": "hero",
 }
 
+best_auc_trial_asterix = ("/Volumes/Elements/niko_backup/atari-cr/output/good_ray_runs/exp_2_3m_video_2025-02-20_11-29-23"
+    "8e4de_00000_0_env=asterix_2025-02-20_11-29-24")
+best_auc_asterix = {
+    "run": best_auc_trial_asterix,
+    "eval": f"{best_auc_trial}/seed0_step3000000_eval00",
+    "env": "asterix",
+}
+
 class Trial:
     def __init__(self, name: str, record_path: str):
         self.name = name
